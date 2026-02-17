@@ -2,15 +2,15 @@ package dev.aceclaw.cli;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.jline.keymap.KeyMap;
 import org.jline.reader.EndOfFileException;
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
+import org.jline.reader.Reference;
 import org.jline.reader.UserInterruptException;
 import org.jline.reader.impl.completer.FileNameCompleter;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
-import org.jline.utils.AttributedString;
-import org.jline.utils.Status;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +20,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 
 import static dev.aceclaw.cli.TerminalTheme.*;
 
@@ -50,6 +49,9 @@ public final class TerminalRepl {
     /** JSON-RPC error code for method not found. */
     private static final int METHOD_NOT_FOUND = -32601;
 
+    private static final String PROMPT_STR = PROMPT + "aceclaw>" + RESET + " ";
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
+
     private final DaemonClient client;
     private final String sessionId;
     private final SessionInfo sessionInfo;
@@ -73,8 +75,6 @@ public final class TerminalRepl {
     /** Timestamp when the current prompt was sent (nanos). */
     private long promptStartNanos = 0;
 
-    /** JLine3 Status — renders the info bar right below the prompt. */
-    private volatile Status statusLine;
 
     /**
      * Session metadata displayed in the startup banner and status line.
@@ -124,17 +124,22 @@ public final class TerminalRepl {
 
             PrintWriter out = terminal.writer();
 
-            // Status bar below the prompt (JLine3 renders it right under the input line)
-            statusLine = Status.getStatus(terminal, true);
-            if (statusLine != null) {
-                statusLine.update(List.of(buildStatusLine()));
-            }
-
             // Render startup banner
             renderBanner(out, terminal.getWidth());
 
-            // Simple single-line prompt
-            String prompt = PROMPT + "aceclaw>" + RESET + " ";
+            // Override Ctrl+L: clear screen + redraw status bar below prompt
+            reader.getWidgets().put("aceclaw-clear-screen", () -> {
+                reader.callWidget(LineReader.CLEAR_SCREEN);
+                // After clear, re-print status below the prompt using save/restore cursor
+                PrintWriter w = terminal.writer();
+                w.print("\0337");                        // DEC save cursor
+                w.print("\n\r\033[K" + buildStatusString()); // next line, clear it, print status
+                w.print("\0338");                        // DEC restore cursor
+                w.flush();
+                return true;
+            });
+            reader.getKeyMaps().get(LineReader.MAIN)
+                    .bind(new Reference("aceclaw-clear-screen"), KeyMap.ctrl('L'));
 
             // Install signal handler for Ctrl+C during streaming
             terminal.handle(Terminal.Signal.INT, _ -> {
@@ -146,8 +151,12 @@ public final class TerminalRepl {
             while (true) {
                 String line;
                 try {
-                    updateStatusLine();
-                    line = reader.readLine(prompt);
+                    // Print status on the line below, then move cursor back up.
+                    // JLine3 renders the prompt on the current line; status stays below.
+                    out.print("\n\r\033[K" + buildStatusString()); // next line: clear + status
+                    out.print("\033[A\r");                         // cursor up + to line start
+                    out.flush();
+                    line = reader.readLine(PROMPT_STR);
                 } catch (UserInterruptException e) {
                     // Ctrl+C at prompt: exit gracefully
                     out.println();
@@ -207,28 +216,24 @@ public final class TerminalRepl {
         out.flush();
     }
 
-    // -- Prompt with embedded status line ------------------------------------
-
-    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
+    // -- Status line (below prompt via ANSI cursor positioning) ----------------
 
     /**
-     * Builds the status line content (rendered below the prompt by JLine3 Status).
+     * Builds the colored status string (no trailing newline).
+     * Printed on the line below the prompt using ANSI cursor movement.
      */
-    private AttributedString buildStatusLine() {
+    private String buildStatusString() {
         var sb = new StringBuilder();
 
-        // Separator + Model (cyan bold)
         sb.append(MUTED).append("\u2500").append(RESET).append(" ");
         sb.append(INFO).append(BOLD).append(sessionInfo.model()).append(RESET);
 
-        // Git branch (green)
         String branch = sessionInfo.gitBranch();
         if (branch != null && !branch.isBlank()) {
             sb.append(MUTED).append(" \u2502 ").append(RESET);
             sb.append(SUCCESS).append("\u2387 ").append(branch).append(RESET);
         }
 
-        // Context usage (yellow)
         int ctxWindow = sessionInfo.contextWindowTokens();
         if (ctxWindow > 0 && latestInputTokens > 0) {
             sb.append(MUTED).append(" \u2502 ").append(RESET);
@@ -238,26 +243,12 @@ public final class TerminalRepl {
               .append(" (").append(pct).append("%)").append(RESET);
         }
 
-        // Time (dim)
         sb.append(MUTED).append(" \u2502 ").append(RESET);
         sb.append(MUTED).append(LocalTime.now().format(TIME_FMT)).append(RESET);
 
-        return AttributedString.fromAnsi(sb.toString());
+        return sb.toString();
     }
 
-    /**
-     * Updates the JLine3 Status bar below the prompt with current info.
-     */
-    private void updateStatusLine() {
-        var sl = statusLine;
-        if (sl != null) {
-            sl.update(List.of(buildStatusLine()));
-        }
-    }
-
-    /**
-     * Formats a token count in a human-readable form (e.g., 15234 → "15.2K", 200000 → "200K").
-     */
     private static String formatTokenCount(long tokens) {
         if (tokens < 1000) return String.valueOf(tokens);
         double k = tokens / 1000.0;
@@ -356,9 +347,6 @@ public final class TerminalRepl {
                                             ? "context " + formatTokenCount(turnIn) + "/" + formatTokenCount(sessionInfo.contextWindowTokens())
                                             : "",
                                     RESET);
-
-                            // Token info updated — refresh the status bar below prompt
-                            updateStatusLine();
                         }
                     }
                     out.flush();
