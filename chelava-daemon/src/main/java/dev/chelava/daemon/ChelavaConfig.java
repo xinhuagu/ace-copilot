@@ -34,7 +34,7 @@ public final class ChelavaConfig {
 
     // Default values
     private static final String DEFAULT_MODEL = "claude-sonnet-4-5-20250929";
-    private static final int DEFAULT_MAX_TOKENS = 4096;
+    private static final int DEFAULT_MAX_TOKENS = 16384;
     private static final String DEFAULT_LOG_LEVEL = "INFO";
 
     /** Claude CLI credentials directory. */

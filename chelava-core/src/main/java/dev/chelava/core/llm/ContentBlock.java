@@ -14,6 +14,14 @@ public sealed interface ContentBlock {
     record Text(String text) implements ContentBlock {}
 
     /**
+     * Internal thinking/reasoning from the model (extended thinking).
+     * Not shown to the user, but helps the model reason more deeply.
+     *
+     * @param text the thinking text
+     */
+    record Thinking(String text) implements ContentBlock {}
+
+    /**
      * A tool invocation requested by the model.
      *
      * @param id        unique identifier for this tool-use block (used to match results)

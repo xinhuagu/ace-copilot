@@ -220,7 +220,8 @@ public final class AnthropicClient implements LlmClient {
                     .header("user-agent", "claude-cli/2.1.2 (external, cli)")
                     .header("x-app", "cli");
         } else {
-            builder.header("x-api-key", accessToken);
+            builder.header("x-api-key", accessToken)
+                    .header("anthropic-beta", "interleaved-thinking-2025-05-14");
         }
 
         return builder

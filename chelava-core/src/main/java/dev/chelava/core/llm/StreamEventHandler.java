@@ -14,6 +14,8 @@ public interface StreamEventHandler {
 
     default void onTextDelta(StreamEvent.TextDelta event) {}
 
+    default void onThinkingDelta(StreamEvent.ThinkingDelta event) {}
+
     default void onToolUseDelta(StreamEvent.ToolUseDelta event) {}
 
     default void onContentBlockStop(StreamEvent.ContentBlockStop event) {}

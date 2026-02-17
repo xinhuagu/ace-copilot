@@ -8,12 +8,13 @@ import java.util.List;
  *
  * <p>Use the {@link Builder} for ergonomic construction.
  *
- * @param model        model identifier (e.g. "claude-sonnet-4-5-20250929")
- * @param messages     conversation history
- * @param systemPrompt optional system prompt (may be null)
- * @param tools        tool definitions available to the model (may be empty)
- * @param maxTokens    maximum tokens to generate
- * @param temperature  sampling temperature
+ * @param model          model identifier (e.g. "claude-sonnet-4-5-20250929")
+ * @param messages       conversation history
+ * @param systemPrompt   optional system prompt (may be null)
+ * @param tools          tool definitions available to the model (may be empty)
+ * @param maxTokens      maximum tokens to generate (includes thinking tokens)
+ * @param temperature    sampling temperature (use -1 to let the provider decide)
+ * @param thinkingBudget tokens reserved for extended thinking (0 = disabled)
  */
 public record LlmRequest(
         String model,
@@ -21,7 +22,8 @@ public record LlmRequest(
         String systemPrompt,
         List<ToolDefinition> tools,
         int maxTokens,
-        double temperature
+        double temperature,
+        int thinkingBudget
 ) {
 
     public LlmRequest {
@@ -45,8 +47,9 @@ public record LlmRequest(
         private final List<Message> messages = new ArrayList<>();
         private String systemPrompt;
         private final List<ToolDefinition> tools = new ArrayList<>();
-        private int maxTokens = 4096;
-        private double temperature = 0.0;
+        private int maxTokens = 16384;
+        private double temperature = 1.0;
+        private int thinkingBudget = 10240;
 
         private Builder() {}
 
@@ -92,6 +95,11 @@ public record LlmRequest(
             return this;
         }
 
+        public Builder thinkingBudget(int thinkingBudget) {
+            this.thinkingBudget = thinkingBudget;
+            return this;
+        }
+
         public LlmRequest build() {
             if (model == null || model.isBlank()) {
                 throw new IllegalStateException("model is required");
@@ -99,7 +107,7 @@ public record LlmRequest(
             if (messages.isEmpty()) {
                 throw new IllegalStateException("at least one message is required");
             }
-            return new LlmRequest(model, messages, systemPrompt, tools, maxTokens, temperature);
+            return new LlmRequest(model, messages, systemPrompt, tools, maxTokens, temperature, thinkingBudget);
         }
     }
 }

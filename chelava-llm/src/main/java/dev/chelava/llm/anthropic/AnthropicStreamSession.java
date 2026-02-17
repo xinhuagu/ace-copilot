@@ -35,6 +35,8 @@ final class AnthropicStreamSession implements StreamSession {
     private final Map<Integer, StringBuilder> toolInputAccumulators = new HashMap<>();
     // Tracks tool name per content block index for ToolUseDelta events
     private final Map<Integer, String> toolNames = new HashMap<>();
+    // Tracks which content block indices are thinking blocks
+    private final Map<Integer, StringBuilder> thinkingAccumulators = new HashMap<>();
 
     AnthropicStreamSession(HttpResponse<Stream<String>> response, AnthropicMapper mapper) {
         this.response = response;
@@ -120,6 +122,8 @@ final class AnthropicStreamSession implements StreamSession {
         if (block instanceof ContentBlock.ToolUse tu) {
             toolInputAccumulators.put(index, new StringBuilder());
             toolNames.put(index, tu.name());
+        } else if (block instanceof ContentBlock.Thinking) {
+            thinkingAccumulators.put(index, new StringBuilder());
         }
 
         if (block != null) {
@@ -147,8 +151,15 @@ final class AnthropicStreamSession implements StreamSession {
                 handler.onToolUseDelta(new StreamEvent.ToolUseDelta(index, toolName, partialJson));
             }
             case "thinking_delta" -> {
-                // Thinking deltas are not surfaced as events for now
-                log.trace("Thinking delta received, index={}", index);
+                String thinking = delta.path("thinking").asText("");
+                thinkingAccumulators.computeIfAbsent(index, k -> new StringBuilder())
+                        .append(thinking);
+                handler.onThinkingDelta(new StreamEvent.ThinkingDelta(thinking));
+            }
+            case "signature_delta" -> {
+                // Signature for thinking blocks — not needed since we skip
+                // thinking blocks in outgoing conversation history
+                log.trace("Signature delta received, index={}", index);
             }
             default -> log.debug("Unknown delta type: {}", deltaType);
         }
@@ -161,6 +172,7 @@ final class AnthropicStreamSession implements StreamSession {
         // Clean up accumulators for this block
         toolInputAccumulators.remove(index);
         toolNames.remove(index);
+        thinkingAccumulators.remove(index);
 
         handler.onContentBlockStop(new StreamEvent.ContentBlockStop(index));
     }

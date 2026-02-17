@@ -207,6 +207,7 @@ public final class StreamingAgentLoop {
 
         // Accumulated state
         private final StringBuilder textBuilder = new StringBuilder();
+        private final StringBuilder thinkingBuilder = new StringBuilder();
         private final List<ContentBlock> contentBlocks = new ArrayList<>();
 
         // Current tool-use block being accumulated
@@ -214,6 +215,7 @@ public final class StreamingAgentLoop {
         private String currentToolUseName;
         private final StringBuilder toolUseJsonBuilder = new StringBuilder();
         private boolean inToolUse;
+        private boolean inThinking;
 
         StopReason stopReason;
         Usage usage;
@@ -230,14 +232,18 @@ public final class StreamingAgentLoop {
 
         @Override
         public void onContentBlockStart(StreamEvent.ContentBlockStart event) {
-            // Finalize any pending text block
+            // Finalize any pending text or thinking block
             flushTextBlock();
+            flushThinkingBlock();
 
             if (event.block() instanceof ContentBlock.ToolUse toolUse) {
                 inToolUse = true;
                 currentToolUseId = toolUse.id();
                 currentToolUseName = toolUse.name();
                 toolUseJsonBuilder.setLength(0);
+            } else if (event.block() instanceof ContentBlock.Thinking) {
+                inThinking = true;
+                thinkingBuilder.setLength(0);
             }
 
             delegate.onContentBlockStart(event);
@@ -247,6 +253,12 @@ public final class StreamingAgentLoop {
         public void onTextDelta(StreamEvent.TextDelta event) {
             textBuilder.append(event.text());
             delegate.onTextDelta(event);
+        }
+
+        @Override
+        public void onThinkingDelta(StreamEvent.ThinkingDelta event) {
+            thinkingBuilder.append(event.text());
+            delegate.onThinkingDelta(event);
         }
 
         @Override
@@ -269,6 +281,8 @@ public final class StreamingAgentLoop {
                 currentToolUseId = null;
                 currentToolUseName = null;
                 toolUseJsonBuilder.setLength(0);
+            } else if (inThinking) {
+                flushThinkingBlock();
             } else {
                 flushTextBlock();
             }
@@ -285,6 +299,7 @@ public final class StreamingAgentLoop {
         @Override
         public void onComplete(StreamEvent.StreamComplete event) {
             flushTextBlock();
+            flushThinkingBlock();
             delegate.onComplete(event);
         }
 
@@ -301,8 +316,17 @@ public final class StreamingAgentLoop {
             }
         }
 
+        private void flushThinkingBlock() {
+            if (inThinking && !thinkingBuilder.isEmpty()) {
+                contentBlocks.add(new ContentBlock.Thinking(thinkingBuilder.toString()));
+                thinkingBuilder.setLength(0);
+            }
+            inThinking = false;
+        }
+
         List<ContentBlock> buildContentBlocks() {
             flushTextBlock();
+            flushThinkingBlock();
             return List.copyOf(contentBlocks);
         }
     }

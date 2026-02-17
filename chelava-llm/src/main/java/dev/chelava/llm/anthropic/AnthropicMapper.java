@@ -40,7 +40,14 @@ final class AnthropicMapper {
         root.put("model", request.model());
         root.put("max_tokens", request.maxTokens());
 
-        if (request.temperature() > 0.0) {
+        // Extended thinking: when enabled, temperature must be 1.0 or omitted
+        if (request.thinkingBudget() > 0) {
+            ObjectNode thinking = objectMapper.createObjectNode();
+            thinking.put("type", "enabled");
+            thinking.put("budget_tokens", request.thinkingBudget());
+            root.set("thinking", thinking);
+            // Temperature must be 1.0 when thinking is enabled; omit it to use default
+        } else if (request.temperature() > 0.0) {
             root.put("temperature", request.temperature());
         }
 
@@ -90,6 +97,11 @@ final class AnthropicMapper {
     private ArrayNode mapContentBlocks(List<ContentBlock> blocks) {
         ArrayNode array = objectMapper.createArrayNode();
         for (ContentBlock block : blocks) {
+            // Skip thinking blocks in outgoing messages — the model generates
+            // fresh thinking each turn and signatures are not preserved in streaming
+            if (block instanceof ContentBlock.Thinking) {
+                continue;
+            }
             array.add(mapContentBlock(block));
         }
         return array;
@@ -101,6 +113,10 @@ final class AnthropicMapper {
             case ContentBlock.Text t -> {
                 node.put("type", "text");
                 node.put("text", t.text());
+            }
+            case ContentBlock.Thinking t -> {
+                node.put("type", "thinking");
+                node.put("thinking", t.text());
             }
             case ContentBlock.ToolUse tu -> {
                 node.put("type", "tool_use");
@@ -172,6 +188,7 @@ final class AnthropicMapper {
         String type = node.path("type").asText("");
         return switch (type) {
             case "text" -> new ContentBlock.Text(node.path("text").asText(""));
+            case "thinking" -> new ContentBlock.Thinking(node.path("thinking").asText(""));
             case "tool_use" -> new ContentBlock.ToolUse(
                     node.path("id").asText(""),
                     node.path("name").asText(""),

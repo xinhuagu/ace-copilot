@@ -131,6 +131,7 @@ final class MockLlmClient implements LlmClient {
                     case StreamEvent.MessageStart e -> handler.onMessageStart(e);
                     case StreamEvent.ContentBlockStart e -> handler.onContentBlockStart(e);
                     case StreamEvent.TextDelta e -> handler.onTextDelta(e);
+                    case StreamEvent.ThinkingDelta e -> handler.onThinkingDelta(e);
                     case StreamEvent.ToolUseDelta e -> handler.onToolUseDelta(e);
                     case StreamEvent.ContentBlockStop e -> handler.onContentBlockStop(e);
                     case StreamEvent.MessageDelta e -> handler.onMessageDelta(e);

@@ -23,6 +23,11 @@ public sealed interface StreamEvent {
     record TextDelta(String text) implements StreamEvent {}
 
     /**
+     * An incremental thinking delta for an extended thinking content block.
+     */
+    record ThinkingDelta(String text) implements StreamEvent {}
+
+    /**
      * An incremental JSON delta for a tool-use input accumulation.
      *
      * @param index       content block index
