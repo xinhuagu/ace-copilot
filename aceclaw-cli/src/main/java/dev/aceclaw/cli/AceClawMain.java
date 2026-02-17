@@ -42,11 +42,13 @@ public final class AceClawMain implements Runnable {
 
         try (DaemonClient client = DaemonStarter.ensureRunning()) {
 
-            // Fetch health status to get model info
+            // Fetch health status to get model info and context window size
             String model = "unknown";
+            int contextWindowTokens = 0;
             try {
                 JsonNode health = client.sendRequest("health.status", null);
                 model = health.path("model").asText("unknown");
+                contextWindowTokens = health.path("contextWindowTokens").asInt(0);
             } catch (Exception e) {
                 // Non-fatal; banner will show "unknown" model
             }
@@ -60,7 +62,7 @@ public final class AceClawMain implements Runnable {
             String sessionId = session.get("sessionId").asText();
 
             // Enter REPL with session info
-            var sessionInfo = new TerminalRepl.SessionInfo(VERSION, model, project);
+            var sessionInfo = new TerminalRepl.SessionInfo(VERSION, model, project, contextWindowTokens);
             var repl = new TerminalRepl(client, sessionId, sessionInfo);
             repl.run();
 

@@ -65,13 +65,22 @@ public final class TerminalRepl {
     private long totalInputTokens = 0;
     private long totalOutputTokens = 0;
 
+    /** Latest input tokens from the most recent API call (= context consumed). */
+    private long latestInputTokens = 0;
+
     /** JLine3 status line (bottom of terminal). */
     private volatile Status statusLine;
 
     /**
      * Session metadata displayed in the startup banner and status line.
      */
-    public record SessionInfo(String version, String model, String project) {}
+    public record SessionInfo(String version, String model, String project,
+                              int contextWindowTokens) {
+        /** Backward-compatible constructor without context window. */
+        public SessionInfo(String version, String model, String project) {
+            this(version, model, project, 0);
+        }
+    }
 
     /**
      * Creates a REPL connected to the given daemon client and session.
@@ -208,12 +217,38 @@ public final class TerminalRepl {
         var sl = statusLine;
         if (sl == null) return;
         try {
-            String status = sessionInfo.model()
-                    + " | tokens: " + totalInputTokens + " in / " + totalOutputTokens + " out";
-            sl.update(List.of(new AttributedString(status)));
+            var sb = new StringBuilder();
+            sb.append(sessionInfo.model());
+
+            // Context window usage (from latest API call)
+            int ctxWindow = sessionInfo.contextWindowTokens();
+            if (ctxWindow > 0 && latestInputTokens > 0) {
+                sb.append(" | context: ")
+                  .append(formatTokenCount(latestInputTokens))
+                  .append("/")
+                  .append(formatTokenCount(ctxWindow));
+            }
+
+            // Cumulative token usage
+            sb.append(" | tokens: ")
+              .append(totalInputTokens).append(" in / ")
+              .append(totalOutputTokens).append(" out");
+
+            sl.update(List.of(new AttributedString(sb.toString())));
         } catch (Exception e) {
             log.debug("Failed to update status line: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Formats a token count in a human-readable form (e.g., 15234 → "15.2K", 200000 → "200K").
+     */
+    private static String formatTokenCount(long tokens) {
+        if (tokens < 1000) return String.valueOf(tokens);
+        double k = tokens / 1000.0;
+        if (k >= 100) return String.format("%.0fK", k);
+        if (k >= 10) return String.format("%.0fK", k);
+        return String.format("%.1fK", k);
     }
 
     private void disposeStatusLine() {
@@ -289,11 +324,15 @@ public final class TerminalRepl {
                                 }
                             }
                         }
-                        // Update cumulative token counters
+                        // Update token counters
                         if (result != null && result.has("usage")) {
                             var usage = result.get("usage");
-                            totalInputTokens += usage.path("inputTokens").asInt(0);
-                            totalOutputTokens += usage.path("outputTokens").asInt(0);
+                            int turnIn = usage.path("inputTokens").asInt(0);
+                            int turnOut = usage.path("outputTokens").asInt(0);
+                            totalInputTokens += turnIn;
+                            totalOutputTokens += turnOut;
+                            // Track latest input tokens for context window usage display
+                            latestInputTokens = turnIn;
                             updateStatusLine();
                         }
                     }

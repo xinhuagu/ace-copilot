@@ -61,6 +61,20 @@ public final class SystemPromptLoader {
      * @return the assembled system prompt
      */
     public static String load(Path projectPath, AutoMemoryStore memoryStore) {
+        return load(projectPath, memoryStore, null, null);
+    }
+
+    /**
+     * Loads the full system prompt with auto-memory injection and model identity.
+     *
+     * @param projectPath the project working directory
+     * @param memoryStore optional auto-memory store (may be null)
+     * @param model       the LLM model name (may be null)
+     * @param provider    the LLM provider name (may be null)
+     * @return the assembled system prompt
+     */
+    public static String load(Path projectPath, AutoMemoryStore memoryStore,
+                              String model, String provider) {
         var sb = new StringBuilder();
         sb.append(basePrompt());
 
@@ -71,6 +85,12 @@ public final class SystemPromptLoader {
         sb.append("- Platform: ").append(System.getProperty("os.name")).append("\n");
         sb.append("- Java: ").append(System.getProperty("java.version")).append("\n");
         sb.append("- The current date is: ").append(java.time.LocalDate.now()).append("\n");
+        if (model != null && !model.isBlank()) {
+            sb.append("- You are powered by the model: ").append(model).append("\n");
+        }
+        if (provider != null && !provider.isBlank()) {
+            sb.append("- Provider: ").append(provider).append("\n");
+        }
 
         // Inject git context if available
         appendGitContext(sb, projectPath);

@@ -1,11 +1,14 @@
 package dev.aceclaw.core.agent;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.aceclaw.core.llm.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.StructuredTaskScope;
 
 /**
@@ -160,11 +163,22 @@ public final class StreamingAgentLoop {
 
             // Build assistant message from accumulated content
             var contentBlocks = accumulator.buildContentBlocks();
+
+            // Fallback: some local models (e.g. Ollama) return tool calls as plain
+            // text JSON instead of proper tool_calls. Detect and convert them.
+            var stopReason = accumulator.stopReason != null ? accumulator.stopReason : StopReason.ERROR;
+            if (stopReason == StopReason.END_TURN) {
+                var converted = tryConvertTextToToolUse(contentBlocks);
+                if (converted != null) {
+                    contentBlocks = converted;
+                    stopReason = StopReason.TOOL_USE;
+                    log.info("Converted text-based tool call to native ToolUse block");
+                }
+            }
+
             var assistantMessage = new Message.AssistantMessage(contentBlocks);
             allMessages.add(assistantMessage);
             newMessages.add(assistantMessage);
-
-            var stopReason = accumulator.stopReason != null ? accumulator.stopReason : StopReason.ERROR;
 
             // Check stop reason
             switch (stopReason) {
@@ -337,6 +351,74 @@ public final class StreamingAgentLoop {
                 + "\n\n... (truncated: " + output.length() + " chars total, showing first "
                 + headChars + " and last " + tailChars + ") ...\n\n"
                 + output.substring(output.length() - tailChars);
+    }
+
+    /** Shared JSON mapper for text-to-tool-call fallback parsing. */
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    /**
+     * Detects text content that is actually a tool call JSON from models that
+     * don't support native tool calling (common with Ollama local models).
+     *
+     * <p>Returns a modified content block list with the text replaced by a
+     * {@link ContentBlock.ToolUse} block, or {@code null} if no conversion was possible.
+     *
+     * <p>Only converts when:
+     * <ul>
+     *   <li>There are no existing ToolUse blocks (model didn't use native format)</li>
+     *   <li>The text (trimmed) is a valid JSON object</li>
+     *   <li>The JSON has "name" matching a registered tool and an "arguments" object</li>
+     * </ul>
+     */
+    private List<ContentBlock> tryConvertTextToToolUse(List<ContentBlock> blocks) {
+        // Skip if there are already native tool use blocks
+        boolean hasToolUse = blocks.stream().anyMatch(b -> b instanceof ContentBlock.ToolUse);
+        if (hasToolUse) return null;
+
+        // Find the text block(s) — concatenate if multiple
+        String fullText = blocks.stream()
+                .filter(b -> b instanceof ContentBlock.Text)
+                .map(b -> ((ContentBlock.Text) b).text())
+                .reduce("", (a, b) -> a + b)
+                .trim();
+
+        if (fullText.isEmpty() || fullText.charAt(0) != '{') return null;
+
+        try {
+            JsonNode node = JSON.readTree(fullText);
+            if (!node.isObject()) return null;
+
+            String toolName = node.path("name").asText(null);
+            JsonNode arguments = node.get("arguments");
+
+            if (toolName == null || toolName.isBlank()) return null;
+            if (arguments == null || !arguments.isObject()) return null;
+
+            // Verify this is actually one of our registered tools
+            if (toolRegistry.get(toolName).isEmpty()) return null;
+
+            // Convert to proper ToolUse block
+            String toolId = "text-tool-" + UUID.randomUUID().toString().substring(0, 8);
+            String argsJson = JSON.writeValueAsString(arguments);
+
+            // Rebuild blocks: keep non-text blocks (like Thinking), replace text with ToolUse
+            var result = new ArrayList<ContentBlock>();
+            for (var block : blocks) {
+                if (block instanceof ContentBlock.Text) {
+                    // Skip — replaced by ToolUse
+                } else {
+                    result.add(block);
+                }
+            }
+            result.add(new ContentBlock.ToolUse(toolId, toolName, argsJson));
+
+            log.debug("Parsed text-based tool call: tool={}, args={}", toolName, argsJson);
+            return List.copyOf(result);
+
+        } catch (Exception e) {
+            // Not valid JSON or doesn't match pattern — not a tool call
+            return null;
+        }
     }
 
     /**

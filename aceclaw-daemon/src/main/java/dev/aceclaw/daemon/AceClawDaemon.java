@@ -125,8 +125,9 @@ public final class AceClawDaemon {
         // 3. Permission manager with default policy
         var permissionManager = new PermissionManager(new DefaultPermissionPolicy());
 
-        // 4. System prompt (with auto-memory injection)
-        String systemPrompt = SystemPromptLoader.load(workingDir, memoryStore);
+        // 4. System prompt (with auto-memory injection + model identity)
+        String systemPrompt = SystemPromptLoader.load(
+                workingDir, memoryStore, config.model(), config.provider());
 
         // 5. Context compaction
         var compactionConfig = new CompactionConfig(
@@ -149,10 +150,12 @@ public final class AceClawDaemon {
         agentHandler.setMemoryStore(memoryStore, workingDir);
         agentHandler.register(router);
 
-        // Expose model name to health status endpoint
+        // Expose model name and provider info to health status endpoint
         router.setModelName(model);
+        router.setProviderInfo(config.provider(), config.contextWindowTokens());
 
-        log.info("Agent handler wired: model={}, tools={}", model, toolRegistry.size());
+        log.info("Agent handler wired: provider={}, model={}, tools={}",
+                config.provider(), model, toolRegistry.size());
     }
 
     /**

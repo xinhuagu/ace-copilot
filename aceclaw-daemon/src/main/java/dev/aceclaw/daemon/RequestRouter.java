@@ -48,6 +48,8 @@ public final class RequestRouter {
     private volatile Runnable shutdownCallback;
 
     private volatile String modelName;
+    private volatile String providerName;
+    private volatile int contextWindowTokens;
 
     public RequestRouter(SessionManager sessionManager, ObjectMapper objectMapper) {
         this.sessionManager = sessionManager;
@@ -62,6 +64,14 @@ public final class RequestRouter {
      */
     public void setModelName(String modelName) {
         this.modelName = modelName;
+    }
+
+    /**
+     * Sets additional metadata reported by the health status endpoint.
+     */
+    public void setProviderInfo(String provider, int contextWindowTokens) {
+        this.providerName = provider;
+        this.contextWindowTokens = contextWindowTokens;
     }
 
     /**
@@ -238,6 +248,13 @@ public final class RequestRouter {
         var m = modelName;
         if (m != null) {
             result.put("model", m);
+        }
+        var p = providerName;
+        if (p != null) {
+            result.put("provider", p);
+        }
+        if (contextWindowTokens > 0) {
+            result.put("contextWindowTokens", contextWindowTokens);
         }
         return result;
     }
