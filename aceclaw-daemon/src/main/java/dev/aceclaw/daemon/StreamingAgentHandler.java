@@ -469,7 +469,10 @@ public final class StreamingAgentHandler {
         @Override
         public ToolResult execute(String inputJson) throws Exception {
             // Determine the permission level for this tool
-            var level = TOOL_PERMISSION_LEVELS.getOrDefault(delegate.name(), PermissionLevel.EXECUTE);
+            // MCP tools default to EXECUTE since they can have side effects
+            var level = delegate.name().startsWith("mcp__")
+                    ? PermissionLevel.EXECUTE
+                    : TOOL_PERMISSION_LEVELS.getOrDefault(delegate.name(), PermissionLevel.EXECUTE);
 
             // Build a human-readable description of what the tool will do
             var toolDescription = buildToolDescription(delegate.name(), inputJson);
@@ -573,7 +576,17 @@ public final class StreamingAgentHandler {
                             (input.has("script") ? input.get("script").asText().length() + " chars" : "unknown") + ")";
                     case "screen_capture" -> "Capture screenshot" +
                             (input.has("region") ? " (region: " + input.get("region").asText() + ")" : "");
-                    default -> "Execute tool: " + toolName;
+                    default -> {
+                        if (toolName.startsWith("mcp__")) {
+                            // MCP tools: show server and tool name
+                            var parts = toolName.split("__", 3);
+                            var server = parts.length > 1 ? parts[1] : "unknown";
+                            var tool = parts.length > 2 ? parts[2] : "unknown";
+                            yield "MCP [" + server + "] " + tool;
+                        } else {
+                            yield "Execute tool: " + toolName;
+                        }
+                    }
                 };
             } catch (Exception e) {
                 return "Execute tool: " + toolName;

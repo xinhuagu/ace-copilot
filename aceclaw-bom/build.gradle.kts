@@ -31,6 +31,9 @@ dependencies {
         api("org.slf4j:slf4j-api:2.0.16")
         api("ch.qos.logback:logback-classic:1.5.15")
 
+        // MCP (Model Context Protocol)
+        api("io.modelcontextprotocol.sdk:mcp:0.17.2")
+
         // HTML parsing
         api("org.jsoup:jsoup:1.18.3")
 

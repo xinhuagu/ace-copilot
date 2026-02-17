@@ -12,6 +12,8 @@ import dev.aceclaw.llm.LlmClientFactory;
 import dev.aceclaw.memory.AutoMemoryStore;
 import dev.aceclaw.security.DefaultPermissionPolicy;
 import dev.aceclaw.security.PermissionManager;
+import dev.aceclaw.mcp.McpClientManager;
+import dev.aceclaw.mcp.McpServerConfig;
 import dev.aceclaw.tools.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -142,6 +144,31 @@ public final class AceClawDaemon {
         // Web search (requires Brave Search API key)
         if (config.braveSearchApiKey() != null) {
             toolRegistry.register(new WebSearchTool(workingDir, config.braveSearchApiKey()));
+        }
+
+        // MCP servers (config-driven external tool providers)
+        // Started asynchronously to avoid blocking daemon boot (npx downloads can be slow)
+        var mcpConfig = McpServerConfig.load(workingDir);
+        if (!mcpConfig.isEmpty()) {
+            var mcpManager = new McpClientManager(mcpConfig);
+            shutdownManager.register(new ShutdownManager.ShutdownParticipant() {
+                @Override public String name() { return "MCP Servers"; }
+                @Override public int priority() { return 85; }
+                @Override public void onShutdown() { mcpManager.close(); }
+            });
+            Thread.ofVirtual().name("mcp-init").start(() -> {
+                try {
+                    mcpManager.start();
+                    for (var tool : mcpManager.bridgedTools()) {
+                        toolRegistry.register(tool);
+                    }
+                    log.info("MCP: {} servers, {} tools registered (async)",
+                            mcpConfig.size(), mcpManager.bridgedTools().size());
+                } catch (Exception e) {
+                    log.error("MCP initialization failed: {}", e.getMessage(), e);
+                }
+            });
+            log.info("MCP: {} server(s) configured, initializing in background...", mcpConfig.size());
         }
 
         log.info("Registered {} tools", toolRegistry.size());
