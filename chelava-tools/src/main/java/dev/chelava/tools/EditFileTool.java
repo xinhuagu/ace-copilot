@@ -34,9 +34,13 @@ public final class EditFileTool implements Tool {
 
     @Override
     public String description() {
-        return "Performs exact string replacement in a file. Finds old_string and replaces it " +
-               "with new_string. The old_string must be unique in the file (or use replace_all=true " +
-               "to replace every occurrence). The file must exist.";
+        return "Performs exact string replacements in files.\n" +
+               "- You must read the file first before editing it. This tool will fail on files you haven't read.\n" +
+               "- The edit will FAIL if old_string is not found in the file, or if it matches multiple " +
+               "locations (unless replace_all=true). Provide enough surrounding context in old_string to make it unique.\n" +
+               "- Preserve the exact indentation (tabs/spaces) as it appears in the file.\n" +
+               "- ALWAYS prefer editing existing files over creating new ones.\n" +
+               "- Use this tool INSTEAD of bash with sed or awk.";
     }
 
     @Override

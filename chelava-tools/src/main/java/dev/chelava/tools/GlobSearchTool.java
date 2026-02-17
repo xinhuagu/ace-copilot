@@ -44,9 +44,12 @@ public final class GlobSearchTool implements Tool {
 
     @Override
     public String description() {
-        return "Searches for files matching a glob pattern. " +
-               "Supports patterns like \"**/*.java\", \"src/**/*.ts\", \"*.json\". " +
-               "Returns matching file paths sorted by modification time (most recent first).";
+        return "Fast file pattern matching tool that works with any codebase size.\n" +
+               "- Supports glob patterns like \"**/*.java\", \"src/**/*.ts\", \"*.md\"\n" +
+               "- Returns matching file paths sorted by modification time (most recent first)\n" +
+               "- Skips hidden directories (.), node_modules, build, target, __pycache__\n" +
+               "- Use this INSTEAD of bash with find or ls for file searching\n" +
+               "- Maximum 200 results returned";
     }
 
     @Override

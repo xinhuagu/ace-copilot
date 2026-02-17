@@ -43,8 +43,13 @@ public final class ReadFileTool implements Tool {
 
     @Override
     public String description() {
-        return "Reads a file from the filesystem. Returns contents with line numbers. " +
-               "Supports optional offset (starting line, 1-based) and limit (max lines to read).";
+        return "Reads a file from the filesystem. You can access any file directly by using this tool.\n" +
+               "- The file_path can be absolute or relative to the working directory.\n" +
+               "- Returns file contents prefixed with line numbers.\n" +
+               "- By default reads up to 2000 lines from the beginning. Use offset and limit for large files.\n" +
+               "- Lines longer than 2000 characters are truncated.\n" +
+               "- It is always better to speculatively read multiple potentially useful files in parallel.\n" +
+               "- Use this tool INSTEAD of bash with cat, head, or tail.";
     }
 
     @Override

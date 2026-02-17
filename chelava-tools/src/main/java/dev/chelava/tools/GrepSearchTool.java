@@ -51,9 +51,12 @@ public final class GrepSearchTool implements Tool {
 
     @Override
     public String description() {
-        return "Searches file contents for lines matching a regex pattern. " +
-               "Returns matching lines with file paths and line numbers. " +
-               "Supports optional file glob filter (e.g. \"*.java\") and context lines.";
+        return "Searches file contents for lines matching a regex pattern.\n" +
+               "- Supports full regex syntax (e.g. \"log.*Error\", \"function\\\\s+\\\\w+\")\n" +
+               "- Returns matching lines with file paths and line numbers\n" +
+               "- Filter files with include parameter (e.g. \"*.java\", \"*.ts\")\n" +
+               "- Skips hidden directories, build outputs, and binary files (>1MB)\n" +
+               "- Use this INSTEAD of bash with grep or rg";
     }
 
     @Override

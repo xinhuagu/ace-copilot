@@ -33,8 +33,12 @@ public final class WriteFileTool implements Tool {
 
     @Override
     public String description() {
-        return "Writes content to a file, creating it if it doesn't exist. " +
-               "Overwrites the existing file completely. Creates parent directories as needed.";
+        return "Writes content to a file. WARNING: This tool completely overwrites the file.\n" +
+               "- If the file exists, you MUST read it first with read_file to understand the current content.\n" +
+               "- ALWAYS prefer edit_file over write_file for modifying existing files.\n" +
+               "- Only use write_file when creating new files or when you need to replace the entire content.\n" +
+               "- Creates parent directories automatically if needed.\n" +
+               "- Use this INSTEAD of bash with echo, cat heredoc, or redirection.";
     }
 
     @Override

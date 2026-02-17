@@ -64,11 +64,16 @@ public final class SystemPromptLoader {
         var sb = new StringBuilder();
         sb.append(basePrompt());
 
-        // Environment context
+        // Environment context (like Claude Code's context injection)
         sb.append("\n\n# Environment\n\n");
         sb.append("- Working directory: ").append(projectPath.toAbsolutePath().normalize()).append("\n");
-        sb.append("- All relative file paths are resolved against this directory.\n");
-        sb.append("- Use read_file, glob, and grep with relative paths from this directory.\n");
+        sb.append("- All relative file paths resolve against this directory.\n");
+        sb.append("- Platform: ").append(System.getProperty("os.name")).append("\n");
+        sb.append("- Java: ").append(System.getProperty("java.version")).append("\n");
+        sb.append("- The current date is: ").append(java.time.LocalDate.now()).append("\n");
+
+        // Inject git context if available
+        appendGitContext(sb, projectPath);
 
         // 1. Global user instructions (~/.chelava/CHELAVA.md)
         appendInstructions(sb, GLOBAL_CONFIG_DIR.resolve(CHELAVA_MD),
@@ -111,6 +116,60 @@ public final class SystemPromptLoader {
             }
         } catch (IOException e) {
             log.warn("Failed to read {}: {}", file, e.getMessage());
+        }
+    }
+
+    /**
+     * Appends git repository context (branch, status, recent commits) if available.
+     */
+    private static void appendGitContext(StringBuilder sb, Path projectPath) {
+        try {
+            // Check if it's a git repo
+            var gitDir = projectPath.resolve(".git");
+            if (!Files.exists(gitDir)) return;
+
+            sb.append("\n# Git Context\n\n");
+
+            // Current branch
+            String branch = runGitCommand(projectPath, "git", "rev-parse", "--abbrev-ref", "HEAD");
+            if (branch != null) {
+                sb.append("- Current branch: ").append(branch).append("\n");
+            }
+
+            // Git status (short)
+            String status = runGitCommand(projectPath, "git", "status", "--short");
+            if (status != null && !status.isBlank()) {
+                sb.append("- Status:\n```\n").append(status).append("\n```\n");
+            } else {
+                sb.append("- Status: clean\n");
+            }
+
+            // Recent commits (last 5)
+            String recentLog = runGitCommand(projectPath,
+                    "git", "log", "--oneline", "-5", "--no-decorate");
+            if (recentLog != null && !recentLog.isBlank()) {
+                sb.append("- Recent commits:\n```\n").append(recentLog).append("\n```\n");
+            }
+
+        } catch (Exception e) {
+            log.debug("Failed to gather git context: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Runs a git command and returns the trimmed stdout, or null on failure.
+     */
+    private static String runGitCommand(Path workingDir, String... command) {
+        try {
+            var pb = new ProcessBuilder(command);
+            pb.directory(workingDir.toFile());
+            pb.redirectErrorStream(true);
+            var process = pb.start();
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            int exitCode = process.waitFor();
+            return exitCode == 0 ? output : null;
+        } catch (Exception e) {
+            return null;
         }
     }
 
