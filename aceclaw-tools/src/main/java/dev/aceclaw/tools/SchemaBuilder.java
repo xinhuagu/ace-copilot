@@ -63,6 +63,31 @@ final class SchemaBuilder {
     }
 
     /**
+     * Creates a number-type property schema (allows decimals).
+     */
+    static ObjectNode number(String description) {
+        var node = MAPPER.createObjectNode();
+        node.put("type", "number");
+        node.put("description", description);
+        return node;
+    }
+
+    /**
+     * Creates a string-type property schema restricted to an enumerated set of values.
+     */
+    static ObjectNode stringEnum(String description, String... values) {
+        var node = MAPPER.createObjectNode();
+        node.put("type", "string");
+        node.put("description", description);
+        var enumArray = MAPPER.createArrayNode();
+        for (var v : values) {
+            enumArray.add(v);
+        }
+        node.set("enum", enumArray);
+        return node;
+    }
+
+    /**
      * Adds a required property.
      */
     SchemaBuilder requiredProperty(String name, ObjectNode schema) {

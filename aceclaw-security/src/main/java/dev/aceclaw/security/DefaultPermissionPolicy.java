@@ -13,8 +13,29 @@ package dev.aceclaw.security;
  */
 public final class DefaultPermissionPolicy implements PermissionPolicy {
 
+    private final boolean autoApproveAll;
+
+    /**
+     * Creates a policy with the standard permission rules (READ auto-approved, rest need user approval).
+     */
+    public DefaultPermissionPolicy() {
+        this(false);
+    }
+
+    /**
+     * Creates a policy with configurable auto-approve behavior.
+     *
+     * @param autoApproveAll if true, all permission levels are auto-approved
+     */
+    public DefaultPermissionPolicy(boolean autoApproveAll) {
+        this.autoApproveAll = autoApproveAll;
+    }
+
     @Override
     public PermissionDecision evaluate(PermissionRequest request) {
+        if (autoApproveAll) {
+            return new PermissionDecision.Approved();
+        }
         return switch (request.level()) {
             case READ -> new PermissionDecision.Approved();
             case WRITE -> new PermissionDecision.NeedsUserApproval(

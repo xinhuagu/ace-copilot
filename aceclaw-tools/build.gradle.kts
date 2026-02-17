@@ -6,4 +6,10 @@ dependencies {
 
     implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("org.slf4j:slf4j-api")
+
+    // HTML parsing for WebFetchTool
+    implementation("org.jsoup:jsoup")
+
+    // Browser automation for BrowserTool
+    implementation("com.microsoft.playwright:playwright")
 }

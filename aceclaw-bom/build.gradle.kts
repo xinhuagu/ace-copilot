@@ -31,6 +31,12 @@ dependencies {
         api("org.slf4j:slf4j-api:2.0.16")
         api("ch.qos.logback:logback-classic:1.5.15")
 
+        // HTML parsing
+        api("org.jsoup:jsoup:1.18.3")
+
+        // Browser automation
+        api("com.microsoft.playwright:playwright:1.49.0")
+
         // Testing
         api("org.junit.jupiter:junit-jupiter:5.11.4")
         api("org.junit.jupiter:junit-jupiter-api:5.11.4")

@@ -42,13 +42,19 @@ public final class StreamingAgentHandler {
     private static final Logger log = LoggerFactory.getLogger(StreamingAgentHandler.class);
 
     /** Permission level assignments for known tools. */
-    private static final Map<String, PermissionLevel> TOOL_PERMISSION_LEVELS = Map.of(
-            "read_file", PermissionLevel.READ,
-            "glob", PermissionLevel.READ,
-            "grep", PermissionLevel.READ,
-            "write_file", PermissionLevel.WRITE,
-            "edit_file", PermissionLevel.WRITE,
-            "bash", PermissionLevel.EXECUTE
+    private static final Map<String, PermissionLevel> TOOL_PERMISSION_LEVELS = Map.ofEntries(
+            Map.entry("read_file", PermissionLevel.READ),
+            Map.entry("glob", PermissionLevel.READ),
+            Map.entry("grep", PermissionLevel.READ),
+            Map.entry("list_directory", PermissionLevel.READ),
+            Map.entry("web_fetch", PermissionLevel.READ),
+            Map.entry("web_search", PermissionLevel.READ),
+            Map.entry("screen_capture", PermissionLevel.READ),
+            Map.entry("write_file", PermissionLevel.WRITE),
+            Map.entry("edit_file", PermissionLevel.WRITE),
+            Map.entry("bash", PermissionLevel.EXECUTE),
+            Map.entry("browser", PermissionLevel.EXECUTE),
+            Map.entry("applescript", PermissionLevel.EXECUTE)
     );
 
     private final SessionManager sessionManager;
@@ -554,6 +560,19 @@ public final class StreamingAgentHandler {
                             ? input.get("pattern").asText() : "(unknown pattern)");
                     case "grep" -> "Search content: " + (input.has("pattern")
                             ? input.get("pattern").asText() : "(unknown pattern)");
+                    case "list_directory" -> "List directory: " + (input.has("path")
+                            ? input.get("path").asText() : "(working directory)");
+                    case "web_fetch" -> "Fetch URL: " + (input.has("url")
+                            ? input.get("url").asText() : "(unknown url)");
+                    case "web_search" -> "Web search: " + (input.has("query")
+                            ? input.get("query").asText() : "(unknown query)");
+                    case "browser" -> "Browser " + (input.has("action")
+                            ? input.get("action").asText() : "(unknown action)") +
+                            (input.has("url") ? ": " + input.get("url").asText() : "");
+                    case "applescript" -> "Execute AppleScript (" +
+                            (input.has("script") ? input.get("script").asText().length() + " chars" : "unknown") + ")";
+                    case "screen_capture" -> "Capture screenshot" +
+                            (input.has("region") ? " (region: " + input.get("region").asText() + ")" : "");
                     default -> "Execute tool: " + toolName;
                 };
             } catch (Exception e) {

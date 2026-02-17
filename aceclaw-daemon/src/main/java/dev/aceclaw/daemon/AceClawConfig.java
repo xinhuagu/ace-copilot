@@ -28,6 +28,7 @@ import java.util.Map;
  *   <li>{@code OPENAI_API_KEY} → apiKey (fallback for non-Anthropic providers)</li>
  *   <li>{@code ACECLAW_MODEL} → model</li>
  *   <li>{@code ACECLAW_LOG_LEVEL} → logLevel</li>
+ *   <li>{@code BRAVE_SEARCH_API_KEY} → braveSearchApiKey</li>
  * </ul>
  */
 public final class AceClawConfig {
@@ -56,6 +57,7 @@ public final class AceClawConfig {
     private int thinkingBudget;
     private int contextWindowTokens;
     private String logLevel;
+    private String braveSearchApiKey;
     private String defaultProfile;
     private Map<String, ConfigFileFormat> profiles;
     private Map<String, String> providerModels;
@@ -125,6 +127,10 @@ public final class AceClawConfig {
         var envLogLevel = System.getenv("ACECLAW_LOG_LEVEL");
         if (envLogLevel != null && !envLogLevel.isBlank()) {
             config.logLevel = envLogLevel;
+        }
+        var envBraveKey = System.getenv("BRAVE_SEARCH_API_KEY");
+        if (envBraveKey != null && !envBraveKey.isBlank()) {
+            config.braveSearchApiKey = envBraveKey;
         }
 
         // 5. If apiKey is an OAuth token and no refresh token configured,
@@ -223,6 +229,13 @@ public final class AceClawConfig {
      */
     public String refreshToken() {
         return refreshToken;
+    }
+
+    /**
+     * Returns the Brave Search API key, or null if not configured.
+     */
+    public String braveSearchApiKey() {
+        return braveSearchApiKey;
     }
 
     /**
@@ -363,6 +376,9 @@ public final class AceClawConfig {
         if (fileConfig.logLevel != null && !fileConfig.logLevel.isBlank()) {
             this.logLevel = fileConfig.logLevel;
         }
+        if (fileConfig.braveSearchApiKey != null && !fileConfig.braveSearchApiKey.isBlank()) {
+            this.braveSearchApiKey = fileConfig.braveSearchApiKey;
+        }
     }
 
     /**
@@ -379,6 +395,7 @@ public final class AceClawConfig {
         public int thinkingBudget;
         public int contextWindowTokens;
         public String logLevel;
+        public String braveSearchApiKey;
         public String defaultProfile;
         public Map<String, ConfigFileFormat> profiles;
         public Map<String, String> providerModels;

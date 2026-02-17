@@ -99,7 +99,7 @@ public final class AceClawDaemon {
     /**
      * Wires the streaming agent handler into the request router.
      *
-     * <p>Creates the LLM client (from config), tool registry (with all 6 tools),
+     * <p>Creates the LLM client (from config), tool registry (with all tools),
      * permission manager, and streaming agent loop.
      */
     private void wireAgentHandler(Path workingDir) {
@@ -113,7 +113,7 @@ public final class AceClawDaemon {
         LlmClient llmClient = LlmClientFactory.create(
                 config.provider(), apiKey, config.refreshToken(), config.baseUrl(), model);
 
-        // 2. Tool registry with all 6 tools
+        // 2. Tool registry
         var toolRegistry = new ToolRegistry();
         toolRegistry.register(new ReadFileTool(workingDir));
         toolRegistry.register(new WriteFileTool(workingDir));
@@ -121,10 +121,33 @@ public final class AceClawDaemon {
         toolRegistry.register(new BashExecTool(workingDir));
         toolRegistry.register(new GlobSearchTool(workingDir));
         toolRegistry.register(new GrepSearchTool(workingDir));
+        toolRegistry.register(new ListDirTool(workingDir));
+        toolRegistry.register(new WebFetchTool(workingDir));
+
+        // Browser tool (lazy Chromium instance, registered as shutdown participant)
+        var browserTool = new BrowserTool(workingDir);
+        toolRegistry.register(browserTool);
+        shutdownManager.register(new ShutdownManager.ShutdownParticipant() {
+            @Override public String name() { return "Browser"; }
+            @Override public int priority() { return 80; }
+            @Override public void onShutdown() { browserTool.close(); }
+        });
+
+        // Platform-conditional tools (macOS only)
+        if (AppleScriptTool.isSupported()) {
+            toolRegistry.register(new AppleScriptTool(workingDir));
+            toolRegistry.register(new ScreenCaptureTool(workingDir));
+        }
+
+        // Web search (requires Brave Search API key)
+        if (config.braveSearchApiKey() != null) {
+            toolRegistry.register(new WebSearchTool(workingDir, config.braveSearchApiKey()));
+        }
+
         log.info("Registered {} tools", toolRegistry.size());
 
-        // 3. Permission manager with default policy
-        var permissionManager = new PermissionManager(new DefaultPermissionPolicy());
+        // 3. Permission manager — auto-approve all tools (no interactive prompts)
+        var permissionManager = new PermissionManager(new DefaultPermissionPolicy(true));
 
         // 4. System prompt (with auto-memory injection + model identity)
         String systemPrompt = SystemPromptLoader.load(
