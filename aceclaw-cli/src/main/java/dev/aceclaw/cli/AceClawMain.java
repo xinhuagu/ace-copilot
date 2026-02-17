@@ -31,21 +31,32 @@ import java.nio.file.Path;
 )
 public final class AceClawMain implements Runnable {
 
+    static final String VERSION = "0.1.0-SNAPSHOT";
+
     @Override
     public void run() {
         try (DaemonClient client = DaemonStarter.ensureRunning()) {
-            System.out.println("Connected to AceClaw daemon.");
+
+            // Fetch health status to get model info
+            String model = "unknown";
+            try {
+                JsonNode health = client.sendRequest("health.status", null);
+                model = health.path("model").asText("unknown");
+            } catch (Exception e) {
+                // Non-fatal; banner will show "unknown" model
+            }
 
             // Create a session for the current working directory
             var params = client.objectMapper().createObjectNode();
-            params.put("project", Path.of(System.getProperty("user.dir")).toString());
+            String project = Path.of(System.getProperty("user.dir")).toString();
+            params.put("project", project);
 
             JsonNode session = client.sendRequest("session.create", params);
             String sessionId = session.get("sessionId").asText();
-            System.out.println("Project: " + session.get("project").asText());
 
-            // Enter REPL
-            var repl = new TerminalRepl(client, sessionId);
+            // Enter REPL with session info
+            var sessionInfo = new TerminalRepl.SessionInfo(VERSION, model, project);
+            var repl = new TerminalRepl(client, sessionId, sessionInfo);
             repl.run();
 
             // Destroy session on exit
@@ -174,6 +185,7 @@ public final class AceClawMain implements Runnable {
                 System.out.println("Daemon Status:");
                 System.out.println("  Status:          " + result.path("status").asText("unknown"));
                 System.out.println("  Version:         " + result.path("version").asText("unknown"));
+                System.out.println("  Model:           " + result.path("model").asText("unknown"));
                 System.out.println("  Active Sessions: " + result.path("activeSessions").asInt(0));
                 System.out.println("  Timestamp:       " + result.path("timestamp").asText("unknown"));
             } catch (DaemonClient.DaemonClientException e) {

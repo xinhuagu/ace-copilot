@@ -5,6 +5,8 @@ import org.commonmark.parser.Parser;
 
 import java.io.PrintWriter;
 
+import static dev.aceclaw.cli.TerminalTheme.*;
+
 /**
  * Renders Markdown text as ANSI-formatted terminal output.
  *
@@ -16,18 +18,6 @@ import java.io.PrintWriter;
  * thematic breaks.
  */
 public final class TerminalMarkdownRenderer {
-
-    // ANSI escape codes
-    private static final String RESET = "\u001B[0m";
-    private static final String BOLD = "\u001B[1m";
-    private static final String DIM = "\u001B[2m";
-    private static final String ITALIC = "\u001B[3m";
-    private static final String UNDERLINE = "\u001B[4m";
-    private static final String CYAN = "\u001B[36m";
-    private static final String GREEN = "\u001B[32m";
-    private static final String YELLOW = "\u001B[33m";
-    private static final String MAGENTA = "\u001B[35m";
-    private static final String BRIGHT_BLACK = "\u001B[90m";
 
     private final Parser parser;
 
@@ -95,9 +85,9 @@ public final class TerminalMarkdownRenderer {
 
                 case Heading heading -> {
                     String color = switch (heading.getLevel()) {
-                        case 1 -> BOLD + CYAN;
-                        case 2 -> BOLD + GREEN;
-                        case 3 -> BOLD + YELLOW;
+                        case 1 -> HEADING_1;
+                        case 2 -> HEADING_2;
+                        case 3 -> HEADING_3;
                         default -> BOLD;
                     };
                     out.print(color);
@@ -134,17 +124,17 @@ public final class TerminalMarkdownRenderer {
                 }
 
                 case Code code -> {
-                    out.print(BRIGHT_BLACK + "`" + code.getLiteral() + "`" + RESET);
+                    out.print(CODE_INLINE + "`" + code.getLiteral() + "`" + RESET);
                 }
 
                 case FencedCodeBlock codeBlock -> {
                     String lang = codeBlock.getInfo();
                     if (lang != null && !lang.isEmpty()) {
-                        out.println(DIM + "```" + lang + RESET);
+                        out.println(CODE_FENCE + "```" + lang + RESET);
                     } else {
-                        out.println(DIM + "```" + RESET);
+                        out.println(CODE_FENCE + "```" + RESET);
                     }
-                    out.print(CYAN);
+                    out.print(CODE);
                     String literal = codeBlock.getLiteral();
                     if (literal != null) {
                         // Remove trailing newline to avoid extra blank line
@@ -153,12 +143,12 @@ public final class TerminalMarkdownRenderer {
                         }
                         out.println(literal);
                     }
-                    out.println(RESET + DIM + "```" + RESET);
+                    out.println(RESET + CODE_FENCE + "```" + RESET);
                     out.println();
                 }
 
                 case IndentedCodeBlock codeBlock -> {
-                    out.print(CYAN);
+                    out.print(CODE);
                     String literal = codeBlock.getLiteral();
                     if (literal != null) {
                         for (String line : literal.split("\n", -1)) {
@@ -188,10 +178,10 @@ public final class TerminalMarkdownRenderer {
                     String indent = "  ".repeat(listDepth - 1);
                     Node parentList = item.getParent();
                     if (parentList instanceof OrderedList) {
-                        out.print(indent + YELLOW + orderedItemIndex + "." + RESET + " ");
+                        out.print(indent + WARNING + orderedItemIndex + "." + RESET + " ");
                         orderedItemIndex++;
                     } else {
-                        out.print(indent + YELLOW + "-" + RESET + " ");
+                        out.print(indent + WARNING + "-" + RESET + " ");
                     }
                     // Render item content inline (avoid extra paragraph newlines)
                     Node child = item.getFirstChild();
@@ -215,7 +205,7 @@ public final class TerminalMarkdownRenderer {
                 }
 
                 case Link link -> {
-                    out.print(UNDERLINE + MAGENTA);
+                    out.print(LINK);
                     renderChildren(link);
                     out.print(RESET);
                     String dest = link.getDestination();

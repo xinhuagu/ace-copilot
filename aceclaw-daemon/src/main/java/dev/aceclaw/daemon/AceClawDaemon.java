@@ -141,6 +141,9 @@ public final class AceClawDaemon {
         agentHandler.setLlmConfig(llmClient, model, systemPrompt);
         agentHandler.register(router);
 
+        // Expose model name to health status endpoint
+        router.setModelName(model);
+
         log.info("Agent handler wired: model={}, tools={}", model, toolRegistry.size());
     }
 

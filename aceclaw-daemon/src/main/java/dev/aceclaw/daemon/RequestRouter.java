@@ -47,10 +47,21 @@ public final class RequestRouter {
     private final ObjectMapper objectMapper;
     private volatile Runnable shutdownCallback;
 
+    private volatile String modelName;
+
     public RequestRouter(SessionManager sessionManager, ObjectMapper objectMapper) {
         this.sessionManager = sessionManager;
         this.objectMapper = objectMapper;
         registerBuiltinHandlers();
+    }
+
+    /**
+     * Sets the model name reported by the health status endpoint.
+     *
+     * @param modelName the LLM model identifier (e.g., "claude-sonnet-4-5-20250514")
+     */
+    public void setModelName(String modelName) {
+        this.modelName = modelName;
     }
 
     /**
@@ -224,6 +235,10 @@ public final class RequestRouter {
         result.put("activeSessions", sessionManager.sessionCount());
         result.put("timestamp", Instant.now().toString());
         result.put("version", "0.1.0-SNAPSHOT");
+        var m = modelName;
+        if (m != null) {
+            result.put("model", m);
+        }
         return result;
     }
 

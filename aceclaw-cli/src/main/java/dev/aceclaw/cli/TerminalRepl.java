@@ -9,6 +9,8 @@ import org.jline.reader.UserInterruptException;
 import org.jline.reader.impl.completer.FileNameCompleter;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
+import org.jline.utils.AttributedString;
+import org.jline.utils.Status;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,19 +18,23 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+
+import static dev.aceclaw.cli.TerminalTheme.*;
 
 /**
  * Interactive REPL (Read-Eval-Print Loop) for the AceClaw CLI.
  *
  * <p>Uses JLine3 for line editing, history, and tab completion. Sends user
  * input to the daemon as {@code agent.prompt} JSON-RPC requests and streams
- * back responses.
+ * back responses with incremental markdown rendering.
  *
  * <p>During streaming, the REPL processes intermediate notifications:
  * <ul>
- *   <li>{@code stream.text} - prints text deltas to the terminal</li>
- *   <li>{@code stream.tool_use} - displays tool invocation info</li>
- *   <li>{@code permission.request} - prompts the user for approval</li>
+ *   <li>{@code stream.thinking} - displays thinking deltas as dim italic text</li>
+ *   <li>{@code stream.text} - incrementally renders markdown paragraphs</li>
+ *   <li>{@code stream.tool_use} - shows spinner during tool execution</li>
+ *   <li>{@code permission.request} - prompts the user for approval with box-drawing UI</li>
  *   <li>{@code stream.error} - displays stream errors</li>
  * </ul>
  */
@@ -44,6 +50,7 @@ public final class TerminalRepl {
 
     private final DaemonClient client;
     private final String sessionId;
+    private final SessionInfo sessionInfo;
     private final TerminalMarkdownRenderer markdownRenderer;
 
     private volatile boolean streaming = false;
@@ -51,15 +58,32 @@ public final class TerminalRepl {
     /** LineReader reference for use during permission prompts. */
     private volatile LineReader activeReader;
 
+    /** Active spinner (non-null when a tool is executing). */
+    private volatile TerminalSpinner spinner;
+
+    /** Cumulative token counters across turns. */
+    private long totalInputTokens = 0;
+    private long totalOutputTokens = 0;
+
+    /** JLine3 status line (bottom of terminal). */
+    private volatile Status statusLine;
+
+    /**
+     * Session metadata displayed in the startup banner and status line.
+     */
+    public record SessionInfo(String version, String model, String project) {}
+
     /**
      * Creates a REPL connected to the given daemon client and session.
      *
-     * @param client    connected daemon client
-     * @param sessionId active session identifier
+     * @param client      connected daemon client
+     * @param sessionId   active session identifier
+     * @param sessionInfo session metadata for banner and status line
      */
-    public TerminalRepl(DaemonClient client, String sessionId) {
+    public TerminalRepl(DaemonClient client, String sessionId, SessionInfo sessionInfo) {
         this.client = client;
         this.sessionId = sessionId;
+        this.sessionInfo = sessionInfo;
         this.markdownRenderer = new TerminalMarkdownRenderer();
     }
 
@@ -85,10 +109,13 @@ public final class TerminalRepl {
             activeReader = reader;
 
             PrintWriter out = terminal.writer();
-            String prompt = "\u001B[36maceclaw>\u001B[0m ";
+            String prompt = PROMPT + "aceclaw>" + RESET + " ";
 
-            out.println("Type your prompt, or Ctrl+D to exit.");
-            out.flush();
+            // Render startup banner
+            renderBanner(out, terminal.getWidth());
+
+            // Initialize status line
+            initStatusLine(terminal);
 
             // Install signal handler for Ctrl+C during streaming
             terminal.handle(Terminal.Signal.INT, _ -> {
@@ -130,13 +157,77 @@ public final class TerminalRepl {
                 processInput(out, line.trim());
             }
 
+            // Dispose status line on exit
+            disposeStatusLine();
+
         } catch (IOException e) {
             log.error("Terminal error: {}", e.getMessage(), e);
             System.err.println("Terminal error: " + e.getMessage());
         }
     }
 
-    // -- internal --------------------------------------------------------
+    // -- Banner rendering ----------------------------------------------------
+
+    private void renderBanner(PrintWriter out, int termWidth) {
+        int innerWidth = Math.max(40, Math.min(termWidth - 4, 60));
+
+        String titleLine = "  AceClaw  v" + sessionInfo.version();
+
+        // Shorten the model name for display
+        String modelDisplay = sessionInfo.model();
+        String projectDisplay = fitWidth(sessionInfo.project(), innerWidth - 14);
+
+        String modelLine = "  Model: " + modelDisplay;
+        String projectLine = "  Project: " + projectDisplay;
+
+        out.println();
+        out.println(ACCENT + BOX_TOP_LEFT + hline(innerWidth) + BOX_TOP_RIGHT + RESET);
+        out.println(ACCENT + BOX_VERTICAL + RESET + BOLD + padRight(titleLine, innerWidth) + ACCENT + BOX_VERTICAL + RESET);
+        out.println(ACCENT + BOX_VERTICAL + RESET + MUTED + padRight(modelLine, innerWidth) + ACCENT + BOX_VERTICAL + RESET);
+        out.println(ACCENT + BOX_VERTICAL + RESET + MUTED + padRight(projectLine, innerWidth) + ACCENT + BOX_VERTICAL + RESET);
+        out.println(ACCENT + BOX_BOTTOM_LEFT + hline(innerWidth) + BOX_BOTTOM_RIGHT + RESET);
+        out.println();
+        out.flush();
+    }
+
+    // -- Status line ---------------------------------------------------------
+
+    private void initStatusLine(Terminal terminal) {
+        try {
+            statusLine = Status.getStatus(terminal);
+            if (statusLine != null) {
+                updateStatusLine();
+            }
+        } catch (Exception e) {
+            log.debug("Status line not available: {}", e.getMessage());
+            statusLine = null;
+        }
+    }
+
+    private void updateStatusLine() {
+        var sl = statusLine;
+        if (sl == null) return;
+        try {
+            String status = sessionInfo.model()
+                    + " | tokens: " + totalInputTokens + " in / " + totalOutputTokens + " out";
+            sl.update(List.of(new AttributedString(status)));
+        } catch (Exception e) {
+            log.debug("Failed to update status line: {}", e.getMessage());
+        }
+    }
+
+    private void disposeStatusLine() {
+        var sl = statusLine;
+        if (sl != null) {
+            try {
+                sl.update(null);
+            } catch (Exception e) {
+                // Ignore
+            }
+        }
+    }
+
+    // -- Input processing ----------------------------------------------------
 
     private void processInput(PrintWriter out, String input) {
         try {
@@ -153,10 +244,13 @@ public final class TerminalRepl {
             // Enter streaming read loop: process notifications until the final response
             var textBuffer = new StringBuilder();
             boolean receivedTextOutput = false;
+            boolean wasThinking = false;
+            boolean inCodeFence = false;
             boolean done = false;
             while (!done) {
                 String responseLine = client.readLine();
                 if (responseLine == null) {
+                    stopSpinner();
                     flushMarkdown(out, textBuffer);
                     out.println("\n[Connection closed]");
                     out.flush();
@@ -168,6 +262,7 @@ public final class TerminalRepl {
                 if (message.has("id") && !message.get("id").isNull()) {
                     // This is the final JSON-RPC response
                     done = true;
+                    stopSpinner();
 
                     // Render any buffered markdown text
                     if (receivedTextOutput) {
@@ -179,9 +274,9 @@ public final class TerminalRepl {
                         int code = error.get("code").asInt();
                         String errorMessage = error.get("message").asText();
                         if (code == METHOD_NOT_FOUND) {
-                            out.println("\u001B[31m[Agent not available. Is the daemon configured correctly?]\u001B[0m");
+                            out.println(ERROR + "[Agent not available. Is the daemon configured correctly?]" + RESET);
                         } else {
-                            out.printf("\u001B[31mError: %s\u001B[0m%n", errorMessage);
+                            out.printf("%sError: %s%s%n", ERROR, errorMessage, RESET);
                         }
                     } else {
                         JsonNode result = message.get("result");
@@ -194,12 +289,12 @@ public final class TerminalRepl {
                                 }
                             }
                         }
-                        // Show usage info
+                        // Update cumulative token counters
                         if (result != null && result.has("usage")) {
                             var usage = result.get("usage");
-                            out.printf("[tokens: %d in / %d out]%n",
-                                    usage.path("inputTokens").asInt(0),
-                                    usage.path("outputTokens").asInt(0));
+                            totalInputTokens += usage.path("inputTokens").asInt(0);
+                            totalOutputTokens += usage.path("outputTokens").asInt(0);
+                            updateStatusLine();
                         }
                     }
                     out.flush();
@@ -210,17 +305,52 @@ public final class TerminalRepl {
                     JsonNode notifParams = message.get("params");
 
                     switch (method) {
-                        case "stream.text" -> {
-                            // Buffer text deltas for markdown rendering
+                        case "stream.thinking" -> {
                             if (notifParams != null && notifParams.has("delta")) {
                                 String delta = notifParams.get("delta").asText();
+                                stopSpinner();
+                                out.print(THINKING + delta + RESET);
+                                out.flush();
+                                wasThinking = true;
+                            }
+                        }
+
+                        case "stream.text" -> {
+                            // Incremental paragraph-level markdown rendering
+                            if (notifParams != null && notifParams.has("delta")) {
+                                String delta = notifParams.get("delta").asText();
+                                stopSpinner();
+
+                                // Transition from thinking to response text
+                                if (wasThinking) {
+                                    out.println();
+                                    out.println();
+                                    wasThinking = false;
+                                }
+
                                 textBuffer.append(delta);
                                 receivedTextOutput = true;
 
-                                // Show a progress indicator (dot per paragraph)
-                                if (delta.contains("\n\n")) {
-                                    out.print(".");
-                                    out.flush();
+                                // Track code fence state to avoid splitting inside fenced blocks
+                                for (int i = 0; i < delta.length(); i++) {
+                                    if (i + 2 < delta.length()
+                                            && delta.charAt(i) == '`'
+                                            && delta.charAt(i + 1) == '`'
+                                            && delta.charAt(i + 2) == '`') {
+                                        inCodeFence = !inCodeFence;
+                                    }
+                                }
+
+                                // Render complete paragraph blocks (delimited by \n\n) if not in a code fence
+                                if (!inCodeFence) {
+                                    int boundary;
+                                    while ((boundary = textBuffer.indexOf("\n\n")) != -1) {
+                                        // Include the double newline in the block
+                                        String block = textBuffer.substring(0, boundary + 2);
+                                        textBuffer.delete(0, boundary + 2);
+                                        markdownRenderer.render(block, out);
+                                        out.flush();
+                                    }
                                 }
                             }
                         }
@@ -228,31 +358,46 @@ public final class TerminalRepl {
                         case "stream.tool_use" -> {
                             if (receivedTextOutput) {
                                 flushMarkdown(out, textBuffer);
+                                inCodeFence = false;
                                 receivedTextOutput = false;
                             }
+                            if (wasThinking) {
+                                out.println();
+                                wasThinking = false;
+                            }
+                            stopSpinner();
                             if (notifParams != null) {
                                 String toolName = notifParams.path("name").asText("unknown");
-                                out.printf("\u001B[33m[tool: %s]\u001B[0m%n", toolName);
-                                out.flush();
+                                String verb = TerminalSpinner.verbForTool(toolName);
+                                spinner = new TerminalSpinner(out);
+                                spinner.start(verb + " " + toolName + "...");
                             }
                         }
 
                         case "permission.request" -> {
                             if (receivedTextOutput) {
                                 flushMarkdown(out, textBuffer);
+                                inCodeFence = false;
                                 receivedTextOutput = false;
                             }
+                            if (wasThinking) {
+                                out.println();
+                                wasThinking = false;
+                            }
+                            stopSpinner();
                             handlePermissionRequest(out, notifParams);
                         }
 
                         case "stream.error" -> {
                             if (receivedTextOutput) {
                                 flushMarkdown(out, textBuffer);
+                                inCodeFence = false;
                                 receivedTextOutput = false;
                             }
+                            stopSpinner();
                             if (notifParams != null && notifParams.has("error")) {
-                                out.printf("\u001B[31m[stream error: %s]\u001B[0m%n",
-                                        notifParams.get("error").asText());
+                                out.printf("%s[stream error: %s]%s%n",
+                                        ERROR, notifParams.get("error").asText(), RESET);
                                 out.flush();
                             }
                         }
@@ -267,6 +412,7 @@ public final class TerminalRepl {
             }
 
         } catch (IOException e) {
+            stopSpinner();
             out.println("Connection error: " + e.getMessage());
             out.flush();
             log.error("I/O error during prompt: {}", e.getMessage(), e);
@@ -292,6 +438,7 @@ public final class TerminalRepl {
     /**
      * Handles a permission.request notification by prompting the user
      * and sending back a permission.response notification.
+     * Uses box-drawing characters for a polished permission UI.
      */
     private void handlePermissionRequest(PrintWriter out, JsonNode params) {
         if (params == null) return;
@@ -300,9 +447,18 @@ public final class TerminalRepl {
         String description = params.path("description").asText("");
         String requestId = params.path("requestId").asText("");
 
+        int boxWidth = 50;
+
         out.println();
-        out.printf("\u001B[1;33m[Permission Required]\u001B[0m %s%n", description);
-        out.printf("  Allow \u001B[1m%s\u001B[0m? (y)es / (n)o / (a)lways: ", tool);
+        out.println(PERMISSION + " " + BOX_LIGHT_TOP_LEFT + BOX_LIGHT_HORIZONTAL
+                + " Permission Required " + hlineLight(boxWidth - 22) + RESET);
+        out.println(PERMISSION + " " + BOX_LIGHT_VERTICAL + RESET + " " + description);
+        out.println(PERMISSION + " " + BOX_LIGHT_VERTICAL + RESET);
+        out.printf("%s %s%s (%sy%s) Allow  (%sn%s) Deny  (%sa%s) Always: ",
+                PERMISSION, BOX_LIGHT_VERTICAL, RESET,
+                APPROVED, RESET,
+                DENIED, RESET,
+                WARNING, RESET);
         out.flush();
 
         boolean approved = false;
@@ -329,6 +485,9 @@ public final class TerminalRepl {
             approved = false;
         }
 
+        // Close the box
+        out.println(PERMISSION + " " + BOX_LIGHT_BOTTOM_LEFT + hlineLight(boxWidth) + RESET);
+
         // Send permission.response back to daemon
         try {
             ObjectNode responseParams = client.objectMapper().createObjectNode();
@@ -338,9 +497,10 @@ public final class TerminalRepl {
             client.sendNotification("permission.response", responseParams);
 
             if (approved) {
-                out.printf("\u001B[32m[Approved%s]\u001B[0m%n", remember ? " (always)" : "");
+                out.printf("%s%s Approved%s%s%n", APPROVED, CHECKMARK,
+                        remember ? " (always)" : "", RESET);
             } else {
-                out.printf("\u001B[31m[Denied]\u001B[0m%n");
+                out.printf("%sDenied%s%n", DENIED, RESET);
             }
             out.flush();
         } catch (IOException e) {
@@ -352,18 +512,28 @@ public final class TerminalRepl {
 
     /**
      * Renders buffered markdown text and clears the buffer.
-     * Clears any progress dots before rendering.
      */
     private void flushMarkdown(PrintWriter out, StringBuilder buffer) {
         if (buffer.isEmpty()) return;
-        out.print("\r\u001B[K"); // Clear the progress dots line
         markdownRenderer.render(buffer.toString(), out);
         out.flush();
         buffer.setLength(0);
     }
 
+    /**
+     * Stops the active spinner if one is running.
+     */
+    private void stopSpinner() {
+        var s = spinner;
+        if (s != null && s.isSpinning()) {
+            s.stop(TOOL_DONE + CHECKMARK + RESET + " done");
+            spinner = null;
+        }
+    }
+
     private void cancelStreaming(PrintWriter out) {
         try {
+            stopSpinner();
             ObjectNode params = client.objectMapper().createObjectNode();
             params.put("sessionId", sessionId);
             client.sendNotification("agent.cancel", params);

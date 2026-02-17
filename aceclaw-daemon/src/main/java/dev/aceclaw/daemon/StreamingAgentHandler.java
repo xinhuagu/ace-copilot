@@ -259,6 +259,17 @@ public final class StreamingAgentHandler {
         }
 
         @Override
+        public void onThinkingDelta(StreamEvent.ThinkingDelta event) {
+            try {
+                var params = objectMapper.createObjectNode();
+                params.put("delta", event.text());
+                context.sendNotification("stream.thinking", params);
+            } catch (IOException e) {
+                log.warn("Failed to send thinking delta notification: {}", e.getMessage());
+            }
+        }
+
+        @Override
         public void onTextDelta(StreamEvent.TextDelta event) {
             try {
                 var params = objectMapper.createObjectNode();
