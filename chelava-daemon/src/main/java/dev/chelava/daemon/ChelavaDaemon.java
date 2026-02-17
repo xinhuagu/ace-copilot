@@ -7,6 +7,7 @@ import dev.chelava.core.agent.StreamingAgentLoop;
 import dev.chelava.core.agent.ToolRegistry;
 import dev.chelava.core.llm.LlmClient;
 import dev.chelava.llm.anthropic.AnthropicClient;
+import dev.chelava.memory.AutoMemoryStore;
 import dev.chelava.security.DefaultPermissionPolicy;
 import dev.chelava.security.PermissionManager;
 import dev.chelava.tools.*;
@@ -42,6 +43,8 @@ public final class ChelavaDaemon {
     private final DaemonLock lock;
     private final ShutdownManager shutdownManager;
     private final SessionManager sessionManager;
+    private final SessionHistoryStore historyStore;
+    private final AutoMemoryStore memoryStore;
     private final RequestRouter router;
     private final ConnectionBridge connectionBridge;
     private final UdsListener udsListener;
@@ -64,8 +67,20 @@ public final class ChelavaDaemon {
         // Lock
         this.lock = new DaemonLock(homeDir.resolve("chelava.pid"));
 
-        // Sessions & routing
+        // Sessions & history persistence
         this.sessionManager = new SessionManager();
+        this.historyStore = new SessionHistoryStore(homeDir);
+
+        // Auto-memory store
+        AutoMemoryStore ms = null;
+        try {
+            ms = new AutoMemoryStore(homeDir);
+            ms.load(workingDir);
+        } catch (java.io.IOException e) {
+            log.warn("Failed to initialize auto-memory store: {}", e.getMessage());
+        }
+        this.memoryStore = ms;
+
         this.router = new RequestRouter(sessionManager, objectMapper);
         this.connectionBridge = new ConnectionBridge(router, objectMapper);
 
@@ -113,8 +128,8 @@ public final class ChelavaDaemon {
         // 3. Permission manager with default policy
         var permissionManager = new PermissionManager(new DefaultPermissionPolicy());
 
-        // 4. System prompt
-        String systemPrompt = SystemPromptLoader.load(workingDir);
+        // 4. System prompt (with auto-memory injection)
+        String systemPrompt = SystemPromptLoader.load(workingDir, memoryStore);
 
         // 5. Streaming agent loop
         String model = config.model();
@@ -174,6 +189,12 @@ public final class ChelavaDaemon {
             @Override public String name() { return "UDS Listener"; }
             @Override public int priority() { return 100; }
             @Override public void onShutdown() { udsListener.stop(); }
+        });
+
+        shutdownManager.register(new ShutdownManager.ShutdownParticipant() {
+            @Override public String name() { return "Session History"; }
+            @Override public int priority() { return 95; }
+            @Override public void onShutdown() { historyStore.flushAll(sessionManager.activeSessions()); }
         });
 
         shutdownManager.register(new ShutdownManager.ShutdownParticipant() {
@@ -242,6 +263,20 @@ public final class ChelavaDaemon {
      */
     public RequestRouter router() {
         return router;
+    }
+
+    /**
+     * Returns the session history store.
+     */
+    public SessionHistoryStore historyStore() {
+        return historyStore;
+    }
+
+    /**
+     * Returns the auto-memory store (may be null if initialization failed).
+     */
+    public AutoMemoryStore memoryStore() {
+        return memoryStore;
     }
 
     private void awaitShutdown() {

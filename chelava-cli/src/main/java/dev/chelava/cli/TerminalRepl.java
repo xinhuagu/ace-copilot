@@ -44,6 +44,7 @@ public final class TerminalRepl {
 
     private final DaemonClient client;
     private final String sessionId;
+    private final TerminalMarkdownRenderer markdownRenderer;
 
     private volatile boolean streaming = false;
 
@@ -59,6 +60,7 @@ public final class TerminalRepl {
     public TerminalRepl(DaemonClient client, String sessionId) {
         this.client = client;
         this.sessionId = sessionId;
+        this.markdownRenderer = new TerminalMarkdownRenderer();
     }
 
     /**
@@ -149,11 +151,13 @@ public final class TerminalRepl {
             long id = sendPromptRequest(params);
 
             // Enter streaming read loop: process notifications until the final response
+            var textBuffer = new StringBuilder();
             boolean receivedTextOutput = false;
             boolean done = false;
             while (!done) {
                 String responseLine = client.readLine();
                 if (responseLine == null) {
+                    flushMarkdown(out, textBuffer);
                     out.println("\n[Connection closed]");
                     out.flush();
                     break;
@@ -164,8 +168,10 @@ public final class TerminalRepl {
                 if (message.has("id") && !message.get("id").isNull()) {
                     // This is the final JSON-RPC response
                     done = true;
+
+                    // Render any buffered markdown text
                     if (receivedTextOutput) {
-                        out.println(); // End the streaming text output
+                        flushMarkdown(out, textBuffer);
                     }
 
                     if (message.has("error") && !message.get("error").isNull()) {
@@ -184,7 +190,7 @@ public final class TerminalRepl {
                             if (result.has("response")) {
                                 var response = result.get("response").asText();
                                 if (!response.isEmpty()) {
-                                    out.println(response);
+                                    markdownRenderer.render(response, out);
                                 }
                             }
                         }
@@ -205,17 +211,23 @@ public final class TerminalRepl {
 
                     switch (method) {
                         case "stream.text" -> {
-                            // Print text delta without newline, flush immediately
+                            // Buffer text deltas for markdown rendering
                             if (notifParams != null && notifParams.has("delta")) {
-                                out.print(notifParams.get("delta").asText());
-                                out.flush();
+                                String delta = notifParams.get("delta").asText();
+                                textBuffer.append(delta);
                                 receivedTextOutput = true;
+
+                                // Show a progress indicator (dot per paragraph)
+                                if (delta.contains("\n\n")) {
+                                    out.print(".");
+                                    out.flush();
+                                }
                             }
                         }
 
                         case "stream.tool_use" -> {
                             if (receivedTextOutput) {
-                                out.println(); // End text line before tool info
+                                flushMarkdown(out, textBuffer);
                                 receivedTextOutput = false;
                             }
                             if (notifParams != null) {
@@ -227,7 +239,7 @@ public final class TerminalRepl {
 
                         case "permission.request" -> {
                             if (receivedTextOutput) {
-                                out.println();
+                                flushMarkdown(out, textBuffer);
                                 receivedTextOutput = false;
                             }
                             handlePermissionRequest(out, notifParams);
@@ -235,7 +247,7 @@ public final class TerminalRepl {
 
                         case "stream.error" -> {
                             if (receivedTextOutput) {
-                                out.println();
+                                flushMarkdown(out, textBuffer);
                                 receivedTextOutput = false;
                             }
                             if (notifParams != null && notifParams.has("error")) {
@@ -336,6 +348,18 @@ public final class TerminalRepl {
             out.println("[Failed to send permission response]");
             out.flush();
         }
+    }
+
+    /**
+     * Renders buffered markdown text and clears the buffer.
+     * Clears any progress dots before rendering.
+     */
+    private void flushMarkdown(PrintWriter out, StringBuilder buffer) {
+        if (buffer.isEmpty()) return;
+        out.print("\r\u001B[K"); // Clear the progress dots line
+        markdownRenderer.render(buffer.toString(), out);
+        out.flush();
+        buffer.setLength(0);
     }
 
     private void cancelStreaming(PrintWriter out) {
