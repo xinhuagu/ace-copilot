@@ -45,11 +45,7 @@ public final class AppleScriptTool implements Tool {
 
     @Override
     public String description() {
-        return "Executes AppleScript code on macOS using the osascript command.\n" +
-               "- Use this for macOS automation: controlling applications, system dialogs, file management.\n" +
-               "- The script is passed via -e arguments (one per line).\n" +
-               "- 30-second timeout, output capped at 30K characters.\n" +
-               "- Only available on macOS.";
+        return ToolDescriptionLoader.load(name());
     }
 
     @Override

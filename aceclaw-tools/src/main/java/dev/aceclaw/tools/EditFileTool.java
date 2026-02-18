@@ -34,25 +34,7 @@ public final class EditFileTool implements Tool {
 
     @Override
     public String description() {
-        return "Performs exact string replacements in files. This is the primary tool for modifying code.\n\n" +
-               "CRITICAL RULES:\n" +
-               "- You MUST read the file first before editing. This tool will error on unread files.\n" +
-               "- old_string must EXACTLY match text in the file (including whitespace and indentation).\n" +
-               "- The edit FAILS if old_string is not found or matches multiple locations. " +
-               "Include enough surrounding context (2-3 lines above/below) to make it unique.\n" +
-               "- old_string and new_string must be different. Do not submit no-op edits.\n" +
-               "- Preserve the exact indentation (tabs vs spaces) as it appears in the file.\n\n" +
-               "When to use:\n" +
-               "- Modifying existing code (changing functions, fixing bugs, updating imports)\n" +
-               "- Use replace_all=true for renaming variables, functions, or classes across the file\n\n" +
-               "When NOT to use:\n" +
-               "- Creating new files → use write_file instead\n" +
-               "- Replacing the entire file content → use write_file instead\n" +
-               "- Running sed/awk in bash → use this tool instead\n\n" +
-               "Anti-patterns to avoid:\n" +
-               "- Do NOT guess file contents — always read first\n" +
-               "- Do NOT include line numbers from read_file output in old_string\n" +
-               "- Do NOT change indentation style (e.g., tabs to spaces) unless explicitly asked";
+        return ToolDescriptionLoader.load(name());
     }
 
     @Override

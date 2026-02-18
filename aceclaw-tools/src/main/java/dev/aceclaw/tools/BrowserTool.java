@@ -49,18 +49,7 @@ public final class BrowserTool implements Tool, AutoCloseable {
 
     @Override
     public String description() {
-        return "Controls a headless browser for web automation and testing.\n" +
-               "Actions:\n" +
-               "- launch: Start a new browser session (call this first)\n" +
-               "- navigate: Go to a URL (params: url)\n" +
-               "- click: Click an element (params: selector)\n" +
-               "- type: Type text into an element (params: selector, text)\n" +
-               "- screenshot: Take a screenshot, saved to a file (params: optional output_path)\n" +
-               "- get_text: Get text content of the page or a specific element (params: optional selector)\n" +
-               "- evaluate: Execute JavaScript in the browser (params: script)\n" +
-               "- close: Close the browser session\n\n" +
-               "The browser is headless Chromium. Call 'launch' before other actions.\n" +
-               "Use CSS selectors for click, type, and get_text.";
+        return ToolDescriptionLoader.load(name());
     }
 
     @Override

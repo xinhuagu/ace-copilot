@@ -45,12 +45,7 @@ public final class ScreenCaptureTool implements Tool {
 
     @Override
     public String description() {
-        return "Captures a screenshot on macOS.\n" +
-               "- Saves the screenshot as a PNG file.\n" +
-               "- Optionally captures only a specific region (x,y,width,height).\n" +
-               "- Optionally extracts text from the screenshot using OCR (macOS Vision framework).\n" +
-               "- Returns the file path and optionally the extracted text.\n" +
-               "- Only available on macOS.";
+        return ToolDescriptionLoader.load(name());
     }
 
     @Override

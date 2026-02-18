@@ -45,11 +45,7 @@ public final class ListDirTool implements Tool {
 
     @Override
     public String description() {
-        return "Lists the contents of a directory.\n" +
-               "- Returns a table with type (dir/file), size, modified date, and name.\n" +
-               "- Directories are listed first, then files, both sorted alphabetically.\n" +
-               "- Capped at 1000 entries.\n" +
-               "- Use this tool for directory listing instead of bash with ls.";
+        return ToolDescriptionLoader.load(name());
     }
 
     @Override

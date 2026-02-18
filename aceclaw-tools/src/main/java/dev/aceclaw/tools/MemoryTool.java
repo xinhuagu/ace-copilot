@@ -51,34 +51,7 @@ public final class MemoryTool implements Tool {
 
     @Override
     public String description() {
-        return "Manages persistent memory that survives across sessions. " +
-               "Memories are HMAC-signed and stored as JSONL files.\n\n" +
-               "Three actions:\n" +
-               "- save: Store a new memory. Requires content and category.\n" +
-               "- search: Find relevant memories using natural language query. " +
-               "Uses hybrid TF-IDF + recency ranking.\n" +
-               "- list: Browse memories, optionally filtered by category.\n\n" +
-               "When to save:\n" +
-               "- After discovering a bug pattern or gotcha\n" +
-               "- When the user corrects you (save as CORRECTION or MISTAKE)\n" +
-               "- When learning a project convention or preference\n" +
-               "- After finding a useful strategy that worked\n" +
-               "- When noting environment-specific configuration\n\n" +
-               "When to search:\n" +
-               "- Before starting a complex or unfamiliar task\n" +
-               "- When encountering an error that might have been seen before\n" +
-               "- When unsure about project conventions\n\n" +
-               "When to list:\n" +
-               "- To review what has been learned about the project\n" +
-               "- To check if a memory already exists before saving a duplicate\n\n" +
-               "Anti-patterns:\n" +
-               "- Do NOT save trivial or obvious information\n" +
-               "- Do NOT search every single turn — only when genuinely useful\n" +
-               "- Do NOT save information already in the system prompt or CLAUDE.md\n" +
-               "- Do NOT save raw file contents — summarize the insight instead\n\n" +
-               "Categories: mistake, pattern, preference, codebase_insight, strategy, " +
-               "workflow, environment, relationship, terminology, constraint, decision, " +
-               "tool_usage, communication, context, correction, bookmark";
+        return ToolDescriptionLoader.load(name());
     }
 
     @Override

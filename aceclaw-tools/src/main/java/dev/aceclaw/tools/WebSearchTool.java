@@ -50,11 +50,7 @@ public final class WebSearchTool implements Tool {
 
     @Override
     public String description() {
-        return "Searches the web using Brave Search and returns results.\n" +
-               "- Returns a numbered list of results with title, URL, and snippet.\n" +
-               "- Use this for finding up-to-date information, documentation, solutions, etc.\n" +
-               "- Default 5 results, max 20.\n" +
-               "- Returns current, real-time search results from the web.";
+        return ToolDescriptionLoader.load(name());
     }
 
     @Override

@@ -44,26 +44,7 @@ public final class BashExecTool implements Tool {
 
     @Override
     public String description() {
-        return "Executes a bash command with optional timeout. Use this for git, build tools, " +
-               "package managers, running tests, and other terminal operations.\n\n" +
-               "IMPORTANT: Do NOT use this tool for file operations. Use dedicated tools instead:\n" +
-               "- To read files: use read_file (NOT cat, head, tail, less)\n" +
-               "- To edit files: use edit_file (NOT sed, awk, perl -i)\n" +
-               "- To create files: use write_file (NOT echo >, cat <<EOF, tee)\n" +
-               "- To search file names: use glob (NOT find, ls -R, locate)\n" +
-               "- To search file contents: use grep (NOT grep, rg, ag, ack)\n" +
-               "- To list directories: use list_directory (NOT ls, dir, tree)\n\n" +
-               "Good uses: git commands, ./gradlew build, npm install, docker, make, curl (for APIs), " +
-               "python scripts, compilation, test runners, package managers.\n\n" +
-               "Tips:\n" +
-               "- Always quote file paths with spaces: cd \"path with spaces\" (NOT cd path with spaces)\n" +
-               "- Chain dependent commands with &&: mkdir -p dir && cp file dir/\n" +
-               "- Use ; only when you don't care if earlier commands fail\n" +
-               "- For long-running commands, set a higher timeout\n" +
-               "- If a command fails, read the error carefully before retrying\n" +
-               "- Never run destructive commands (rm -rf, git push --force) without user confirmation\n\n" +
-               "Commands run in the project working directory. Default timeout: 120s, max: 600s. " +
-               "Output truncated at 30000 characters (40% head, 60% tail preserved).";
+        return ToolDescriptionLoader.load(name());
     }
 
     @Override

@@ -51,12 +51,7 @@ public final class WebFetchTool implements Tool {
 
     @Override
     public String description() {
-        return "Fetches content from a URL and returns it as text.\n" +
-               "- For HTML pages, converts to readable text (strips tags, preserves structure).\n" +
-               "- For non-HTML content (JSON, plain text, etc.), returns raw content.\n" +
-               "- Use the 'raw' option to skip HTML-to-text conversion.\n" +
-               "- Follows redirects, 30s timeout, output capped at 30K characters.\n" +
-               "- Use this to read web pages, documentation, API responses, etc.";
+        return ToolDescriptionLoader.load(name());
     }
 
     @Override
