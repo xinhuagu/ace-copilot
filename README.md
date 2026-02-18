@@ -6,6 +6,12 @@
 
 <p align="center">Enterprise-grade, general-purpose autonomous AI agent built on Java 21.</p>
 
+<p align="center">
+  <a href="https://github.com/xinhuagu/AceClaw/actions/workflows/ci.yml"><img src="https://github.com/xinhuagu/AceClaw/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/Java-21-orange?logo=openjdk" alt="Java 21">
+  <img src="https://img.shields.io/badge/GraalVM-Native_Image-blue?logo=oracle" alt="GraalVM">
+</p>
+
 AceClaw is the Java implementation of [OpenClaw](https://github.com/openclaw) — built for enterprise environments where security, self-improvement, and extensibility matter.
 
 ## AceClaw vs OpenClaw
