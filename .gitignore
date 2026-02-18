@@ -30,9 +30,12 @@ replay_pid*
 *.so
 *.dylib
 
-# Chelava runtime
+# AceClaw runtime
+.aceclaw/
 .chelava/
-~/.chelava/
+
+# Per-developer local config (not for team sharing)
+ACECLAW.local.md
 
 # Logs
 *.log

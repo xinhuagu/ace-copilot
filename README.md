@@ -23,7 +23,7 @@ AceClaw is the Java implementation of [OpenClaw](https://github.com/openclaw) �
 | **Agent Loop** | External (Pi framework) | Self-implemented ReAct loop |
 | **Architecture** | Single process | Daemon-first (persistent JVM + thin CLI) |
 | **Concurrency** | Node.js async | Virtual threads (Project Loom) |
-| **Memory** | 5-tier (T0-T4), MEMORY.md + daily logs, vector+BM25 search | 6-tier hierarchy, HMAC-signed JSONL, TF-IDF hybrid search |
+| **Memory** | 5-tier (T0-T4), MEMORY.md + daily logs, vector+BM25 search | 8-tier hierarchy, HMAC-signed JSONL, TF-IDF hybrid search, memory consolidation |
 | **Security** | Breached within 48h of launch | Sealed permission model, HMAC integrity, gated tools |
 | **LLM Providers** | Pi SDK (multi-provider) | 7 providers (Anthropic, OpenAI, Groq, Together, Mistral, Copilot, Ollama) |
 | **Tools** | 50+ via community | 12 built-in + MCP extensibility |
@@ -62,7 +62,7 @@ Daemon (persistent JVM)
   ├─ Streaming Agent Loop → ReAct loop (max 25 iterations)
   ├─ Permission Manager   → READ auto-approved, WRITE/EXECUTE gated
   ├─ Tool Registry        → 12 native tools + MCP
-  ├─ Memory System        → 6-tier hierarchy, hybrid search, daily journal
+  ├─ Memory System        → 8-tier hierarchy, hybrid search, consolidation, rules
   ├─ Context Compactor    → 3-phase (prune → summarize → memory flush)
   └─ LLM Client Factory   → 7 providers, extended thinking, prompt caching
 ```
@@ -75,23 +75,23 @@ Daemon (persistent JVM)
 | `aceclaw-llm` | Anthropic + OpenAI-compatible LLM clients |
 | `aceclaw-tools` | 12 built-in tools (file ops, bash, glob, grep, web, browser) |
 | `aceclaw-security` | Sealed permission model (AutoAllow / PromptOnce / AlwaysAsk / Deny) |
-| `aceclaw-memory` | 6-tier memory hierarchy, hybrid search, daily journal, HMAC integrity |
+| `aceclaw-memory` | [8-tier memory hierarchy](docs/memory-system-design.md), hybrid search, consolidation, path-based rules, HMAC integrity |
 | `aceclaw-mcp` | MCP client integration for external tools |
 | `aceclaw-daemon` | Daemon process, UDS listener, streaming handler |
 | `aceclaw-cli` | CLI entry point, REPL, daemon lifecycle |
 
 ## Memory System
 
-AceClaw implements a 6-tier persistent memory hierarchy with cryptographic integrity — combining the best of Claude Code and OpenClaw while adding enterprise-grade signing.
+AceClaw implements an [8-tier persistent memory hierarchy](docs/memory-system-design.md) with cryptographic integrity, memory consolidation, and path-based conditional rules — combining the best of Claude Code and OpenClaw while adding enterprise-grade signing and self-maintenance.
 
 ### Memory Comparison
 
 | Capability | Claude Code | OpenClaw | AceClaw |
 |------------|-------------|----------|---------|
 | **Cross-session memory** | MEMORY.md (flat file) | MEMORY.md + daily logs | HMAC-signed JSONL + daily journal |
-| **Memory tiers** | 1 (auto-memory only) | 5 (T0 Working → T4 Foundational) | 6 (Soul → Policy → Workspace → User → Auto → Journal) |
+| **Memory tiers** | 1 (auto-memory only) | 5 (T0 Working → T4 Foundational) | 8 (Soul → Policy → Workspace → User → Local → Auto → Markdown → Journal) |
 | **Structured files** | CLAUDE.md (single) | 8+ files (AGENTS/SOUL/TOOLS/IDENTITY/USER/HEARTBEAT.md) | ACECLAW.md + SOUL.md + managed-policy.md |
-| **Categories** | Unstructured text | File-based (identity, tools, user, etc.) | 16 typed categories per entry |
+| **Categories** | Unstructured text | File-based (identity, tools, user, etc.) | 21 typed categories per entry |
 | **Search** | None (full injection) | Hybrid: 70% vector + 30% BM25 (SQLite) | Hybrid: TF-IDF + recency decay + frequency boost |
 | **Integrity** | None | SHA-256 hash (dedup, no signing) | HMAC-SHA256 per entry, constant-time verification |
 | **Key protection** | N/A | N/A | POSIX 600 on signing key |
@@ -100,20 +100,22 @@ AceClaw implements a 6-tier persistent memory hierarchy with cryptographic integ
 | **Context compaction** | Summarize-only | Silent pre-flush + auto-compaction | 3-phase (prune → summarize → memory flush) |
 | **Memory in prompt** | Appended at end | Conditional injection + lazy loading | Tiered assembly with priority ordering |
 
-### 6-Tier Hierarchy
+### 8-Tier Hierarchy
 
 ```
 Priority 100  Soul           ← SOUL.md (immutable core identity)
 Priority  90  Managed Policy ← Organization policies (enterprise)
 Priority  80  Workspace      ← Project ACECLAW.md instructions
 Priority  70  User           ← Global ~/.aceclaw/ACECLAW.md
-Priority  60  Auto-Memory    ← Learned insights (16 categories, HMAC-signed)
+Priority  65  Local          ← ACECLAW.local.md (per-developer, gitignored)
+Priority  60  Auto-Memory    ← Learned insights (21 categories, HMAC-signed)
+Priority  55  Markdown       ← MEMORY.md + topic files (persistent notes)
 Priority  50  Daily Journal  ← Append-only activity log (today + yesterday)
 ```
 
-### 16 Memory Categories
+### 21 Memory Categories
 
-Mistake · Pattern · Preference · Codebase Insight · Strategy · Workflow · Environment · Relationship · Terminology · Constraint · Decision · Tool Usage · Communication · Context · Correction · Bookmark
+Mistake · Pattern · Preference · Codebase Insight · Strategy · Workflow · Environment · Relationship · Terminology · Constraint · Decision · Tool Usage · Communication · Context · Correction · Bookmark · Session Summary · Error Recovery · Successful Strategy · Anti-Pattern · User Feedback
 
 ### Hybrid Search
 
@@ -130,7 +132,8 @@ score = 0.50 × TF-IDF relevance
 - [x] Daemon-first architecture, streaming ReAct loop, 12 tools
 - [x] Extended thinking, retry, prompt caching, context compaction
 - [x] Multi-provider (7 providers), HMAC-signed memory, MCP integration
-- [x] 6-tier memory hierarchy, hybrid search, daily journal, workspace isolation
+- [x] 8-tier memory hierarchy, hybrid search, daily journal, workspace isolation
+- [x] Markdown memory (MEMORY.md), path-based rules, memory consolidation
 - [ ] Self-learning: skill system, self-improvement loop, summary learning
 - [ ] Sub-agents: depth-1 delegation, custom agent definitions
 - [ ] Agent teams: virtual thread teammates, shared tasks, inter-agent messaging
