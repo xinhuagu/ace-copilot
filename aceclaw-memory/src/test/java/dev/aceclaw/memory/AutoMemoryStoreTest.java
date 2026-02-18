@@ -186,6 +186,27 @@ class AutoMemoryStoreTest {
     }
 
     @Test
+    void accessCountIncrementedOnQueryAndSearch() {
+        store.add(MemoryEntry.Category.PATTERN, "Use sealed interfaces",
+                List.of("java"), "test", false, projectPath);
+
+        // Query increments accessCount
+        store.query(MemoryEntry.Category.PATTERN, null, 10);
+        var afterQuery = store.entries().stream()
+                .filter(e -> e.content().equals("Use sealed interfaces"))
+                .findFirst().orElseThrow();
+        assertThat(afterQuery.accessCount()).isEqualTo(1);
+        assertThat(afterQuery.lastAccessedAt()).isNotNull();
+
+        // Search increments again
+        store.search("sealed interfaces", null, 10);
+        var afterSearch = store.entries().stream()
+                .filter(e -> e.content().equals("Use sealed interfaces"))
+                .findFirst().orElseThrow();
+        assertThat(afterSearch.accessCount()).isEqualTo(2);
+    }
+
+    @Test
     void formatForPromptIncludesSelfLearningCategories() {
         store.add(MemoryEntry.Category.ERROR_RECOVERY, "Fixed by clearing cache",
                 List.of("cache"), "test", false, projectPath);

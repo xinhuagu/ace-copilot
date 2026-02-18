@@ -59,6 +59,11 @@ Categories:
 - context: Background information about the project or task
 - correction: User corrections to agent behavior
 - bookmark: Important file paths or references to remember
+- session_summary: Summary of a session's key actions and outcomes
+- error_recovery: An error encountered and how it was resolved
+- successful_strategy: A strategy that proved successful for a specific task type
+- anti_pattern: An approach that failed or should be avoided
+- user_feedback: User feedback about agent behavior (positive or negative)
 
 Parameter details:
 - action: save, search, or list (required)
@@ -82,21 +87,26 @@ Search scoring:
 - Category filter narrows results before scoring, improving precision.
 
 How memory works behind the scenes:
-- Memories you save via this tool are "Auto-Memory" (tier 4 of 6 in the memory hierarchy).
+- Memories you save via this tool are "Auto-Memory" (tier 6 of 8 in the memory hierarchy).
 - Higher-priority tiers are loaded automatically and are NOT managed by this tool:
-  Tier 0 (Soul): Agent identity from SOUL.md — defines core behavior and values.
-  Tier 1 (Managed Policy): Enterprise rules from managed-policy.md (optional).
-  Tier 2 (Workspace): Project instructions from ACECLAW.md in the project root.
-  Tier 3 (User): Personal preferences from ~/.aceclaw/ACECLAW.md.
-  Tier 4 (Auto-Memory): What THIS tool manages — agent-learned insights (JSONL).
-  Tier 5 (Journal): Daily session log — appended automatically after each turn.
-- The system prompt already contains content from tiers 0-3 and recent journal entries.
-  This tool lets you actively manage tier 4 (auto-memory) to persist learnings.
+  Tier 1 (Soul): Agent identity from SOUL.md — defines core behavior and values.
+  Tier 2 (Managed Policy): Enterprise rules from managed-policy.md (optional).
+  Tier 3 (Workspace): Project instructions from ACECLAW.md in the project root.
+  Tier 4 (User): Personal preferences from ~/.aceclaw/ACECLAW.md.
+  Tier 5 (Local): Per-developer settings from ACECLAW.local.md (gitignored).
+  Tier 6 (Auto-Memory): What THIS tool manages — agent-learned insights (JSONL).
+  Tier 7 (Markdown Memory): Persistent MEMORY.md + topic files (first 200 lines injected).
+  Tier 8 (Journal): Daily session log — appended automatically after each turn.
+- The system prompt already contains content from tiers 1-5 and recent journal entries.
+  This tool lets you actively manage tier 6 (auto-memory) to persist learnings.
+  You can also write MEMORY.md / topic files via standard file tools (tier 7).
 - During context compaction, the system automatically extracts file paths, commands, and
   errors from the conversation and saves them as auto-memories — you do not need to
   manually save these routine context items.
-- The daily journal (tier 5) records each turn automatically. You do not need to save
+- The daily journal (tier 8) records each turn automatically. You do not need to save
   session activity manually — focus on saving non-obvious INSIGHTS instead.
+- Path-based rules from {project}/.aceclaw/rules/*.md are injected when matching files
+  are being worked on — these provide contextual instructions per file type.
 
 Safety & constraints:
 - Memory files are HMAC-SHA256 signed — tampered entries are rejected on load.

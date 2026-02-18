@@ -173,7 +173,9 @@ public final class AutoMemoryStore {
             stream = stream.limit(limit);
         }
 
-        return stream.toList();
+        var results = stream.toList();
+        trackAccess(results);
+        return results;
     }
 
     /**
@@ -242,7 +244,9 @@ public final class AutoMemoryStore {
      * @return ranked entries, highest relevance first
      */
     public List<MemoryEntry> search(String query, MemoryEntry.Category category, int limit) {
-        return MemorySearchEngine.search(List.copyOf(entries), query, category, limit);
+        var results = MemorySearchEngine.search(List.copyOf(entries), query, category, limit);
+        trackAccess(results);
+        return results;
     }
 
     /**
@@ -310,6 +314,24 @@ public final class AutoMemoryStore {
     }
 
     // -- internal --------------------------------------------------------
+
+    /**
+     * Updates access tracking for returned entries (lazy, in-place).
+     * Replaces each accessed entry in the CopyOnWriteArrayList with an updated copy.
+     */
+    private void trackAccess(List<MemoryEntry> accessed) {
+        if (accessed.isEmpty()) return;
+        var accessedIds = new HashSet<String>();
+        for (var entry : accessed) {
+            accessedIds.add(entry.id());
+        }
+        for (int i = 0; i < entries.size(); i++) {
+            var entry = entries.get(i);
+            if (accessedIds.contains(entry.id())) {
+                entries.set(i, entry.withAccess());
+            }
+        }
+    }
 
     private void loadFile(Path file) {
         if (!Files.isRegularFile(file)) return;

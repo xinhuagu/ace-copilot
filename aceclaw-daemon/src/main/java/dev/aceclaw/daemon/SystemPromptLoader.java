@@ -4,6 +4,7 @@ import dev.aceclaw.memory.AutoMemoryStore;
 import dev.aceclaw.memory.DailyJournal;
 import dev.aceclaw.memory.MarkdownMemoryStore;
 import dev.aceclaw.memory.MemoryTierLoader;
+import dev.aceclaw.memory.RuleEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +21,7 @@ import java.nio.file.Path;
  * <ol>
  *   <li>A built-in base prompt describing the agent's capabilities and behavior</li>
  *   <li>Environment context (working dir, platform, git status)</li>
- *   <li>6-tier memory hierarchy via {@link MemoryTierLoader}</li>
+ *   <li>8-tier memory hierarchy via {@link MemoryTierLoader}</li>
  * </ol>
  */
 public final class SystemPromptLoader {
@@ -103,6 +104,20 @@ public final class SystemPromptLoader {
         if (!tierContent.isEmpty()) {
             sb.append(tierContent);
             log.info("Injected {} memory tiers into system prompt", tierResult.tiersLoaded());
+        }
+
+        // Path-based rules from {project}/.aceclaw/rules/*.md
+        var ruleEngine = RuleEngine.loadRules(projectPath);
+        if (!ruleEngine.rules().isEmpty()) {
+            log.info("Loaded {} path-based rules", ruleEngine.rules().size());
+            sb.append("\n\n# Path-Based Rules\n\n");
+            sb.append("The following rules apply when you work on files matching their glob patterns. ");
+            sb.append("Follow them strictly for matching files.\n");
+            for (var rule : ruleEngine.rules()) {
+                sb.append("\n## ").append(rule.name()).append("\n");
+                sb.append("Applies to: ").append(String.join(", ", rule.patterns())).append("\n\n");
+                sb.append(rule.content().strip()).append("\n");
+            }
         }
 
         return sb.toString();
