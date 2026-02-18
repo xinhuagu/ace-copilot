@@ -4,7 +4,7 @@
 
 <h1 align="center">AceClaw</h1>
 
-<p align="center">Enterprise-grade, general-purpose autonomous AI agent built on Java 21.</p>
+<p align="center">Security-first autonomous AI agent built on Java 21 — daemon isolation, sealed permissions, signed memory.</p>
 
 <p align="center">
   <a href="https://github.com/xinhuagu/AceClaw/actions/workflows/ci.yml"><img src="https://github.com/xinhuagu/AceClaw/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -13,7 +13,43 @@
   <img src="https://img.shields.io/badge/Gradle-8.14-02303A?logo=gradle&logoColor=white" alt="Gradle 8.14">
 </p>
 
-AceClaw is the Java implementation of [OpenClaw](https://github.com/openclaw) — built for enterprise environments where security, self-improvement, and extensibility matter.
+AceClaw is the Java implementation of [OpenClaw](https://github.com/openclaw) — built from the ground up with security as a foundational principle, not an afterthought. Every layer enforces isolation: the daemon exposes zero network surface, every tool invocation passes through a sealed permission gate, and every memory entry is cryptographically signed. OpenClaw was [breached within 48 hours of launch](https://github.com/openclaw); AceClaw exists because enterprise environments need an agent they can trust.
+
+## Security First
+
+AceClaw defends across three dimensions:
+
+### Architecture Isolation
+
+- **Zero network surface** — Daemon listens ONLY on Unix Domain Socket (`~/.aceclaw/aceclaw.sock`). No HTTP, no REST, no WebSocket.
+- **Single entry point** — CLI → UDS → Daemon. There is no other way in.
+- **Process group isolation** — Daemon runs in a separate process group (`setsid`), so CLI signals (Ctrl+C) don't kill the daemon or corrupt session state.
+- **Session-scoped state** — Each session has isolated conversation history; no cross-session data leakage.
+
+### Sealed Permission Model
+
+The `aceclaw-security` module enforces a 4-level permission hierarchy with compiler-verified exhaustiveness:
+
+```
+READ        → auto-approved (file reads, glob, grep)
+WRITE       → user approval required (file writes, edits)
+EXECUTE     → user approval required (bash commands)
+DANGEROUS   → always prompt, never remembered
+```
+
+- `PermissionDecision` is a **sealed interface** — `Approved | Denied | NeedsUserApproval`. The compiler enforces exhaustive handling; you cannot forget a case.
+- Session-level approval tracking (remember-once, not forever).
+- Sub-agents inherit parent permissions but receive **filtered tool registries** — no privilege escalation through nesting.
+
+### Memory Integrity
+
+The `aceclaw-memory` module treats every persisted memory as a signed document:
+
+- **HMAC-SHA256** per entry with constant-time verification — tampered entries are rejected, not silently loaded.
+- **POSIX 600** on the signing key file — only the owning user can read it.
+- **SHA-256 hashed workspace paths** — workspace isolation without leaking directory names.
+- **Mutable fields excluded from HMAC** — `accessCount` and `lastAccessedAt` are intentionally outside the signable payload so reads don't invalidate signatures.
+- **3-pass memory consolidation** (dedup → similarity merge → age prune) — prevents memory pollution and unbounded growth.
 
 ## AceClaw vs OpenClaw
 
@@ -24,7 +60,7 @@ AceClaw is the Java implementation of [OpenClaw](https://github.com/openclaw) �
 | **Architecture** | Single process | Daemon-first (persistent JVM + thin CLI) |
 | **Concurrency** | Node.js async | Virtual threads (Project Loom) |
 | **Memory** | 5-tier (T0-T4), MEMORY.md + daily logs, vector+BM25 search | 8-tier hierarchy, HMAC-signed JSONL, TF-IDF hybrid search, memory consolidation |
-| **Security** | Breached within 48h of launch | Sealed permission model, HMAC integrity, gated tools |
+| **Security** | Breached within 48h of launch | 3-layer defense: UDS isolation, sealed permission gate, HMAC-signed memory |
 | **LLM Providers** | Pi SDK (multi-provider) | 7 providers (Anthropic, OpenAI, Groq, Together, Mistral, Copilot, Ollama) |
 | **Tools** | 50+ via community | 12 built-in + MCP extensibility |
 | **Skills** | 700+ community (SKILL.md) | Planned: adaptive skills with effectiveness metrics |
@@ -55,14 +91,14 @@ export OPENAI_API_KEY="sk-..."
 
 ```
 CLI (Picocli + JLine3)
-  │ JSON-RPC 2.0 over Unix Domain Socket
-Daemon (persistent JVM)
+  │ JSON-RPC 2.0 over UDS only ← zero network surface
+Daemon (persistent JVM, separate process group)
   ├─ Request Router       → method dispatch
-  ├─ Session Manager      → per-project sessions
+  ├─ Session Manager      → per-project sessions (isolated state)
   ├─ Streaming Agent Loop → ReAct loop (max 25 iterations)
-  ├─ Permission Manager   → READ auto-approved, WRITE/EXECUTE gated
-  ├─ Tool Registry        → 12 native tools + MCP
-  ├─ Memory System        → 8-tier hierarchy, hybrid search, consolidation, rules
+  ├─ Permission Manager   → sealed 4-level gate (READ/WRITE/EXECUTE/DANGEROUS)
+  ├─ Tool Registry        → 12 native tools + MCP (filtered per sub-agent)
+  ├─ Memory System        → 8-tier hierarchy, HMAC-signed, hybrid search
   ├─ Context Compactor    → 3-phase (prune → summarize → memory flush)
   └─ LLM Client Factory   → 7 providers, extended thinking, prompt caching
 ```
@@ -135,7 +171,7 @@ score = 0.50 × TF-IDF relevance
 - [x] 8-tier memory hierarchy, hybrid search, daily journal, workspace isolation
 - [x] Markdown memory (MEMORY.md), path-based rules, memory consolidation
 - [ ] Self-learning: skill system, self-improvement loop, summary learning
-- [ ] Sub-agents: depth-1 delegation, custom agent definitions
+- [x] Sub-agents: depth-1 delegation, filtered tool registries, task lifecycle
 - [ ] Agent teams: virtual thread teammates, shared tasks, inter-agent messaging
 - [ ] Hook system: PreToolUse/PostToolUse lifecycle events
 
