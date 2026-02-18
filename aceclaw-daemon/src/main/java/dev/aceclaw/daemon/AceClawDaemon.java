@@ -3,10 +3,7 @@ package dev.aceclaw.daemon;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import dev.aceclaw.core.agent.CompactionConfig;
-import dev.aceclaw.core.agent.MessageCompactor;
-import dev.aceclaw.core.agent.StreamingAgentLoop;
-import dev.aceclaw.core.agent.ToolRegistry;
+import dev.aceclaw.core.agent.*;
 import dev.aceclaw.core.llm.LlmClient;
 import dev.aceclaw.llm.LlmClientFactory;
 import dev.aceclaw.memory.AutoMemoryStore;
@@ -188,17 +185,25 @@ public final class AceClawDaemon {
             log.info("MCP: {} server(s) configured, initializing in background...", mcpConfig.size());
         }
 
-        log.info("Registered {} tools", toolRegistry.size());
+        log.info("Registered {} base tools", toolRegistry.size());
 
-        // 3. Permission manager — auto-approve all tools (no interactive prompts)
+        // 3. Sub-agent infrastructure (task delegation)
+        var agentTypeRegistry = AgentTypeRegistry.load(workingDir);
+        var subAgentRunner = new SubAgentRunner(
+                llmClient, toolRegistry, model, workingDir,
+                config.maxTokens(), config.thinkingBudget());
+        toolRegistry.register(new dev.aceclaw.tools.TaskTool(subAgentRunner, agentTypeRegistry));
+        log.info("Sub-agent types available: {}", agentTypeRegistry.names());
+
+        // 4. Permission manager — auto-approve all tools (no interactive prompts)
         var permissionManager = new PermissionManager(new DefaultPermissionPolicy(true));
 
-        // 4. System prompt (with 8-tier memory hierarchy + daily journal + model identity + budget)
+        // 5. System prompt (with 8-tier memory hierarchy + daily journal + model identity + budget)
         DailyJournal journal = memoryStore != null ? memoryStore.getDailyJournal() : null;
         String systemPrompt = SystemPromptLoader.load(
                 workingDir, memoryStore, journal, markdownStore, model, config.provider());
 
-        // 5. Context compaction (accounting for actual system prompt size)
+        // 6. Context compaction (accounting for actual system prompt size)
         int systemPromptTokens = dev.aceclaw.core.agent.ContextEstimator.estimateTokens(systemPrompt);
         var compactionConfig = new CompactionConfig(
                 config.contextWindowTokens(), config.maxTokens(), systemPromptTokens,
@@ -207,12 +212,12 @@ public final class AceClawDaemon {
         log.info("System prompt: {} chars (~{} tokens), effective conversation window: {} tokens",
                 systemPrompt.length(), systemPromptTokens, compactionConfig.effectiveWindowTokens());
 
-        // 6. Streaming agent loop (with compaction support)
+        // 7. Streaming agent loop (with compaction support)
         var agentLoop = new StreamingAgentLoop(
                 llmClient, toolRegistry, model, systemPrompt,
                 config.maxTokens(), config.thinkingBudget(), compactor);
 
-        // 7. Streaming agent handler
+        // 8. Streaming agent handler
         var agentHandler = new StreamingAgentHandler(
                 sessionManager, agentLoop, toolRegistry, permissionManager, objectMapper);
         agentHandler.setLlmConfig(llmClient, model, systemPrompt);
