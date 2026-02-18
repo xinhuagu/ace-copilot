@@ -11,6 +11,8 @@ import dev.aceclaw.core.llm.LlmClient;
 import dev.aceclaw.llm.LlmClientFactory;
 import dev.aceclaw.memory.AutoMemoryStore;
 import dev.aceclaw.memory.DailyJournal;
+import dev.aceclaw.memory.MarkdownMemoryStore;
+import dev.aceclaw.memory.MemoryConsolidator;
 import dev.aceclaw.security.DefaultPermissionPolicy;
 import dev.aceclaw.security.PermissionManager;
 import dev.aceclaw.mcp.McpClientManager;
@@ -50,6 +52,7 @@ public final class AceClawDaemon {
     private final SessionManager sessionManager;
     private final SessionHistoryStore historyStore;
     private final AutoMemoryStore memoryStore;
+    private final MarkdownMemoryStore markdownStore;
     private final RequestRouter router;
     private final ConnectionBridge connectionBridge;
     private final UdsListener udsListener;
@@ -84,6 +87,15 @@ public final class AceClawDaemon {
             log.warn("Failed to initialize auto-memory store: {}", e.getMessage());
         }
         this.memoryStore = ms;
+
+        // Markdown memory store (persistent MEMORY.md + topic files)
+        MarkdownMemoryStore mds = null;
+        try {
+            mds = MarkdownMemoryStore.forWorkspace(homeDir, workingDir);
+        } catch (java.io.IOException e) {
+            log.warn("Failed to initialize markdown memory store: {}", e.getMessage());
+        }
+        this.markdownStore = mds;
 
         this.router = new RequestRouter(sessionManager, objectMapper);
         this.connectionBridge = new ConnectionBridge(router, objectMapper);
@@ -181,10 +193,10 @@ public final class AceClawDaemon {
         // 3. Permission manager — auto-approve all tools (no interactive prompts)
         var permissionManager = new PermissionManager(new DefaultPermissionPolicy(true));
 
-        // 4. System prompt (with 6-tier memory hierarchy + daily journal + model identity)
+        // 4. System prompt (with 8-tier memory hierarchy + daily journal + model identity)
         DailyJournal journal = memoryStore != null ? memoryStore.getDailyJournal() : null;
         String systemPrompt = SystemPromptLoader.load(
-                workingDir, memoryStore, journal, model, config.provider());
+                workingDir, memoryStore, journal, markdownStore, model, config.provider());
 
         // 5. Context compaction
         var compactionConfig = new CompactionConfig(
@@ -209,9 +221,10 @@ public final class AceClawDaemon {
         }
         agentHandler.register(router);
 
-        // Session-end memory extraction
+        // Session-end memory extraction + consolidation
         if (memoryStore != null) {
             final var extractionJournal = journal;
+            final var archiveDir = markdownStore != null ? markdownStore.memoryDir() : null;
             sessionManager.setSessionEndCallback(session -> {
                 Thread.ofVirtual().name("session-end-extract").start(() -> {
                     var extracted = SessionEndExtractor.extract(session.messages());
@@ -231,6 +244,20 @@ public final class AceClawDaemon {
                         extractionJournal.append("Session " + session.id().substring(0, 8) +
                                 " ended: " + session.messages().size() + " messages, " +
                                 extracted.size() + " memories extracted");
+                    }
+
+                    // Run memory consolidation after extraction
+                    try {
+                        var result = MemoryConsolidator.consolidate(
+                                memoryStore, workingDir, archiveDir);
+                        if (result.hasChanges() && extractionJournal != null) {
+                            extractionJournal.append("Memory consolidated: " +
+                                    result.deduped() + " deduped, " +
+                                    result.merged() + " merged, " +
+                                    result.pruned() + " pruned");
+                        }
+                    } catch (Exception e) {
+                        log.warn("Memory consolidation failed: {}", e.getMessage());
                     }
                 });
             });

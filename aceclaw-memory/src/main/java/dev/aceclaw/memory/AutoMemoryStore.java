@@ -133,10 +133,10 @@ public final class AutoMemoryStore {
         Instant now = Instant.now();
 
         // Build unsigned entry to compute signable payload
-        var unsigned = new MemoryEntry(id, category, content, tags, now, source, null);
+        var unsigned = new MemoryEntry(id, category, content, tags, now, source, null, 0, null);
         String hmac = signer.sign(unsigned.signablePayload());
 
-        var entry = new MemoryEntry(id, category, content, tags, now, source, hmac);
+        var entry = new MemoryEntry(id, category, content, tags, now, source, hmac, 0, null);
 
         // Persist to disk
         String fileName = global ? GLOBAL_FILE : projectHash(projectPath) + ".jsonl";
@@ -181,6 +181,26 @@ public final class AutoMemoryStore {
      */
     public List<MemoryEntry> all() {
         return List.copyOf(entries);
+    }
+
+    /**
+     * Returns an unmodifiable view of the entries list for consolidation.
+     */
+    public List<MemoryEntry> entries() {
+        return Collections.unmodifiableList(entries);
+    }
+
+    /**
+     * Replaces the current entries with the given list (used by consolidator).
+     * Also rewrites all backing files.
+     */
+    public void replaceEntries(List<MemoryEntry> newEntries, Path projectPath) {
+        entries.clear();
+        entries.addAll(newEntries);
+        rewriteFile(memoryDir.resolve(GLOBAL_FILE));
+        if (projectPath != null) {
+            rewriteFile(memoryDir.resolve(projectHash(projectPath) + ".jsonl"));
+        }
     }
 
     /**
@@ -423,6 +443,11 @@ public final class AutoMemoryStore {
             case CONTEXT -> "Context";
             case CORRECTION -> "Corrections";
             case BOOKMARK -> "Bookmarks";
+            case SESSION_SUMMARY -> "Session Summaries";
+            case ERROR_RECOVERY -> "Error Recoveries";
+            case SUCCESSFUL_STRATEGY -> "Successful Strategies";
+            case ANTI_PATTERN -> "Anti-Patterns";
+            case USER_FEEDBACK -> "User Feedback";
         };
     }
 }

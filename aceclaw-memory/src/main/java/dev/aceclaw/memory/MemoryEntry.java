@@ -18,7 +18,9 @@ import java.util.List;
  * @param tags      searchable tags for retrieval (e.g. "gradle", "java", "testing")
  * @param createdAt when the memory was created
  * @param source    what triggered the memory (e.g. "session:abc123", "user-feedback")
- * @param hmac      HMAC-SHA256 hex digest over id+category+content+tags+createdAt+source
+ * @param hmac           HMAC-SHA256 hex digest over id+category+content+tags+createdAt+source
+ * @param accessCount    times this entry was retrieved in search/prompt injection
+ * @param lastAccessedAt last time this entry was used (null if never accessed)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record MemoryEntry(
@@ -28,7 +30,9 @@ public record MemoryEntry(
         List<String> tags,
         Instant createdAt,
         String source,
-        String hmac
+        String hmac,
+        int accessCount,
+        Instant lastAccessedAt
 ) {
 
     /**
@@ -66,15 +70,39 @@ public record MemoryEntry(
         /** A correction the user made to the agent's output. */
         CORRECTION,
         /** A bookmarked file, line, or resource for quick reference. */
-        BOOKMARK
+        BOOKMARK,
+        /** Summary of a session's key actions and outcomes. */
+        SESSION_SUMMARY,
+        /** An error the agent encountered and how it was resolved. */
+        ERROR_RECOVERY,
+        /** A strategy that proved successful for a specific task type. */
+        SUCCESSFUL_STRATEGY,
+        /** An approach that failed or should be avoided. */
+        ANTI_PATTERN,
+        /** User feedback about agent behavior (positive or negative). */
+        USER_FEEDBACK
     }
 
     /**
      * Returns the signable payload: the concatenation of all content fields
      * (excluding the hmac itself) used for HMAC computation.
      */
+    /**
+     * Returns the signable payload: the concatenation of all immutable content fields
+     * (excluding hmac and access tracking) used for HMAC computation.
+     * Access tracking fields (accessCount, lastAccessedAt) are intentionally excluded
+     * since they change after the entry is signed.
+     */
     public String signablePayload() {
         return id + "|" + category + "|" + content + "|" +
                 String.join(",", tags) + "|" + createdAt + "|" + source;
+    }
+
+    /**
+     * Returns a copy with updated access tracking fields.
+     */
+    public MemoryEntry withAccess() {
+        return new MemoryEntry(id, category, content, tags, createdAt, source,
+                hmac, accessCount + 1, Instant.now());
     }
 }

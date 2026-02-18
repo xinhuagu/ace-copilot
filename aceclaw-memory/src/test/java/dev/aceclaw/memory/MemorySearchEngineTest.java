@@ -150,6 +150,6 @@ class MemorySearchEngineTest {
                                      MemoryEntry.Category category) {
         return new MemoryEntry(
                 java.util.UUID.randomUUID().toString(),
-                category, content, tags, createdAt, "test", "fake-hmac");
+                category, content, tags, createdAt, "test", "fake-hmac", 0, null);
     }
 }

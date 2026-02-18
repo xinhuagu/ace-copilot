@@ -60,6 +60,37 @@ public final class SessionEndExtractor {
             Pattern.compile("(?i)\\bFile edited\\b")
     );
 
+    // Error recovery indicators in assistant messages
+    private static final List<Pattern> ERROR_RECOVERY_PATTERNS = List.of(
+            Pattern.compile("(?i)\\bfixed by\\b"),
+            Pattern.compile("(?i)\\bresolved by\\b"),
+            Pattern.compile("(?i)\\bthe issue was\\b"),
+            Pattern.compile("(?i)\\bthe fix was\\b"),
+            Pattern.compile("(?i)\\bthe problem was\\b"),
+            Pattern.compile("(?i)\\bworkaround[: ]\\b")
+    );
+
+    // Successful strategy indicators in assistant messages
+    private static final List<Pattern> SUCCESS_PATTERNS = List.of(
+            Pattern.compile("(?i)\\bthat worked\\b"),
+            Pattern.compile("(?i)\\bsuccessfully\\b"),
+            Pattern.compile("(?i)\\bproblem solved\\b"),
+            Pattern.compile("(?i)\\bbuild succeeded\\b"),
+            Pattern.compile("(?i)\\ball tests pass\\b")
+    );
+
+    // User feedback indicators
+    private static final List<Pattern> POSITIVE_FEEDBACK_PATTERNS = List.of(
+            Pattern.compile("(?i)^(great|good|perfect|excellent|nice|awesome|thanks|thank you)\\b"),
+            Pattern.compile("(?i)\\bthat'?s (right|correct|exactly|perfect)\\b")
+    );
+
+    private static final List<Pattern> NEGATIVE_FEEDBACK_PATTERNS = List.of(
+            Pattern.compile("(?i)^(that'?s wrong|that'?s not right|that'?s incorrect)\\b"),
+            Pattern.compile("(?i)\\bnot what i (wanted|asked|meant)\\b"),
+            Pattern.compile("(?i)\\byou (broke|messed up|ruined)\\b")
+    );
+
     // Pattern to extract file paths from assistant messages
     private static final Pattern FILE_PATH_PATTERN =
             Pattern.compile("(?:^|\\s|[\"'`])(/[\\w./-]+(?:\\.[a-zA-Z]{1,10})?)");
@@ -141,6 +172,56 @@ public final class SessionEndExtractor {
                 results.add(new ExtractedMemory(
                         MemoryEntry.Category.CODEBASE_INSIGHT, content,
                         List.of("modified-files")));
+            }
+        }
+
+        // Pass 4: Scan assistant messages for error recovery patterns
+        for (var msg : messages) {
+            if (msg instanceof AgentSession.ConversationMessage.Assistant assistant) {
+                String text = assistant.content();
+                if (text == null || text.isBlank()) continue;
+
+                if (matchesAny(text, ERROR_RECOVERY_PATTERNS)) {
+                    String content = truncate(text);
+                    if (seenContent.add(content)) {
+                        results.add(new ExtractedMemory(
+                                MemoryEntry.Category.ERROR_RECOVERY, content,
+                                List.of("error-recovery")));
+                    }
+                }
+
+                if (matchesAny(text, SUCCESS_PATTERNS)) {
+                    String content = truncate(text);
+                    if (seenContent.add(content)) {
+                        results.add(new ExtractedMemory(
+                                MemoryEntry.Category.SUCCESSFUL_STRATEGY, content,
+                                List.of("successful-strategy")));
+                    }
+                }
+            }
+        }
+
+        // Pass 5: Scan user messages for explicit feedback
+        for (var msg : messages) {
+            if (msg instanceof AgentSession.ConversationMessage.User user) {
+                String text = user.content();
+                if (text == null || text.isBlank()) continue;
+
+                if (matchesAny(text, POSITIVE_FEEDBACK_PATTERNS)) {
+                    String content = truncate(text);
+                    if (seenContent.add(content)) {
+                        results.add(new ExtractedMemory(
+                                MemoryEntry.Category.USER_FEEDBACK, content,
+                                List.of("positive-feedback")));
+                    }
+                } else if (matchesAny(text, NEGATIVE_FEEDBACK_PATTERNS)) {
+                    String content = truncate(text);
+                    if (seenContent.add(content)) {
+                        results.add(new ExtractedMemory(
+                                MemoryEntry.Category.USER_FEEDBACK, content,
+                                List.of("negative-feedback")));
+                    }
+                }
             }
         }
 

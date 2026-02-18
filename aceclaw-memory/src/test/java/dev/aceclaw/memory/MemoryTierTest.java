@@ -29,8 +29,10 @@ class MemoryTierTest {
         assertThat(sorted.get(1)).isInstanceOf(MemoryTier.ManagedPolicy.class);
         assertThat(sorted.get(2)).isInstanceOf(MemoryTier.WorkspaceMemory.class);
         assertThat(sorted.get(3)).isInstanceOf(MemoryTier.UserMemory.class);
-        assertThat(sorted.get(4)).isInstanceOf(MemoryTier.AutoMemory.class);
-        assertThat(sorted.get(5)).isInstanceOf(MemoryTier.Journal.class);
+        assertThat(sorted.get(4)).isInstanceOf(MemoryTier.LocalMemory.class);
+        assertThat(sorted.get(5)).isInstanceOf(MemoryTier.AutoMemory.class);
+        assertThat(sorted.get(6)).isInstanceOf(MemoryTier.MarkdownMemory.class);
+        assertThat(sorted.get(7)).isInstanceOf(MemoryTier.Journal.class);
     }
 
     @Test
@@ -42,7 +44,9 @@ class MemoryTierTest {
                 case MemoryTier.ManagedPolicy mp -> mp.displayName();
                 case MemoryTier.WorkspaceMemory wm -> wm.displayName();
                 case MemoryTier.UserMemory um -> um.displayName();
+                case MemoryTier.LocalMemory lm -> lm.displayName();
                 case MemoryTier.AutoMemory am -> am.displayName();
+                case MemoryTier.MarkdownMemory mm -> mm.displayName();
                 case MemoryTier.Journal j -> j.displayName();
             };
             assertThat(name).isNotEmpty();
@@ -62,7 +66,9 @@ class MemoryTierTest {
                 new MemoryTier.ManagedPolicy(),
                 new MemoryTier.WorkspaceMemory(),
                 new MemoryTier.UserMemory(),
+                new MemoryTier.LocalMemory(),
                 new MemoryTier.AutoMemory(),
+                new MemoryTier.MarkdownMemory(),
                 new MemoryTier.Journal()
         };
     }

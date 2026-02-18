@@ -66,7 +66,8 @@ public final class MemoryTool implements Tool {
                         "Memory category (required for 'save'). For 'search'/'list', acts as optional filter. " +
                         "Values: mistake, pattern, preference, codebase_insight, strategy, workflow, " +
                         "environment, relationship, terminology, constraint, decision, tool_usage, " +
-                        "communication, context, correction, bookmark"))
+                        "communication, context, correction, bookmark, session_summary, " +
+                        "error_recovery, successful_strategy, anti_pattern, user_feedback"))
                 .optionalProperty("tags", SchemaBuilder.string(
                         "Comma-separated tags for the memory (for 'save'). " +
                         "E.g. \"gradle, java, testing\""))

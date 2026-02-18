@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Central orchestrator that discovers, loads, and assembles all 6 memory tiers
+ * Central orchestrator that discovers, loads, and assembles all 8 memory tiers
  * into a unified string for system prompt injection.
  *
  * <p>Loading order (by priority):
@@ -19,7 +19,9 @@ import java.util.List;
  *   <li><strong>Managed Policy</strong> — Reserved for enterprise (skipped if absent)</li>
  *   <li><strong>Workspace Memory</strong> — {project}/ACECLAW.md, {project}/.aceclaw/ACECLAW.md</li>
  *   <li><strong>User Memory</strong> — ~/.aceclaw/ACECLAW.md</li>
+ *   <li><strong>Local Memory</strong> — {project}/ACECLAW.local.md (gitignored, per-developer)</li>
  *   <li><strong>Auto-Memory</strong> — Learned insights from AutoMemoryStore</li>
+ *   <li><strong>Markdown Memory</strong> — Persistent MEMORY.md + topic files</li>
  *   <li><strong>Daily Journal</strong> — Recent activity from DailyJournal</li>
  * </ol>
  */
@@ -29,12 +31,13 @@ public final class MemoryTierLoader {
 
     private static final String SOUL_MD = "SOUL.md";
     private static final String ACECLAW_MD = "ACECLAW.md";
+    private static final String ACECLAW_LOCAL_MD = "ACECLAW.local.md";
     private static final String MANAGED_POLICY_FILE = "managed-policy.md";
 
     private MemoryTierLoader() {}
 
     /**
-     * Loads all 6 memory tiers and returns a structured result.
+     * Loads all 8 memory tiers and returns a structured result.
      *
      * @param aceclawHome   the aceclaw home directory (e.g. ~/.aceclaw)
      * @param workspacePath the workspace/project directory
@@ -44,6 +47,22 @@ public final class MemoryTierLoader {
      */
     public static LoadResult loadAll(Path aceclawHome, Path workspacePath,
                                      AutoMemoryStore memoryStore, DailyJournal journal) {
+        return loadAll(aceclawHome, workspacePath, memoryStore, journal, null);
+    }
+
+    /**
+     * Loads all 8 memory tiers and returns a structured result.
+     *
+     * @param aceclawHome    the aceclaw home directory (e.g. ~/.aceclaw)
+     * @param workspacePath  the workspace/project directory
+     * @param memoryStore    the auto-memory store (may be null)
+     * @param journal        the daily journal (may be null)
+     * @param markdownStore  the markdown memory store (may be null)
+     * @return the load result with all tier content
+     */
+    public static LoadResult loadAll(Path aceclawHome, Path workspacePath,
+                                     AutoMemoryStore memoryStore, DailyJournal journal,
+                                     MarkdownMemoryStore markdownStore) {
         var sections = new ArrayList<TierSection>();
         String soulContent = null;
         int tiersLoaded = 0;
@@ -77,10 +96,28 @@ public final class MemoryTierLoader {
             tiersLoaded++;
         }
 
+        // 4.5. Local Memory (per-developer ACECLAW.local.md, gitignored)
+        if (workspacePath != null) {
+            String localMemory = loadFileContent(workspacePath.resolve(ACECLAW_LOCAL_MD));
+            if (localMemory != null) {
+                sections.add(new TierSection(new MemoryTier.LocalMemory(), localMemory));
+                tiersLoaded++;
+            }
+        }
+
         // 5. Auto-Memory (learned insights — always present if store is available)
         if (memoryStore != null) {
             sections.add(new TierSection(new MemoryTier.AutoMemory(), null));
             tiersLoaded++;
+        }
+
+        // 5.5. Markdown Memory (persistent MEMORY.md + topic files)
+        if (markdownStore != null) {
+            String memoryMd = markdownStore.loadMemoryMd();
+            if (memoryMd != null) {
+                sections.add(new TierSection(new MemoryTier.MarkdownMemory(), memoryMd));
+                tiersLoaded++;
+            }
         }
 
         // 6. Daily Journal (recent entries)
@@ -135,6 +172,12 @@ public final class MemoryTierLoader {
                     sb.append("Follow them carefully.\n\n");
                     sb.append(section.content().strip());
                 }
+                case MemoryTier.LocalMemory _ -> {
+                    sb.append("\n\n# Local Developer Instructions\n\n");
+                    sb.append("The following instructions are from this project's ACECLAW.local.md ");
+                    sb.append("(per-developer, gitignored). Follow them carefully.\n\n");
+                    sb.append(section.content().strip());
+                }
                 case MemoryTier.AutoMemory _ -> {
                     // Delegate to AutoMemoryStore's formatting
                     if (memoryStore != null && memoryStore.size() > 0) {
@@ -147,6 +190,12 @@ public final class MemoryTierLoader {
                         sb.append("No memories stored yet for this workspace. ");
                         sb.append("Memories will accumulate automatically as you work across sessions.\n");
                     }
+                }
+                case MemoryTier.MarkdownMemory _ -> {
+                    sb.append("\n\n# Persistent Memory\n\n");
+                    sb.append("The following is from your persistent MEMORY.md file. ");
+                    sb.append("You can update this file using standard file tools.\n\n");
+                    sb.append(section.content().strip());
                 }
                 case MemoryTier.Journal _ -> {
                     sb.append("\n\n# Daily Journal\n\n");

@@ -159,6 +159,45 @@ class AutoMemoryStoreTest {
     }
 
     @Test
+    void selfLearningCategoriesAccepted() throws IOException {
+        var selfLearningCats = List.of(
+                MemoryEntry.Category.SESSION_SUMMARY,
+                MemoryEntry.Category.ERROR_RECOVERY,
+                MemoryEntry.Category.SUCCESSFUL_STRATEGY,
+                MemoryEntry.Category.ANTI_PATTERN,
+                MemoryEntry.Category.USER_FEEDBACK);
+
+        for (var cat : selfLearningCats) {
+            store.add(cat, "Entry for " + cat.name(), List.of("self-learning"), "test", true, null);
+        }
+
+        var store2 = new AutoMemoryStore(tempDir);
+        store2.load(projectPath);
+        assertThat(store2.size()).isEqualTo(selfLearningCats.size());
+    }
+
+    @Test
+    void accessCountDefaultsToZero() {
+        var entry = store.add(MemoryEntry.Category.PATTERN, "Test pattern",
+                List.of("test"), "test", false, projectPath);
+
+        assertThat(entry.accessCount()).isEqualTo(0);
+        assertThat(entry.lastAccessedAt()).isNull();
+    }
+
+    @Test
+    void formatForPromptIncludesSelfLearningCategories() {
+        store.add(MemoryEntry.Category.ERROR_RECOVERY, "Fixed by clearing cache",
+                List.of("cache"), "test", false, projectPath);
+        store.add(MemoryEntry.Category.ANTI_PATTERN, "Never use Thread.sleep in tests",
+                List.of("testing"), "test", false, projectPath);
+
+        String prompt = store.formatForPrompt(projectPath, 50);
+        assertThat(prompt).contains("Error Recoveries");
+        assertThat(prompt).contains("Anti-Patterns");
+    }
+
+    @Test
     void queryByTagFilter() {
         store.add(MemoryEntry.Category.PATTERN, "Use sealed interfaces",
                 List.of("java", "design"), "test", false, projectPath);

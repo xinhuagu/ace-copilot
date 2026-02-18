@@ -107,6 +107,72 @@ class MemoryTierLoaderTest {
     }
 
     @Test
+    void localTierLoadedFromAceclawLocalMd() throws IOException {
+        Files.writeString(workspacePath.resolve("ACECLAW.local.md"),
+                "My local dev settings: use port 9090");
+
+        var result = MemoryTierLoader.loadAll(aceclawHome, workspacePath, null, null);
+
+        assertThat(result.tiersLoaded()).isEqualTo(1);
+        assertThat(result.tieredSections()).anyMatch(
+                s -> s.tier() instanceof MemoryTier.LocalMemory);
+        var localSection = result.tieredSections().stream()
+                .filter(s -> s.tier() instanceof MemoryTier.LocalMemory)
+                .findFirst();
+        assertThat(localSection).isPresent();
+        assertThat(localSection.get().content()).contains("port 9090");
+    }
+
+    @Test
+    void markdownMemoryTierInjected() throws IOException {
+        var markdownStore = new MarkdownMemoryStore(aceclawHome.resolve("ws-memory"));
+        markdownStore.writeMemoryMd("# Project Memory\n\nKey patterns to follow.");
+
+        var result = MemoryTierLoader.loadAll(aceclawHome, workspacePath, null, null, markdownStore);
+
+        assertThat(result.tieredSections()).anyMatch(
+                s -> s.tier() instanceof MemoryTier.MarkdownMemory);
+        var mdSection = result.tieredSections().stream()
+                .filter(s -> s.tier() instanceof MemoryTier.MarkdownMemory)
+                .findFirst();
+        assertThat(mdSection).isPresent();
+        assertThat(mdSection.get().content()).contains("Key patterns to follow");
+    }
+
+    @Test
+    void newTiersInCorrectOrder() throws IOException {
+        // Set up all tiers including new ones
+        Files.writeString(aceclawHome.resolve("SOUL.md"), "Soul content");
+        Files.writeString(aceclawHome.resolve("ACECLAW.md"), "User instructions");
+        Files.writeString(workspacePath.resolve("ACECLAW.local.md"), "Local settings");
+
+        var markdownStore = new MarkdownMemoryStore(aceclawHome.resolve("ws-memory"));
+        markdownStore.writeMemoryMd("# Memory notes");
+
+        var store = new AutoMemoryStore(aceclawHome);
+        store.load(workspacePath);
+        store.add(MemoryEntry.Category.PATTERN, "Test pattern",
+                List.of("test"), "test", false, workspacePath);
+
+        var journal = new DailyJournal(aceclawHome.resolve("memory"));
+        journal.append("Did some work");
+
+        var result = MemoryTierLoader.loadAll(aceclawHome, workspacePath, store, journal, markdownStore);
+
+        var tierTypes = result.tieredSections().stream()
+                .map(s -> s.tier().getClass().getSimpleName())
+                .toList();
+
+        // LocalMemory should be between UserMemory and AutoMemory
+        assertThat(tierTypes.indexOf("UserMemory")).isLessThan(tierTypes.indexOf("LocalMemory"));
+        assertThat(tierTypes.indexOf("LocalMemory")).isLessThan(tierTypes.indexOf("AutoMemory"));
+
+        // MarkdownMemory should be between AutoMemory and Journal
+        assertThat(tierTypes.indexOf("AutoMemory")).isLessThan(tierTypes.indexOf("MarkdownMemory"));
+        assertThat(tierTypes.indexOf("MarkdownMemory")).isLessThan(tierTypes.indexOf("Journal"));
+    }
+
+    @Test
     void emptyTiersOmitted() {
         var result = MemoryTierLoader.loadAll(aceclawHome, workspacePath, null, null);
 

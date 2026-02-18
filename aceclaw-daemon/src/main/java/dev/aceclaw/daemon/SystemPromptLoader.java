@@ -2,6 +2,7 @@ package dev.aceclaw.daemon;
 
 import dev.aceclaw.memory.AutoMemoryStore;
 import dev.aceclaw.memory.DailyJournal;
+import dev.aceclaw.memory.MarkdownMemoryStore;
 import dev.aceclaw.memory.MemoryTierLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,7 +54,7 @@ public final class SystemPromptLoader {
      */
     public static String load(Path projectPath, AutoMemoryStore memoryStore,
                               String model, String provider) {
-        return load(projectPath, memoryStore, null, model, provider);
+        return load(projectPath, memoryStore, null, null, model, provider);
     }
 
     /**
@@ -68,6 +69,23 @@ public final class SystemPromptLoader {
      */
     public static String load(Path projectPath, AutoMemoryStore memoryStore,
                               DailyJournal journal, String model, String provider) {
+        return load(projectPath, memoryStore, journal, null, model, provider);
+    }
+
+    /**
+     * Loads the full system prompt with 8-tier memory hierarchy.
+     *
+     * @param projectPath   the project working directory
+     * @param memoryStore   optional auto-memory store (may be null)
+     * @param journal       optional daily journal (may be null)
+     * @param markdownStore optional markdown memory store (may be null)
+     * @param model         the LLM model name (may be null)
+     * @param provider      the LLM provider name (may be null)
+     * @return the assembled system prompt
+     */
+    public static String load(Path projectPath, AutoMemoryStore memoryStore,
+                              DailyJournal journal, MarkdownMemoryStore markdownStore,
+                              String model, String provider) {
         var sb = new StringBuilder();
         sb.append(basePrompt());
 
@@ -77,9 +95,9 @@ public final class SystemPromptLoader {
         // Git context
         appendGitContext(sb, projectPath);
 
-        // 6-tier memory hierarchy via MemoryTierLoader
+        // 8-tier memory hierarchy via MemoryTierLoader
         var tierResult = MemoryTierLoader.loadAll(
-                GLOBAL_CONFIG_DIR, projectPath, memoryStore, journal);
+                GLOBAL_CONFIG_DIR, projectPath, memoryStore, journal, markdownStore);
         String tierContent = MemoryTierLoader.assembleForSystemPrompt(
                 tierResult, memoryStore, projectPath, 50);
         if (!tierContent.isEmpty()) {

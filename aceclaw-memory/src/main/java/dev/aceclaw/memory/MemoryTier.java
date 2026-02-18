@@ -1,16 +1,18 @@
 package dev.aceclaw.memory;
 
 /**
- * The 6-tier memory hierarchy, ordered by priority (highest first).
+ * The 8-tier memory hierarchy, ordered by priority (highest first).
  *
  * <p>Each tier represents a different source and scope of memory:
  * <ol>
- *   <li><strong>Soul</strong> — Immutable core identity from SOUL.md</li>
- *   <li><strong>ManagedPolicy</strong> — Organization-managed policies</li>
- *   <li><strong>WorkspaceMemory</strong> — Project-specific ACECLAW.md instructions</li>
- *   <li><strong>UserMemory</strong> — Global user preferences from ~/.aceclaw/ACECLAW.md</li>
- *   <li><strong>AutoMemory</strong> — Agent-learned insights (JSONL + HMAC)</li>
- *   <li><strong>DailyJournal</strong> — Append-only daily activity log</li>
+ *   <li><strong>Soul</strong> (100) — Immutable core identity from SOUL.md</li>
+ *   <li><strong>ManagedPolicy</strong> (90) — Organization-managed policies</li>
+ *   <li><strong>WorkspaceMemory</strong> (80) — Project-specific ACECLAW.md instructions</li>
+ *   <li><strong>UserMemory</strong> (70) — Global user preferences from ~/.aceclaw/ACECLAW.md</li>
+ *   <li><strong>LocalMemory</strong> (65) — Per-developer gitignored ACECLAW.local.md</li>
+ *   <li><strong>AutoMemory</strong> (60) — Agent-learned insights (JSONL + HMAC)</li>
+ *   <li><strong>MarkdownMemory</strong> (55) — Persistent MEMORY.md + topic files</li>
+ *   <li><strong>DailyJournal</strong> (50) — Append-only daily activity log</li>
  * </ol>
  */
 public sealed interface MemoryTier {
@@ -45,10 +47,22 @@ public sealed interface MemoryTier {
         @Override public int priority() { return 70; }
     }
 
+    /** Local developer instructions from ACECLAW.local.md (gitignored). */
+    record LocalMemory() implements MemoryTier {
+        @Override public String displayName() { return "Local Memory"; }
+        @Override public int priority() { return 65; }
+    }
+
     /** Agent-learned insights from auto-memory store. */
     record AutoMemory() implements MemoryTier {
         @Override public String displayName() { return "Auto-Memory"; }
         @Override public int priority() { return 60; }
+    }
+
+    /** Persistent markdown memory files (MEMORY.md + topic files). */
+    record MarkdownMemory() implements MemoryTier {
+        @Override public String displayName() { return "Markdown Memory"; }
+        @Override public int priority() { return 55; }
     }
 
     /** Append-only daily activity journal. */
