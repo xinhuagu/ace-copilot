@@ -17,7 +17,7 @@ AceClaw is the Java implementation of [OpenClaw](https://github.com/openclaw) �
 
 ## Security First
 
-AceClaw defends across three dimensions:
+AceClaw defends across five dimensions:
 
 ### Architecture Isolation
 
@@ -50,6 +50,27 @@ The `aceclaw-memory` module treats every persisted memory as a signed document:
 - **Mutable fields excluded from HMAC** — `accessCount` and `lastAccessedAt` are intentionally outside the signable payload so reads don't invalidate signatures.
 - **3-pass memory consolidation** (dedup → similarity merge → age prune) — prevents memory pollution and unbounded growth.
 
+### Content Boundaries
+
+Prompt injection is an industry-wide unsolved problem — no AI agent has a complete programmatic defense. AceClaw applies architectural mitigations to limit blast radius:
+
+- **System prompt budget** — 150K total character cap + 20K per-tier cap. Tiers exceeding budget are truncated (70% head / 20% tail / 10% marker), lowest-priority tiers first. Prevents memory tiers from consuming the context window.
+- **8-tier priority ordering** — Higher-priority tiers (Soul, Managed Policy) override lower tiers. Human-authored content always outranks agent-generated memory.
+- **Tool result truncation** — Tool outputs capped at 30K characters (40/60 head/tail split) to limit injection surface from external commands.
+- **Managed Policy tier** — Reserved slot (priority 90) for enterprise-managed rules that the agent must follow, loaded from `~/.aceclaw/managed-policy.md`.
+
+> **Planned:** Trust-level content sandboxing (wrapping tiers with trust metadata), taint tracking for agent-generated memories, and memory quarantine for untrusted entries. See [Security Roadmap](#security-roadmap).
+
+### Data Protection
+
+HMAC-SHA256 provides **integrity** (tamper detection), not **confidentiality** — memory files are stored as plaintext JSONL on disk:
+
+- **File-level permissions** — Signing key (`~/.aceclaw/memory/memory.key`) restricted to POSIX 600 (owner-only read).
+- **Size governance** — MarkdownMemoryStore enforces 50KB per file, 500KB per workspace. Memory consolidation archives entries older than 90 days with zero access.
+- **No encryption at rest** — Memory content is not encrypted. For sensitive environments, rely on OS-level disk encryption (FileVault, LUKS) until native encryption is implemented.
+
+> **Planned:** AES-256 encryption at rest, per-entry key wrapping, key rotation without re-encryption. See [Security Roadmap](#security-roadmap).
+
 ## AceClaw vs OpenClaw
 
 | Capability | OpenClaw | AceClaw |
@@ -59,7 +80,7 @@ The `aceclaw-memory` module treats every persisted memory as a signed document:
 | **Architecture** | Single process | Daemon-first (persistent JVM + thin CLI) |
 | **Concurrency** | Node.js async | Virtual threads (Project Loom) |
 | **Memory** | 5-tier (T0-T4), MEMORY.md + daily logs, vector+BM25 search | 8-tier hierarchy, HMAC-signed JSONL, TF-IDF hybrid search, memory consolidation |
-| **Security** | SHA-256 dedup, no signing | 3-layer defense: UDS isolation, sealed permission gate, HMAC-signed memory |
+| **Security** | SHA-256 dedup, no signing | 5-layer defense: UDS isolation, sealed permissions, HMAC-signed memory, prompt budget caps, data protection |
 | **LLM Providers** | Pi SDK (multi-provider) | 7 providers (Anthropic, OpenAI, Groq, Together, Mistral, Copilot, Ollama) |
 | **Tools** | 50+ via community | 12 built-in + MCP extensibility |
 | **Skills** | 700+ community (SKILL.md) | Planned: adaptive skills with effectiveness metrics |
@@ -119,6 +140,21 @@ Daemon (persistent JVM, separate process group)
 
 8-tier persistent memory hierarchy with HMAC-SHA256 signing, hybrid TF-IDF search, and 3-pass consolidation. See [Memory System Design](docs/memory-system-design.md) for the full architecture, tier hierarchy, 21 memory categories, and comparison with Claude Code and OpenClaw.
 
+## Security Roadmap
+
+AceClaw's security posture is iterative. The following items are designed but not yet implemented:
+
+| Phase | Feature | Purpose |
+|-------|---------|---------|
+| **S1** | Trust-level content sandboxing | Wrap memory tiers with trust metadata (`trusted` / `user` / `project` / `agent`), differentiated preambles per trust level |
+| **S1** | SOUL.md override protection | Prevent workspace-level SOUL.md from overriding global identity without explicit opt-in |
+| **S1** | Memory write rate limiting | Cap agent-generated memory entries per session to prevent memory flooding |
+| **S2** | Memory write visibility | Surface auto-extracted memories to user for review before persistence |
+| **S2** | Encryption at rest (AES-256) | Encrypt memory content on disk; HMAC alone provides integrity, not confidentiality |
+| **S3** | Provenance tracking | Record origin chain (session, tool, user action) for each memory entry |
+| **S3** | Memory quarantine | Isolate untrusted entries for review before promotion to active memory |
+| **S3** | Audit trail | Structured log of agent actions, memory mutations, and permission decisions for compliance |
+
 ## Roadmap
 
 - [x] Daemon-first architecture, streaming ReAct loop, 12 tools
@@ -126,8 +162,9 @@ Daemon (persistent JVM, separate process group)
 - [x] Multi-provider (7 providers), HMAC-signed memory, MCP integration
 - [x] 8-tier memory hierarchy, hybrid search, daily journal, workspace isolation
 - [x] Markdown memory (MEMORY.md), path-based rules, memory consolidation
-- [ ] Self-learning: skill system, self-improvement loop, summary learning
 - [x] Sub-agents: depth-1 delegation, filtered tool registries, task lifecycle
+- [ ] Security hardening: content sandboxing, trust levels, encryption at rest
+- [ ] Self-learning: skill system, self-improvement loop, summary learning
 - [ ] Agent teams: virtual thread teammates, shared tasks, inter-agent messaging
 - [ ] Hook system: PreToolUse/PostToolUse lifecycle events
 
