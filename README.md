@@ -101,9 +101,16 @@ export ANTHROPIC_API_KEY="sk-ant-api03-..."
 ./aceclaw-cli/build/install/aceclaw-cli/bin/aceclaw-cli
 ```
 
-Multi-provider support:
+Multi-provider support — see [Provider Configuration](docs/provider-configuration.md) for full setup:
 ```bash
-export ACECLAW_PROVIDER="openai"   # or groq, together, mistral, ollama
+# GitHub Copilot (use your subscription — no separate API key needed)
+./dev.sh copilot
+
+# Ollama (local, offline)
+./dev.sh ollama
+
+# Or any OpenAI-compatible provider
+export ACECLAW_PROVIDER="openai"   # or groq, together, mistral
 export OPENAI_API_KEY="sk-..."
 ```
 
