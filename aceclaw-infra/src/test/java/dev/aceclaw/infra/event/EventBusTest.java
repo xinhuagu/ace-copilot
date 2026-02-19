@@ -188,28 +188,32 @@ class EventBusTest {
         smallBus.start();
 
         var blocker = new CountDownLatch(1);
+        var delivered = new CountDownLatch(1);
         var count = new AtomicInteger(0);
 
-        smallBus.subscribe(AgentEvent.class, event -> {
-            try {
-                blocker.await(); // block drain until we release
-            } catch (InterruptedException ignored) {}
-            count.incrementAndGet();
-        });
+        try {
+            smallBus.subscribe(AgentEvent.class, event -> {
+                try {
+                    blocker.await();
+                } catch (InterruptedException ignored) {}
+                count.incrementAndGet();
+                delivered.countDown();
+            });
 
-        // Publish more than capacity while drain is blocked
-        for (int i = 0; i < 10; i++) {
-            smallBus.publish(new AgentEvent.TurnStarted("s1", i, Instant.now()));
+            // Publish more than capacity while drain is blocked
+            for (int i = 0; i < 10; i++) {
+                smallBus.publish(new AgentEvent.TurnStarted("s1", i, Instant.now()));
+            }
+
+            // Release the drain and wait for at least one delivery
+            blocker.countDown();
+            assertThat(delivered.await(2, TimeUnit.SECONDS)).isTrue();
+
+            // Should have delivered at most capacity + 1 (one in-flight when blocked)
+            assertThat(count.get()).isGreaterThan(0).isLessThanOrEqualTo(3);
+        } finally {
+            smallBus.stop();
         }
-
-        // Release the drain
-        blocker.countDown();
-        Thread.sleep(200); // let drain process
-
-        // Should have delivered at most capacity + 1 (one in-flight when blocked)
-        assertThat(count.get()).isGreaterThan(0).isLessThanOrEqualTo(3);
-
-        smallBus.stop();
     }
 
     @Test
