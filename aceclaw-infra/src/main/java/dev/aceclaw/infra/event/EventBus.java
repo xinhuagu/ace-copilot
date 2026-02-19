@@ -55,6 +55,9 @@ public final class EventBus {
     }
 
     public EventBus(int queueCapacity) {
+        if (queueCapacity <= 0) {
+            throw new IllegalArgumentException("queueCapacity must be > 0, got: " + queueCapacity);
+        }
         this.queueCapacity = queueCapacity;
     }
 
@@ -191,8 +194,11 @@ public final class EventBus {
             if (!eventType.isInstance(event)) return;
 
             if (!queue.offer(event)) {
+                // Drop oldest to make room for the newest event
+                queue.poll();
+                queue.offer(event);
                 LoggerFactory.getLogger(EventBus.class)
-                        .warn("Subscriber queue full for {}, dropping event", eventType.getSimpleName());
+                        .warn("Subscriber queue full for {}, dropped oldest event", eventType.getSimpleName());
             }
         }
 

@@ -11,6 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class EventBusTest {
 
@@ -54,13 +55,18 @@ class EventBusTest {
 
         var agentLatch = new CountDownLatch(1);
         var toolLatch = new CountDownLatch(1);
+        var unexpected = new CountDownLatch(1);
 
         bus.subscribe(AgentEvent.class, event -> {
-            agentCount.incrementAndGet();
+            if (agentCount.incrementAndGet() > 1) {
+                unexpected.countDown();
+            }
             agentLatch.countDown();
         });
         bus.subscribe(ToolEvent.class, event -> {
-            toolCount.incrementAndGet();
+            if (toolCount.incrementAndGet() > 1) {
+                unexpected.countDown();
+            }
             toolLatch.countDown();
         });
 
@@ -70,8 +76,8 @@ class EventBusTest {
         assertThat(agentLatch.await(2, TimeUnit.SECONDS)).isTrue();
         assertThat(toolLatch.await(2, TimeUnit.SECONDS)).isTrue();
 
-        // Small delay to let any incorrectly routed events arrive
-        Thread.sleep(100);
+        // Verify no unexpected extra deliveries
+        assertThat(unexpected.await(200, TimeUnit.MILLISECONDS)).isFalse();
 
         assertThat(agentCount.get()).isEqualTo(1);
         assertThat(toolCount.get()).isEqualTo(1);
@@ -91,15 +97,14 @@ class EventBusTest {
 
     @Test
     void stopPreventsDelivery() throws Exception {
-        var count = new AtomicInteger(0);
+        var delivered = new CountDownLatch(1);
 
-        bus.subscribe(AgentEvent.class, event -> count.incrementAndGet());
+        bus.subscribe(AgentEvent.class, event -> delivered.countDown());
         bus.stop();
 
         bus.publish(new AgentEvent.TurnStarted("s1", 1, Instant.now()));
-        Thread.sleep(100);
 
-        assertThat(count.get()).isZero();
+        assertThat(delivered.await(200, TimeUnit.MILLISECONDS)).isFalse();
     }
 
     @Test
@@ -163,40 +168,57 @@ class EventBusTest {
             latch.countDown();
         });
 
-        // First event should arrive
         bus.publish(new AgentEvent.TurnStarted("s1", 1, Instant.now()));
         assertThat(latch.await(2, TimeUnit.SECONDS)).isTrue();
         assertThat(count.get()).isEqualTo(1);
 
-        // Unsubscribe
         sub.unsubscribe();
         assertThat(bus.subscriberCount()).isZero();
 
-        // Second event should not arrive
+        var noDelivery = new CountDownLatch(1);
+        // Reuse count — if it increments, unsubscribe failed
         bus.publish(new AgentEvent.TurnStarted("s1", 2, Instant.now()));
-        Thread.sleep(100);
+        assertThat(noDelivery.await(200, TimeUnit.MILLISECONDS)).isFalse();
         assertThat(count.get()).isEqualTo(1);
     }
 
     @Test
-    void queueCapacityDropsExcessEvents() {
+    void queueCapacityDropsOldestEvents() throws Exception {
         var smallBus = new EventBus(2);
         smallBus.start();
 
-        // Subscribe but don't start draining (subscriber is paused by not consuming)
-        // We can test this indirectly: fill beyond capacity
+        var blocker = new CountDownLatch(1);
         var count = new AtomicInteger(0);
-        var sub = smallBus.subscribe(AgentEvent.class, event -> count.incrementAndGet());
 
-        // Publish more than capacity — some should be dropped silently
+        smallBus.subscribe(AgentEvent.class, event -> {
+            try {
+                blocker.await(); // block drain until we release
+            } catch (InterruptedException ignored) {}
+            count.incrementAndGet();
+        });
+
+        // Publish more than capacity while drain is blocked
         for (int i = 0; i < 10; i++) {
             smallBus.publish(new AgentEvent.TurnStarted("s1", i, Instant.now()));
         }
 
-        // At least some should have been delivered
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
-        assertThat(count.get()).isGreaterThan(0);
+        // Release the drain
+        blocker.countDown();
+        Thread.sleep(200); // let drain process
+
+        // Should have delivered at most capacity + 1 (one in-flight when blocked)
+        assertThat(count.get()).isGreaterThan(0).isLessThanOrEqualTo(3);
 
         smallBus.stop();
+    }
+
+    @Test
+    void invalidCapacityThrows() {
+        assertThatThrownBy(() -> new EventBus(0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("queueCapacity must be > 0");
+
+        assertThatThrownBy(() -> new EventBus(-1))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }
