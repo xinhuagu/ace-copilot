@@ -107,15 +107,12 @@ public final class SystemPromptLoader {
                               DailyJournal journal, MarkdownMemoryStore markdownStore,
                               String model, String provider, SystemPromptBudget budget) {
         var sb = new StringBuilder();
-        sb.append(basePrompt());
-
-        // Environment context
-        appendEnvironmentContext(sb, projectPath, model, provider);
-
-        // Git context
-        appendGitContext(sb, projectPath);
 
         // 8-tier memory hierarchy via MemoryTierLoader with budget enforcement
+        // Placed BEFORE base prompt to exploit "primacy bias" — models attend most
+        // to early content. This ensures memory (bookmarks, learned patterns, user
+        // instructions) isn't buried after a 20K char base prompt where small models
+        // lose attention ("lost in the middle" problem).
         var tierResult = MemoryTierLoader.loadAll(
                 GLOBAL_CONFIG_DIR, projectPath, memoryStore, journal, markdownStore);
         Path markdownMemoryDir = markdownStore != null ? markdownStore.memoryDir() : null;
@@ -124,11 +121,39 @@ public final class SystemPromptLoader {
 
         // Apply budget constraints (per-tier + total caps, 70/20/10 truncation)
         var budgetedSections = TierTruncator.applyBudget(tierSections, budget);
+
+        // Split tiers: high-priority (Soul, Policy, Workspace, User, Local, Auto)
+        // go BEFORE base prompt; low-priority (Markdown, Journal) go AFTER.
+        var highPriorityTiers = budgetedSections.stream()
+                .filter(s -> s.tier().priority() >= 60) // AutoMemory(70) and above
+                .toList();
+        var lowPriorityTiers = budgetedSections.stream()
+                .filter(s -> s.tier().priority() < 60) // MarkdownMemory(55), Journal(50)
+                .toList();
+
+        // High-priority memory FIRST (user context, instructions, learned insights)
+        String highContent = MemoryTierLoader.joinTierSections(highPriorityTiers);
+        if (!highContent.isEmpty()) {
+            sb.append(highContent);
+        }
+
+        // Base prompt (agent capabilities, tool usage rules)
+        sb.append(basePrompt());
+
+        // Environment context
+        appendEnvironmentContext(sb, projectPath, model, provider);
+
+        // Git context
+        appendGitContext(sb, projectPath);
+
+        // Low-priority memory AFTER base prompt (journal, markdown notes)
+        String lowContent = MemoryTierLoader.joinTierSections(lowPriorityTiers);
+        if (!lowContent.isEmpty()) {
+            sb.append(lowContent);
+        }
+
         String tierContent = MemoryTierLoader.joinTierSections(budgetedSections);
-
         if (!tierContent.isEmpty()) {
-            sb.append(tierContent);
-
             // Detect and report truncated tiers so the agent is aware
             var truncatedTiers = budgetedSections.stream()
                     .filter(s -> s.content() != null && s.content().contains("[TRUNCATED]"))

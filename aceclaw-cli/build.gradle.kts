@@ -27,7 +27,7 @@ dependencies {
 
 application {
     mainClass = "dev.aceclaw.cli.AceClawMain"
-    applicationDefaultJvmArgs = listOf("--enable-preview")
+    applicationDefaultJvmArgs = listOf("--enable-preview", "-Dlogback.configurationFile=logback-cli.xml")
 }
 
 graalvmNative {

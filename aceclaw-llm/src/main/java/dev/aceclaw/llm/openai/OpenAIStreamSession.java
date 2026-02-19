@@ -123,13 +123,14 @@ final class OpenAIStreamSession implements StreamSession {
             if (reasoningText == null) {
                 reasoningText = delta.path("reasoning_content").asText(null);
             }
-            if (reasoningText != null) {
+            if (reasoningText != null && !reasoningText.isEmpty()) {
                 handleReasoningDelta(reasoningText, handler);
             }
 
             // Process content delta (text)
+            // Guard against empty strings (Ollama sends "content":"" alongside "reasoning" tokens)
             String contentText = delta.path("content").asText(null);
-            if (contentText != null) {
+            if (contentText != null && !contentText.isEmpty()) {
                 handleTextDelta(contentText, handler);
             }
 

@@ -115,8 +115,11 @@ public final class DaemonStarter {
                     "trap '' INT; exec " + javaCmd);
         }
 
-        pb.redirectOutput(ProcessBuilder.Redirect.appendTo(DAEMON_LOG.toFile()));
-        pb.redirectErrorStream(true);
+        // Daemon's logback.xml FILE appender writes directly to daemon.log.
+        // Discard stdout to avoid duplicate lines from the STDOUT appender.
+        // Redirect stderr to daemon.log to capture pre-logback JVM errors.
+        pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+        pb.redirectError(ProcessBuilder.Redirect.appendTo(DAEMON_LOG.toFile()));
         pb.redirectInput(ProcessBuilder.Redirect.from(Path.of("/dev/null").toFile()));
 
         // Inherit the CLI's working directory so tools resolve paths

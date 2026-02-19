@@ -200,9 +200,15 @@ public final class AceClawDaemon {
         var permissionManager = new PermissionManager(new DefaultPermissionPolicy(config.permissionMode()));
 
         // 5. System prompt (with 8-tier memory hierarchy + daily journal + model identity + budget)
+        //    Budget scales with context window: small models (32K) get smaller memory budgets
         DailyJournal journal = memoryStore != null ? memoryStore.getDailyJournal() : null;
+        var promptBudget = SystemPromptBudget.forContextWindow(
+                config.contextWindowTokens(), config.maxTokens());
+        log.info("System prompt budget: {}K per tier, {}K total (context={}K, maxOutput={}K)",
+                promptBudget.maxPerTierChars() / 1000, promptBudget.maxTotalChars() / 1000,
+                config.contextWindowTokens() / 1000, config.maxTokens() / 1000);
         String systemPrompt = SystemPromptLoader.load(
-                workingDir, memoryStore, journal, markdownStore, model, config.provider());
+                workingDir, memoryStore, journal, markdownStore, model, config.provider(), promptBudget);
 
         // 6. Context compaction (accounting for actual system prompt size)
         int systemPromptTokens = dev.aceclaw.core.agent.ContextEstimator.estimateTokens(systemPrompt);

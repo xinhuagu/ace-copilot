@@ -18,6 +18,7 @@ import dev.aceclaw.security.PermissionDecision;
 import dev.aceclaw.security.PermissionLevel;
 import dev.aceclaw.security.PermissionManager;
 import dev.aceclaw.security.PermissionRequest;
+import dev.aceclaw.tools.SkillTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -138,6 +139,13 @@ public final class StreamingAgentHandler {
                 getModel(), getSystemPrompt(),
                 maxTokens, thinkingBudget, compactor);
 
+        // Wire stream event handler to SkillTool for sub-agent event forwarding
+        for (var tool : toolRegistry.all()) {
+            if (tool instanceof SkillTool st) {
+                st.setCurrentHandler(eventHandler);
+            }
+        }
+
         // Start the cancel monitor thread to read from the socket
         cancelContext.startMonitor();
         try {
@@ -210,6 +218,12 @@ public final class StreamingAgentHandler {
             throw new IllegalStateException(userMessage);
         } finally {
             cancelContext.stopMonitor();
+            // Clear handler to avoid stale references between requests
+            for (var tool : toolRegistry.all()) {
+                if (tool instanceof SkillTool st) {
+                    st.setCurrentHandler(null);
+                }
+            }
         }
     }
 
@@ -529,6 +543,29 @@ public final class StreamingAgentHandler {
                 context.sendNotification("stream.compaction", params);
             } catch (IOException e) {
                 log.warn("Failed to send compaction notification: {}", e.getMessage());
+            }
+        }
+
+        @Override
+        public void onSubAgentStart(String agentId, String prompt) {
+            try {
+                var params = objectMapper.createObjectNode();
+                params.put("agentType", agentId);
+                params.put("prompt", prompt);
+                context.sendNotification("stream.subagent.start", params);
+            } catch (IOException e) {
+                log.warn("Failed to send subagent start notification: {}", e.getMessage());
+            }
+        }
+
+        @Override
+        public void onSubAgentEnd(String agentId) {
+            try {
+                var params = objectMapper.createObjectNode();
+                params.put("agentType", agentId);
+                context.sendNotification("stream.subagent.end", params);
+            } catch (IOException e) {
+                log.warn("Failed to send subagent end notification: {}", e.getMessage());
             }
         }
     }

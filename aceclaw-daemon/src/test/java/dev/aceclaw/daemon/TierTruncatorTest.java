@@ -33,6 +33,33 @@ class TierTruncatorTest {
                 () -> new SystemPromptBudget(100, 0));
     }
 
+    @Test
+    void forContextWindowScalesForLargeModels() {
+        // 200K context, 16K output -> should match DEFAULT (150K total, 20K per tier)
+        var budget = SystemPromptBudget.forContextWindow(200_000, 16_384);
+        assertThat(budget.maxTotalChars()).isEqualTo(150_000);
+        assertThat(budget.maxPerTierChars()).isEqualTo(20_000);
+    }
+
+    @Test
+    void forContextWindowScalesForSmallModels() {
+        // 32K context, 4K output -> much smaller budget
+        var budget = SystemPromptBudget.forContextWindow(32_768, 4_096);
+        // effectiveWindow=28672, systemBudget=7168 tokens, memoryBudget=1168 tokens, chars=4672
+        assertThat(budget.maxTotalChars()).isLessThan(10_000);
+        assertThat(budget.maxPerTierChars()).isLessThan(5_000);
+        assertThat(budget.maxTotalChars()).isGreaterThan(2_000);
+        assertThat(budget.maxPerTierChars()).isGreaterThan(1_000);
+    }
+
+    @Test
+    void forContextWindowScalesForMediumModels() {
+        // 128K context, 8K output
+        var budget = SystemPromptBudget.forContextWindow(128_000, 8_192);
+        assertThat(budget.maxTotalChars()).isBetween(50_000, 150_000);
+        assertThat(budget.maxPerTierChars()).isBetween(10_000, 20_000);
+    }
+
     // =========================================================================
     // truncateContent tests
     // =========================================================================
