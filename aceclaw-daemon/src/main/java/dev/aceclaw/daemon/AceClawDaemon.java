@@ -188,13 +188,24 @@ public final class AceClawDaemon {
 
         log.info("Registered {} base tools", toolRegistry.size());
 
-        // 3. Sub-agent infrastructure (task delegation)
+        // 3. Sub-agent infrastructure (task delegation) and skills
         var agentTypeRegistry = AgentTypeRegistry.load(workingDir);
         var subAgentRunner = new SubAgentRunner(
                 llmClient, toolRegistry, model, workingDir,
                 config.maxTokens(), config.thinkingBudget());
         toolRegistry.register(new dev.aceclaw.tools.TaskTool(subAgentRunner, agentTypeRegistry));
         log.info("Sub-agent types available: {}", agentTypeRegistry.names());
+
+        // Skill system (project + user skills from .aceclaw/skills/)
+        var skillRegistry = SkillRegistry.load(workingDir);
+        if (!skillRegistry.isEmpty()) {
+            var contentResolver = new SkillContentResolver(workingDir);
+            var skillTool = new SkillTool(skillRegistry, contentResolver, subAgentRunner);
+            toolRegistry.register(skillTool);
+            log.info("Skills registered: {}", skillRegistry.names());
+        } else {
+            log.debug("No skills found, SkillTool not registered");
+        }
 
         // 4. Permission manager — mode from config (default: "normal")
         var permissionManager = new PermissionManager(new DefaultPermissionPolicy(config.permissionMode()));
