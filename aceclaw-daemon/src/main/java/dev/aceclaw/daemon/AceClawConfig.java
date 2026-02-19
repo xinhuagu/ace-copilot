@@ -93,16 +93,20 @@ public final class AceClawConfig {
             config.mergeFromFile(projectConfig);
         }
 
-        // 3. Apply profile: ACECLAW_PROFILE env var > defaultProfile in config
+        // 3. Determine which profile to apply:
+        //    ACECLAW_PROFILE > ACECLAW_PROVIDER (if matching profile exists) > defaultProfile
         var envProfile = System.getenv("ACECLAW_PROFILE");
+        var envProvider = System.getenv("ACECLAW_PROVIDER");
         if (envProfile != null && !envProfile.isBlank()) {
             config.applyProfile(envProfile);
+        } else if (envProvider != null && !envProvider.isBlank()
+                && config.profiles != null && config.profiles.containsKey(envProvider.toLowerCase())) {
+            config.applyProfile(envProvider.toLowerCase());
         } else if (config.defaultProfile != null && !config.defaultProfile.isBlank()) {
             config.applyProfile(config.defaultProfile);
         }
 
         // 4. Environment variables (highest precedence)
-        var envProvider = System.getenv("ACECLAW_PROVIDER");
         if (envProvider != null && !envProvider.isBlank()) {
             config.provider = envProvider.toLowerCase();
         }

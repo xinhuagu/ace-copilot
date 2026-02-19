@@ -8,11 +8,12 @@ set -e
 PROVIDER="${1:-}"
 VALID_PROVIDERS="anthropic openai ollama copilot groq"
 
-# Auto-detect JAVA_HOME if not set
+# Auto-detect JAVA_HOME if not set — require exact Java 21
 if [ -z "$JAVA_HOME" ]; then
-    BREW_JDK="$(brew --prefix openjdk@21 2>/dev/null)/libexec/openjdk.jdk/Contents/Home"
-    if [ -d "$BREW_JDK" ]; then
-        export JAVA_HOME="$BREW_JDK"
+    # macOS: use java_home utility which correctly resolves registered JVMs
+    DETECTED_JDK="$(/usr/libexec/java_home -v 21 2>/dev/null || true)"
+    if [ -n "$DETECTED_JDK" ] && [ -d "$DETECTED_JDK" ]; then
+        export JAVA_HOME="$DETECTED_JDK"
     fi
 fi
 
