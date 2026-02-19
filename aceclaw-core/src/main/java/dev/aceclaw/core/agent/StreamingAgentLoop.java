@@ -453,12 +453,14 @@ public final class StreamingAgentLoop {
             log.debug("Tool {} completed: isError={}", tool.name(), result.isError());
             publishEvent(new ToolEvent.Completed(
                     config.sessionId(), tool.name(), toolDuration, result.isError(), Instant.now()));
+            recordMetrics(tool.name(), !result.isError(), toolDuration);
             return new ContentBlock.ToolResult(toolUse.id(), output, result.isError());
         } catch (Exception e) {
             long toolDuration = System.currentTimeMillis() - toolStart;
             log.error("Tool {} threw exception: {}", tool.name(), e.getMessage(), e);
             publishEvent(new ToolEvent.Completed(
                     config.sessionId(), tool.name(), toolDuration, true, Instant.now()));
+            recordMetrics(tool.name(), false, toolDuration);
             return new ContentBlock.ToolResult(toolUse.id(), "Tool error: " + e.getMessage(), true);
         }
     }
@@ -481,6 +483,17 @@ public final class StreamingAgentLoop {
     private void publishEvent(dev.aceclaw.infra.event.AceClawEvent event) {
         if (config.eventBus() != null) {
             config.eventBus().publish(event);
+        }
+    }
+
+    private void recordMetrics(String toolName, boolean success, long durationMs) {
+        if (config.metricsCollector() != null) {
+            try {
+                config.metricsCollector().record(toolName, success, durationMs);
+            } catch (Exception e) {
+                log.warn("Failed to record metrics for tool {} ({}ms): {}",
+                        toolName, durationMs, e.getMessage());
+            }
         }
     }
 
