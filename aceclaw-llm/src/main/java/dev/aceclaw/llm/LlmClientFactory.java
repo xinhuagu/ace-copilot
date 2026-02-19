@@ -36,7 +36,7 @@ public final class LlmClientFactory {
             "groq", "llama-3.3-70b-versatile",
             "together", "meta-llama/Llama-3.3-70B-Instruct-Turbo",
             "mistral", "mistral-large-latest",
-            "copilot", "gpt5.2",
+            "copilot", "claude-sonnet-4.5",
             "ollama", "qwen3:4b"
     );
 
@@ -115,7 +115,7 @@ public final class LlmClientFactory {
         var tokenProvider = new CopilotTokenProvider(githubToken);
         // Use default endpoint; token exchange is deferred to first API call.
         String resolvedBaseUrl = baseUrl != null ? baseUrl : DEFAULT_BASE_URLS.get("copilot");
-        String resolvedModel = model != null ? model : DEFAULT_MODELS.getOrDefault("copilot", "gpt5.2");
+        String resolvedModel = model != null ? model : DEFAULT_MODELS.getOrDefault("copilot", "claude-sonnet-4.5");
         // Copilot uses /chat/completions (no /v1 prefix)
         return new OpenAICompatClient(
                 tokenProvider, resolvedBaseUrl, "/chat/completions",
