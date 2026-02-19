@@ -283,6 +283,15 @@ public final class AceClawDaemon {
         router.setModelName(model);
         router.setProviderInfo(config.provider(), config.contextWindowTokens());
 
+        // Register model.list and model.switch RPC methods
+        final var llmClientRef = llmClient;
+        final var agentHandlerRef = agentHandler;
+        final var providerNameRef = config.provider();
+
+        // Register model.list and model.switch via shared helper
+        ModelRpcHelper.registerModelList(router, objectMapper, agentHandlerRef, llmClientRef, providerNameRef);
+        ModelRpcHelper.registerModelSwitch(router, objectMapper, agentHandlerRef, llmClientRef);
+
         log.info("Agent handler wired: provider={}, model={}, tools={}",
                 config.provider(), model, toolRegistry.size());
     }
