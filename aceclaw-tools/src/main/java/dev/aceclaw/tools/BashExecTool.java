@@ -15,7 +15,8 @@ import java.util.concurrent.TimeUnit;
 /**
  * Executes a shell command and returns stdout/stderr.
  *
- * <p>On Unix/macOS, commands are executed via {@code /bin/bash -c}.
+ * <p>On Unix/macOS, commands are executed via {@code /bin/bash -c},
+ * falling back to {@code /bin/sh -c} when bash is not present (e.g. Alpine/BusyBox).
  * On Windows, commands are executed via {@code cmd.exe /c}.
  * Timeout is configurable; output is captured and truncated if it exceeds size limits.
  */
