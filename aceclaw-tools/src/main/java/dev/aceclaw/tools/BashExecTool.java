@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
@@ -33,8 +34,11 @@ public final class BashExecTool implements Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private static final boolean IS_WINDOWS = System.getProperty("os.name", "")
+        static final boolean IS_WINDOWS = System.getProperty("os.name", "")
             .toLowerCase(Locale.ROOT).startsWith("win");
+
+    /** Prefer bash, fall back to sh for Alpine/BusyBox. */
+    static final String UNIX_SHELL = Files.exists(Path.of("/bin/bash")) ? "/bin/bash" : "/bin/sh";
 
     private final Path workingDir;
 
@@ -91,7 +95,7 @@ public final class BashExecTool implements Tool {
         if (IS_WINDOWS) {
             processBuilder = new ProcessBuilder("cmd.exe", "/c", command);
         } else {
-            processBuilder = new ProcessBuilder("/bin/bash", "-c", command);
+            processBuilder = new ProcessBuilder(UNIX_SHELL, "-c", command);
         }
         processBuilder.directory(workingDir.toFile())
                 .redirectErrorStream(true);
