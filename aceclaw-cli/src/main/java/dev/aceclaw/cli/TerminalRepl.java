@@ -56,6 +56,8 @@ public final class TerminalRepl {
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final Pattern ANSI_CSI_PATTERN =
             Pattern.compile("\\u001B\\[[0-?]*[ -/]*[@-~]");
+    private static final Duration TASK_STALLED_AFTER = Duration.ofSeconds(45);
+    private static final Duration TASK_TIMEOUT_AFTER = Duration.ofSeconds(180);
 
     private final DaemonClient client;
     private final String sessionId;
@@ -102,6 +104,21 @@ public final class TerminalRepl {
         }
     }
 
+    private enum TaskRuntimeState {
+        ACTIVE,
+        WAITING_PERMISSION,
+        STALLED,
+        TIMEOUT
+    }
+
+    private record TaskRuntimeInfo(
+            TaskRuntimeState state,
+            String shortState,
+            String label,
+            String color,
+            String icon
+    ) {}
+
     /**
      * Creates a REPL connected to the given daemon client and session.
      *
@@ -123,6 +140,8 @@ public final class TerminalRepl {
      * Runs the interactive REPL loop. Blocks until the user exits.
      */
     public void run() {
+        var stopStatusTicker = new AtomicBoolean(false);
+        Thread statusTicker = null;
         try (Terminal terminal = TerminalBuilder.builder()
                 .name("aceclaw")
                 .system(true)
@@ -142,6 +161,8 @@ public final class TerminalRepl {
             activeTerminal = terminal;
 
             PrintWriter out = terminal.writer();
+
+            statusTicker = startStatusTicker(stopStatusTicker, reader);
 
             // Register callback to auto-push background task output above prompt
             taskManager.setOnTaskComplete(handle -> pushBackgroundCompletion(handle, reader));
@@ -238,7 +259,31 @@ public final class TerminalRepl {
         } catch (IOException e) {
             log.error("Terminal error: {}", e.getMessage(), e);
             System.err.println("Terminal error: " + e.getMessage());
+        } finally {
+            stopStatusTicker.set(true);
+            if (statusTicker != null) {
+                statusTicker.interrupt();
+            }
         }
+    }
+
+    private Thread startStatusTicker(AtomicBoolean stopFlag, LineReader reader) {
+        return Thread.ofVirtual()
+                .name("aceclaw-status-ticker")
+                .start(() -> {
+                    while (!stopFlag.get()) {
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
+
+                        if (!readingPrompt) continue;
+                        if (taskManager.runningCount() <= 0 && permissionBridge.pendingCount() <= 0) continue;
+                        redrawStatusPanelBelowPrompt(reader);
+                    }
+                });
     }
 
     // -- Task submission and foreground wait ---------------------------------
@@ -486,6 +531,10 @@ public final class TerminalRepl {
 
         permissionBridge.submitAnswer(req.requestId(),
                 new PermissionBridge.PermissionAnswer(approved, remember));
+        var task = taskManager.get(req.taskId());
+        if (task != null) {
+            task.clearWaitingPermission();
+        }
         permissionInterruptRequested.set(false);
         redrawStatusPanelBelowPrompt(reader);
     }
@@ -763,6 +812,10 @@ public final class TerminalRepl {
      */
     private void onPermissionRequested(PermissionBridge.PermissionRequest request, LineReader reader) {
         if (reader == null) return;
+        var task = taskManager.get(request.taskId());
+        if (task != null) {
+            task.markWaitingPermission(request.description());
+        }
         try {
             String note = WARNING + "[Permission required] " + RESET
                     + "task #" + request.taskId() + " \u2192 "
@@ -800,6 +853,7 @@ public final class TerminalRepl {
     private List<String> buildStatusPanelLines() {
         var lines = new ArrayList<String>();
         lines.add(buildStatusString());
+        Instant now = Instant.now();
 
         var runningTasks = taskManager.list().stream()
                 .filter(TaskHandle::isRunning)
@@ -811,15 +865,17 @@ public final class TerminalRepl {
 
             String fgId = taskManager.foregroundTaskId();
             for (var task : visible) {
-                String elapsed = formatDuration(Duration.between(task.startedAt(), Instant.now()));
+                String elapsed = formatDuration(Duration.between(task.startedAt(), now));
                 String prefix = task.taskId().equals(fgId) ? "[fg] " : "";
                 String summary = fitWidth(task.promptSummary(), 52);
+                var runtime = deriveRuntimeInfo(task, now);
+                String runtimeLabel = fitWidth(runtime.label(), 24);
 
                 lines.add(MUTED + "  \u2514 " + RESET
-                        + WARNING + "\u23F3" + RESET + " "
+                        + runtime.color() + runtime.icon() + RESET + " "
                         + INFO + "#" + task.taskId() + RESET + " "
                         + prefix + summary
-                        + MUTED + "  " + elapsed + RESET);
+                        + MUTED + "  " + runtimeLabel + " \u00B7 " + elapsed + RESET);
             }
 
             int hidden = runningTasks.size() - visible.size();
@@ -846,6 +902,59 @@ public final class TerminalRepl {
         }
 
         return lines;
+    }
+
+    private TaskRuntimeInfo deriveRuntimeInfo(TaskHandle task, Instant now) {
+        if (task.waitingPermission()) {
+            String detail = task.permissionDetail();
+            String label = "awaiting permission";
+            if (detail != null && !detail.isBlank()) {
+                label += ": " + fitWidth(detail, 28);
+            }
+            return new TaskRuntimeInfo(
+                    TaskRuntimeState.WAITING_PERMISSION,
+                    "wait_perm",
+                    label,
+                    WARNING,
+                    "\uD83D\uDD10");
+        }
+
+        Instant lastActivity = task.lastActivityAt();
+        if (lastActivity == null) {
+            lastActivity = task.startedAt();
+        }
+        Duration idle = Duration.between(lastActivity, now);
+        if (idle.isNegative()) {
+            idle = Duration.ZERO;
+        }
+
+        if (idle.compareTo(TASK_TIMEOUT_AFTER) >= 0) {
+            return new TaskRuntimeInfo(
+                    TaskRuntimeState.TIMEOUT,
+                    "timeout",
+                    "timeout suspected (" + formatDuration(idle) + ")",
+                    ERROR,
+                    "\u23F1");
+        }
+        if (idle.compareTo(TASK_STALLED_AFTER) >= 0) {
+            return new TaskRuntimeInfo(
+                    TaskRuntimeState.STALLED,
+                    "stalled",
+                    "no activity " + formatDuration(idle),
+                    WARNING,
+                    "\u26A0");
+        }
+
+        String activity = task.activityLabel();
+        if (activity == null || activity.isBlank()) {
+            activity = "running";
+        }
+        return new TaskRuntimeInfo(
+                TaskRuntimeState.ACTIVE,
+                "running",
+                activity,
+                INFO,
+                "\u23F3");
     }
 
     private static String formatTokenCount(long tokens) {
@@ -958,6 +1067,7 @@ public final class TerminalRepl {
         out.println();
         out.println(BOLD + "Tasks:" + RESET);
         String fgId = taskManager.foregroundTaskId();
+        Instant now = Instant.now();
         for (var handle : tasks) {
             String stateColor = switch (handle.state()) {
                 case RUNNING -> INFO;
@@ -966,16 +1076,27 @@ public final class TerminalRepl {
                 case CANCELLED -> WARNING;
             };
             String stateLabel = handle.state().name().toLowerCase();
+            String runtimeLabel = "";
+            if (handle.isRunning()) {
+                var runtime = deriveRuntimeInfo(handle, now);
+                if (runtime.state() != TaskRuntimeState.ACTIVE) {
+                    stateLabel = runtime.shortState();
+                }
+                runtimeLabel = runtime.label();
+            }
             boolean isFg = handle.taskId().equals(fgId);
-            String elapsed = formatDuration(Duration.between(handle.startedAt(), Instant.now()));
+            String elapsed = formatDuration(Duration.between(handle.startedAt(), now));
 
-            out.printf("  %s#%s%s %s%-10s%s %s%s%s  %s%s%s%n",
+            out.printf("  %s#%s%s %s%-12s%s %s%s%s  %s%s%s%n",
                     BOLD, handle.taskId(), RESET,
                     stateColor, stateLabel, RESET,
                     isFg ? BOLD + "[fg] " : "",
                     handle.promptSummary(),
                     RESET,
                     MUTED, elapsed, RESET);
+            if (!runtimeLabel.isBlank()) {
+                out.printf("      %s%s%s%n", MUTED, runtimeLabel, RESET);
+            }
         }
         out.println();
         out.flush();
