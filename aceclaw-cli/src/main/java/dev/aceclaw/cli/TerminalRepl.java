@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
 import static dev.aceclaw.cli.TerminalTheme.*;
 
@@ -53,6 +54,8 @@ public final class TerminalRepl {
 
     private static final String PROMPT_STR = PROMPT + "aceclaw>" + RESET + " ";
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final Pattern ANSI_CSI_PATTERN =
+            Pattern.compile("\\u001B\\[[0-?]*[ -/]*[@-~]");
 
     private final DaemonClient client;
     private final String sessionId;
@@ -695,10 +698,12 @@ public final class TerminalRepl {
     private void renderStatusPanel(PrintWriter out, boolean restoreCursorByUp) {
         var lines = buildStatusPanelLines();
         if (lines.isEmpty()) return;
+        int terminalWidth = activeTerminal != null ? activeTerminal.getWidth() : 120;
+        int maxWidth = Math.max(20, terminalWidth - 1);
 
         for (var line : lines) {
             out.print("\n\r\033[K");
-            out.print(line);
+            out.print(clampStatusLine(line, maxWidth));
         }
 
         if (restoreCursorByUp) {
@@ -1281,5 +1286,19 @@ public final class TerminalRepl {
         if (mins < 60) return mins + "m " + (secs % 60) + "s";
         long hours = mins / 60;
         return hours + "h " + (mins % 60) + "m";
+    }
+
+    /**
+     * Ensures status-panel lines never soft-wrap, otherwise cursor restoration drifts
+     * and typing can land on the status row instead of the prompt row.
+     */
+    private static String clampStatusLine(String line, int maxWidth) {
+        if (line == null || line.isEmpty()) return "";
+        if (maxWidth <= 0) return "";
+        String plain = ANSI_CSI_PATTERN.matcher(line).replaceAll("");
+        if (displayWidth(plain) <= maxWidth) {
+            return line;
+        }
+        return fitWidth(plain, maxWidth);
     }
 }
