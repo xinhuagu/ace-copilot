@@ -1,6 +1,6 @@
 <h1 align="center">AceClaw</h1>
 
-<p align="center">Security-first autonomous task agent built on Java 21</p>
+<p align="center">Security-first autonomous task agent built on Java 21 — designed for enterprise environments</p>
 
 <p align="center">
   <a href="https://github.com/xinhuagu/AceClaw/actions/workflows/ci.yml"><img src="https://github.com/xinhuagu/AceClaw/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -9,11 +9,15 @@
   <img src="https://img.shields.io/badge/Gradle-8.14-02303A?logo=gradle&logoColor=white" alt="Gradle 8.14">
 </p>
 
-AceClaw is a security-first autonomous task agent inspired by [OpenClaw](https://github.com/openclaw) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code). It takes the core ideas of agentic coding — daemon architecture, tool use, ReAct loops — and enhances them in three areas:
+AceClaw is a security-first autonomous task agent built on **Java 21**, designed for **enterprise environments** where security, auditability, and JVM ecosystem integration matter. Inspired by [OpenClaw](https://github.com/openclaw) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code), it takes the core ideas of agentic AI — daemon architecture, tool use, ReAct loops — and enhances them in three areas:
 
 1. **Security** — Zero network surface, sealed permissions, content boundaries
 2. **Self-Learning** — Heuristic pattern detection, cross-session insight accumulation, strategy evolution
 3. **Long-Term Memory** — 8-tier hierarchy, HMAC-SHA256 signed entries, hybrid search, automated consolidation
+
+### Why Java?
+
+Enterprise teams run on the JVM. AceClaw is a native Java application — no Python runtime, no Node.js, no polyglot toolchain. It leverages Java 21 features (sealed interfaces, virtual threads, pattern matching) for type-safe, high-performance agent execution, and integrates naturally into existing Java/Spring/Quarkus ecosystems. GraalVM Native Image support enables instant cold starts for CLI and daemon.
 
 ## Security First
 
