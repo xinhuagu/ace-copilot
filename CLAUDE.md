@@ -42,8 +42,9 @@ CLI (Picocli + JLine3)
   ↕ JSON-RPC 2.0 over UDS (~/.aceclaw/aceclaw.sock)
 Daemon (persistent JVM)
   ├── RequestRouter → dispatches methods to handlers
-  ├── StreamingAgentHandler → runs ReAct loop with permission checks
+  ├── StreamingAgentHandler → runs ReAct loop with permission checks + task planner
   ├── StreamingAgentLoop → LLM call → tool execution cycle (max 25 iterations)
+  ├── Task Planner → complexity estimation → LLM plan generation → sequential execution
   ├── PermissionManager → READ auto-approved, WRITE/EXECUTE need user approval
   ├── ToolRegistry → 6 tools (read_file, write_file, edit_file, bash, glob, grep)
   ├── SelfImprovementEngine → post-turn learning (ErrorDetector + PatternDetector)
@@ -54,7 +55,7 @@ Daemon (persistent JVM)
 
 ```
 aceclaw-bom          (version constraints, java-platform)
-aceclaw-core         (LlmClient, Tool, AgentLoop, StreamingAgentLoop, ContentBlock, StreamEvent)
+aceclaw-core         (LlmClient, Tool, AgentLoop, StreamingAgentLoop, ContentBlock, StreamEvent, TaskPlanner)
   ↑
   ├── aceclaw-llm    (AnthropicClient, AnthropicMapper, AnthropicStreamSession)
   ├── aceclaw-tools  (ReadFileTool, WriteFileTool, EditFileTool, BashExecTool, GlobSearchTool, GrepSearchTool)
@@ -65,14 +66,14 @@ aceclaw-daemon       (AceClawDaemon, UdsListener, RequestRouter, ConnectionBridg
 aceclaw-cli          (AceClawMain, DaemonClient, DaemonStarter, TerminalRepl)
 ```
 
-Modules `aceclaw-sdk`, `aceclaw-infra`, `aceclaw-memory`, `aceclaw-mcp`, `aceclaw-server`, `aceclaw-test` exist as placeholders for future work.
+Modules `aceclaw-sdk`, `aceclaw-infra` (event hierarchy), `aceclaw-memory`, `aceclaw-mcp`, `aceclaw-server`, `aceclaw-test` exist or serve as supporting/placeholder modules.
 
 ### Streaming Protocol
 
 The `agent.prompt` method uses a bidirectional streaming protocol over JSON-RPC 2.0:
 
 1. Client sends `{jsonrpc, method: "agent.prompt", params: {sessionId, prompt}, id}`
-2. Daemon streams notifications: `stream.text` (token deltas), `stream.tool_use` (tool invocations), `permission.request` (approval needed), `stream.error`
+2. Daemon streams notifications: `stream.text` (token deltas), `stream.tool_use` (tool invocations), `permission.request` (approval needed), `stream.error`, `stream.plan_created`, `stream.plan_step_started`, `stream.plan_step_completed`, `stream.plan_completed`
 3. Client responds to permission requests with `permission.response` notifications
 4. Daemon sends final JSON-RPC response with `{result: {response, stopReason, usage}, id}`
 
@@ -85,6 +86,8 @@ The `StreamContext` interface enables this bidirectional flow — handlers can `
 - `PermissionDecision`: `Approved | Denied | NeedsUserApproval`
 - `DaemonLock.LockResult`: `Acquired | AlreadyRunning | StaleLock`
 - `ConversationMessage`: `User | Assistant | System`
+- `PlanStatus`: `Draft | Executing | Completed | Failed`
+- `AceClawEvent`: `AgentEvent | ToolEvent | SessionEvent | HealthEvent | SystemEvent | SchedulerEvent | PlanEvent`
 
 Use exhaustive pattern matching (`switch`) on these — the compiler enforces completeness.
 
@@ -113,3 +116,14 @@ Integration tests in `aceclaw-daemon` use `MockLlmClient` (queue-based programma
 - Use Java records for immutable data types
 - Use sealed interfaces with pattern matching for type hierarchies
 - `Process.getInputStream()` not `Process.inputStream()` (Java 21 API)
+
+### Defensive Coding (Clean Code)
+
+Every public API boundary must be null-safe and bounds-safe:
+
+- **Record constructors**: Always null-guard `List` fields — `signals = signals != null ? List.copyOf(signals) : List.of()`
+- **Method parameters**: Use `Objects.requireNonNull(param, "param")` on parameters used in `.equals()` or passed to downstream calls
+- **String truncation**: Always check length before `substring()` — `s.length() > max ? s.substring(0, max) + "..." : s`. Never assume the string is long enough
+- **Nullable return values**: When calling methods that may return null (e.g. `response.text()`, `Jackson readTree("")`), check for null before using. Throw a meaningful exception instead of letting NPE propagate
+- **Exception wrapping**: When a method declares a specific exception type (e.g. `throws LlmException`), wrap unexpected exceptions (e.g. `IllegalArgumentException`) into the declared type with `new LlmException("message", cause)` — don't let undeclared exceptions leak
+- **Collection parameters**: If a method receives a `List` that it calls `.stream()` on, guard against null — `var safe = list != null ? list : List.of()`
