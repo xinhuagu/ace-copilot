@@ -137,6 +137,7 @@ public final class TerminalRepl {
 
             // Register callback to auto-push background task output above prompt
             taskManager.setOnTaskComplete(handle -> pushBackgroundCompletion(handle, reader));
+            permissionBridge.setRequestListener(req -> onPermissionRequested(req, reader));
 
             // Render startup banner
             renderBanner(out, terminal.getWidth());
@@ -466,6 +467,7 @@ public final class TerminalRepl {
 
         permissionBridge.submitAnswer(req.requestId(),
                 new PermissionBridge.PermissionAnswer(approved, remember));
+        redrawStatusPanelBelowPrompt(reader);
     }
 
     /**
@@ -651,6 +653,14 @@ public final class TerminalRepl {
               .append(running > 1 ? "s" : "").append(RESET);
         }
 
+        int pendingPermissions = permissionBridge.pendingCount();
+        if (pendingPermissions > 0) {
+            sb.append(MUTED).append(" \u2502 ").append(RESET);
+            sb.append(WARNING).append("\uD83D\uDD10 ")
+              .append(pendingPermissions).append(" permission")
+              .append(pendingPermissions > 1 ? "s" : "").append(RESET);
+        }
+
         sb.append(MUTED).append(" \u2502 ").append(RESET);
         sb.append(MUTED).append(LocalTime.now().format(TIME_FMT)).append(RESET);
 
@@ -702,6 +712,27 @@ public final class TerminalRepl {
     }
 
     /**
+     * Called when a background/side task requests permission.
+     *
+     * <p>Shows an immediate non-blocking notice above the prompt so the user
+     * knows why a task appears stuck, then refreshes the status panel which
+     * includes pending permission entries.
+     */
+    private void onPermissionRequested(PermissionBridge.PermissionRequest request, LineReader reader) {
+        if (reader == null) return;
+        try {
+            String note = WARNING + "[Permission required] " + RESET
+                    + "task #" + request.taskId() + " \u2192 "
+                    + fitWidth(request.description(), 90)
+                    + MUTED + "  (press Enter to answer)" + RESET;
+            reader.printAbove(AttributedString.fromAnsi(note));
+        } catch (Exception e) {
+            log.debug("Failed to print permission notice: {}", e.getMessage());
+        }
+        redrawStatusPanelBelowPrompt(reader);
+    }
+
+    /**
      * Builds the status panel lines shown below the prompt.
      */
     private List<String> buildStatusPanelLines() {
@@ -711,30 +742,45 @@ public final class TerminalRepl {
         var runningTasks = taskManager.list().stream()
                 .filter(TaskHandle::isRunning)
                 .toList();
-        if (runningTasks.isEmpty()) {
-            return lines;
+        if (!runningTasks.isEmpty()) {
+            final int maxVisible = 4;
+            int from = Math.max(0, runningTasks.size() - maxVisible);
+            var visible = runningTasks.subList(from, runningTasks.size());
+
+            String fgId = taskManager.foregroundTaskId();
+            for (var task : visible) {
+                String elapsed = formatDuration(Duration.between(task.startedAt(), Instant.now()));
+                String prefix = task.taskId().equals(fgId) ? "[fg] " : "";
+                String summary = fitWidth(task.promptSummary(), 52);
+
+                lines.add(MUTED + "  \u2514 " + RESET
+                        + WARNING + "\u23F3" + RESET + " "
+                        + INFO + "#" + task.taskId() + RESET + " "
+                        + prefix + summary
+                        + MUTED + "  " + elapsed + RESET);
+            }
+
+            int hidden = runningTasks.size() - visible.size();
+            if (hidden > 0) {
+                lines.add(MUTED + "    ... +" + hidden + " more running task(s)" + RESET);
+            }
         }
 
-        final int maxVisible = 4;
-        int from = Math.max(0, runningTasks.size() - maxVisible);
-        var visible = runningTasks.subList(from, runningTasks.size());
-
-        String fgId = taskManager.foregroundTaskId();
-        for (var task : visible) {
-            String elapsed = formatDuration(Duration.between(task.startedAt(), Instant.now()));
-            String prefix = task.taskId().equals(fgId) ? "[fg] " : "";
-            String summary = fitWidth(task.promptSummary(), 52);
-
-            lines.add(MUTED + "  \u2514 " + RESET
-                    + WARNING + "\u23F3" + RESET + " "
-                    + INFO + "#" + task.taskId() + RESET + " "
-                    + prefix + summary
-                    + MUTED + "  " + elapsed + RESET);
-        }
-
-        int hidden = runningTasks.size() - visible.size();
-        if (hidden > 0) {
-            lines.add(MUTED + "    ... +" + hidden + " more running task(s)" + RESET);
+        var pending = permissionBridge.pendingSnapshot();
+        if (!pending.isEmpty()) {
+            int maxPermVisible = 2;
+            for (int i = 0; i < Math.min(maxPermVisible, pending.size()); i++) {
+                var req = pending.get(i);
+                String detail = fitWidth(req.description(), 58);
+                lines.add(MUTED + "  \u2514 " + RESET
+                        + WARNING + "\uD83D\uDD10" + RESET + " "
+                        + INFO + "#" + req.taskId() + RESET + " "
+                        + detail);
+            }
+            if (pending.size() > maxPermVisible) {
+                lines.add(MUTED + "    ... +" + (pending.size() - maxPermVisible)
+                        + " more permission request(s)" + RESET);
+            }
         }
 
         return lines;
