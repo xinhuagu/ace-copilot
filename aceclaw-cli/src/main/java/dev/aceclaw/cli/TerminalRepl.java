@@ -727,6 +727,24 @@ public final class TerminalRepl {
             renderStatusPanel(out, true);
             out.flush();
         }
+        forcePromptRedisplay(reader);
+    }
+
+    /**
+     * Forces JLine to redraw the editable prompt line so cursor returns
+     * to prompt+buffer position (instead of column 0) after async UI writes.
+     */
+    private void forcePromptRedisplay(LineReader reader) {
+        try {
+            reader.callWidget(LineReader.REDRAW_LINE);
+        } catch (Exception e) {
+            log.debug("Failed to call REDRAW_LINE: {}", e.getMessage());
+        }
+        try {
+            reader.callWidget(LineReader.REDISPLAY);
+        } catch (Exception e) {
+            log.debug("Failed to call REDISPLAY: {}", e.getMessage());
+        }
     }
 
     /**
