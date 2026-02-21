@@ -24,7 +24,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
 import static dev.aceclaw.cli.TerminalTheme.*;
 
@@ -50,6 +54,10 @@ public final class TerminalRepl {
 
     private static final String PROMPT_STR = PROMPT + "aceclaw>" + RESET + " ";
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final Pattern ANSI_CSI_PATTERN =
+            Pattern.compile("\\u001B\\[[0-?]*[ -/]*[@-~]");
+    private static final Duration TASK_STALLED_AFTER = Duration.ofSeconds(45);
+    private static final Duration TASK_TIMEOUT_AFTER = Duration.ofSeconds(180);
 
     private final DaemonClient client;
     private final String sessionId;
@@ -57,6 +65,9 @@ public final class TerminalRepl {
     private final TerminalMarkdownRenderer markdownRenderer;
     private final TaskManager taskManager;
     private final PermissionBridge permissionBridge;
+    private final Object uiRenderLock = new Object();
+    private final AtomicBoolean permissionInterruptRequested = new AtomicBoolean(false);
+    private int previousStatusLineCount;
 
     /** Tracks the effective model, updated after successful model switches. */
     private volatile String effectiveModel;
@@ -66,6 +77,8 @@ public final class TerminalRepl {
 
     /** Terminal reference for raw mode during foreground wait. */
     private volatile Terminal activeTerminal;
+    /** True while the main REPL thread is blocked in {@code readLine}. */
+    private volatile boolean readingPrompt;
 
     /** Cumulative token counters across turns. */
     private long totalInputTokens = 0;
@@ -91,6 +104,21 @@ public final class TerminalRepl {
         }
     }
 
+    private enum TaskRuntimeState {
+        ACTIVE,
+        WAITING_PERMISSION,
+        STALLED,
+        TIMEOUT
+    }
+
+    private record TaskRuntimeInfo(
+            TaskRuntimeState state,
+            String shortState,
+            String label,
+            String color,
+            String icon
+    ) {}
+
     /**
      * Creates a REPL connected to the given daemon client and session.
      *
@@ -112,6 +140,8 @@ public final class TerminalRepl {
      * Runs the interactive REPL loop. Blocks until the user exits.
      */
     public void run() {
+        var stopStatusTicker = new AtomicBoolean(false);
+        Thread statusTicker = null;
         try (Terminal terminal = TerminalBuilder.builder()
                 .name("aceclaw")
                 .system(true)
@@ -132,8 +162,11 @@ public final class TerminalRepl {
 
             PrintWriter out = terminal.writer();
 
+            statusTicker = startStatusTicker(stopStatusTicker, reader);
+
             // Register callback to auto-push background task output above prompt
             taskManager.setOnTaskComplete(handle -> pushBackgroundCompletion(handle, reader));
+            permissionBridge.setRequestListener(req -> onPermissionRequested(req, reader));
 
             // Render startup banner
             renderBanner(out, terminal.getWidth());
@@ -141,11 +174,12 @@ public final class TerminalRepl {
             // Override Ctrl+L: clear screen + redraw status bar below prompt
             reader.getWidgets().put("aceclaw-clear-screen", () -> {
                 reader.callWidget(LineReader.CLEAR_SCREEN);
-                PrintWriter w = terminal.writer();
-                w.print("\0337");
-                w.print("\n\r\033[K" + buildStatusString());
-                w.print("\0338");
-                w.flush();
+                synchronized (uiRenderLock) {
+                    previousStatusLineCount = 0;
+                    PrintWriter w = terminal.writer();
+                    renderStatusPanel(w, true);
+                    w.flush();
+                }
                 return true;
             });
             reader.getKeyMaps().get(LineReader.MAIN)
@@ -169,11 +203,24 @@ public final class TerminalRepl {
                 String line;
                 try {
                     // Print status on the line below, then move cursor back up.
-                    out.print("\n\r\033[K" + buildStatusString());
-                    out.print("\033[A\r");
-                    out.flush();
-                    line = reader.readLine(PROMPT_STR);
+                    synchronized (uiRenderLock) {
+                        renderStatusPanel(out, true);
+                        out.flush();
+                    }
+                    readingPrompt = true;
+                    try {
+                        line = reader.readLine(PROMPT_STR);
+                    } finally {
+                        readingPrompt = false;
+                    }
                 } catch (UserInterruptException e) {
+                    // Permission requests can intentionally interrupt prompt input
+                    // so approval appears immediately as a popup flow.
+                    if (permissionInterruptRequested.getAndSet(false) || permissionBridge.hasPending()) {
+                        out.println();
+                        drainPermissions(out, reader);
+                        continue;
+                    }
                     // Ctrl+C at prompt: exit gracefully
                     out.println();
                     break;
@@ -212,7 +259,31 @@ public final class TerminalRepl {
         } catch (IOException e) {
             log.error("Terminal error: {}", e.getMessage(), e);
             System.err.println("Terminal error: " + e.getMessage());
+        } finally {
+            stopStatusTicker.set(true);
+            if (statusTicker != null) {
+                statusTicker.interrupt();
+            }
         }
+    }
+
+    private Thread startStatusTicker(AtomicBoolean stopFlag, LineReader reader) {
+        return Thread.ofVirtual()
+                .name("aceclaw-status-ticker")
+                .start(() -> {
+                    while (!stopFlag.get()) {
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
+
+                        if (!readingPrompt) continue;
+                        if (taskManager.runningCount() <= 0 && permissionBridge.pendingCount() <= 0) continue;
+                        redrawStatusPanelBelowPrompt(reader);
+                    }
+                });
     }
 
     // -- Task submission and foreground wait ---------------------------------
@@ -460,6 +531,12 @@ public final class TerminalRepl {
 
         permissionBridge.submitAnswer(req.requestId(),
                 new PermissionBridge.PermissionAnswer(approved, remember));
+        var task = taskManager.get(req.taskId());
+        if (task != null) {
+            task.clearWaitingPermission();
+        }
+        permissionInterruptRequested.set(false);
+        redrawStatusPanelBelowPrompt(reader);
     }
 
     /**
@@ -544,6 +621,7 @@ public final class TerminalRepl {
             if (!output.isBlank()) {
                 // printAbove is thread-safe — displays above current prompt, redraws prompt
                 reader.printAbove(AttributedString.fromAnsi(output));
+                redrawStatusPanelBelowPrompt(reader);
             }
         } catch (Exception e) {
             log.debug("Failed to push background task output: {}", e.getMessage());
@@ -644,10 +722,239 @@ public final class TerminalRepl {
               .append(running > 1 ? "s" : "").append(RESET);
         }
 
+        int pendingPermissions = permissionBridge.pendingCount();
+        if (pendingPermissions > 0) {
+            sb.append(MUTED).append(" \u2502 ").append(RESET);
+            sb.append(WARNING).append("\uD83D\uDD10 ")
+              .append(pendingPermissions).append(" permission")
+              .append(pendingPermissions > 1 ? "s" : "").append(RESET);
+        }
+
         sb.append(MUTED).append(" \u2502 ").append(RESET);
         sb.append(MUTED).append(LocalTime.now().format(TIME_FMT)).append(RESET);
 
         return sb.toString();
+    }
+
+    /**
+     * Renders the prompt status panel below the current cursor.
+     *
+     * <p>The first line is the compact global status; following lines show
+     * currently running tasks so concurrent background activity is visible.
+     *
+     * @param restoreCursorByUp if true, moves cursor back up by rendered line count
+     */
+    private void renderStatusPanel(PrintWriter out, boolean restoreCursorByUp) {
+        var lines = buildStatusPanelLines();
+        int currentLineCount = lines.size();
+        int renderLineCount = Math.max(currentLineCount, previousStatusLineCount);
+        if (renderLineCount == 0) return;
+        int terminalWidth = activeTerminal != null ? activeTerminal.getWidth() : 120;
+        int maxWidth = Math.max(20, terminalWidth - 1);
+
+        for (int i = 0; i < renderLineCount; i++) {
+            out.print("\n\r\033[K");
+            if (i < currentLineCount) {
+                out.print(clampStatusLine(lines.get(i), maxWidth));
+            }
+        }
+
+        if (restoreCursorByUp) {
+            out.print("\033[" + renderLineCount + "A\r");
+        }
+        previousStatusLineCount = currentLineCount;
+    }
+
+    /**
+     * Re-renders the prompt status panel after asynchronous printAbove output.
+     *
+     * <p>Without this, JLine redraws only the prompt line after printAbove, and
+     * our custom status panel (rendered below the prompt) disappears until the
+     * next explicit prompt redraw.
+     */
+    private void redrawStatusPanelBelowPrompt(LineReader reader) {
+        var terminal = activeTerminal;
+        if (terminal == null) return;
+        if (reader == null || reader != activeReader) return;
+        if (taskManager.hasForegroundTask()) return;
+
+        synchronized (uiRenderLock) {
+            PrintWriter out = terminal.writer();
+            renderStatusPanel(out, true);
+            out.flush();
+        }
+        forcePromptRedisplay(reader);
+    }
+
+    /**
+     * Forces JLine to redraw the editable prompt line so cursor returns
+     * to prompt+buffer position (instead of column 0) after async UI writes.
+     */
+    private void forcePromptRedisplay(LineReader reader) {
+        try {
+            reader.callWidget(LineReader.REDRAW_LINE);
+        } catch (Exception e) {
+            log.debug("Failed to call REDRAW_LINE: {}", e.getMessage());
+        }
+        try {
+            reader.callWidget(LineReader.REDISPLAY);
+        } catch (Exception e) {
+            log.debug("Failed to call REDISPLAY: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Called when a background/side task requests permission.
+     *
+     * <p>Shows an immediate non-blocking notice above the prompt so the user
+     * knows why a task appears stuck, then refreshes the status panel which
+     * includes pending permission entries.
+     */
+    private void onPermissionRequested(PermissionBridge.PermissionRequest request, LineReader reader) {
+        if (reader == null) return;
+        var task = taskManager.get(request.taskId());
+        if (task != null) {
+            task.markWaitingPermission(request.description());
+        }
+        try {
+            String note = WARNING + "[Permission required] " + RESET
+                    + "task #" + request.taskId() + " \u2192 "
+                    + fitWidth(request.description(), 90)
+                    + MUTED + "  (opening popup...)" + RESET;
+            reader.printAbove(AttributedString.fromAnsi(note));
+        } catch (Exception e) {
+            log.debug("Failed to print permission notice: {}", e.getMessage());
+        }
+        interruptPromptForPermissionPopup();
+        redrawStatusPanelBelowPrompt(reader);
+    }
+
+    /**
+     * Interrupts blocking prompt input so permission approval can open immediately.
+     */
+    private void interruptPromptForPermissionPopup() {
+        if (!readingPrompt) return;
+        if (taskManager.hasForegroundTask()) return;
+        if (!permissionInterruptRequested.compareAndSet(false, true)) return;
+
+        var terminal = activeTerminal;
+        if (terminal == null) return;
+        try {
+            terminal.raise(Terminal.Signal.INT);
+        } catch (Exception e) {
+            permissionInterruptRequested.set(false);
+            log.debug("Failed to interrupt prompt for permission popup: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Builds the status panel lines shown below the prompt.
+     */
+    private List<String> buildStatusPanelLines() {
+        var lines = new ArrayList<String>();
+        lines.add(buildStatusString());
+        Instant now = Instant.now();
+
+        var runningTasks = taskManager.list().stream()
+                .filter(TaskHandle::isRunning)
+                .toList();
+        if (!runningTasks.isEmpty()) {
+            final int maxVisible = 4;
+            int from = Math.max(0, runningTasks.size() - maxVisible);
+            var visible = runningTasks.subList(from, runningTasks.size());
+
+            String fgId = taskManager.foregroundTaskId();
+            for (var task : visible) {
+                String elapsed = formatDuration(Duration.between(task.startedAt(), now));
+                String prefix = task.taskId().equals(fgId) ? "[fg] " : "";
+                String summary = fitWidth(task.promptSummary(), 52);
+                var runtime = deriveRuntimeInfo(task, now);
+                String runtimeLabel = fitWidth(runtime.label(), 24);
+
+                lines.add(MUTED + "  \u2514 " + RESET
+                        + runtime.color() + runtime.icon() + RESET + " "
+                        + INFO + "#" + task.taskId() + RESET + " "
+                        + prefix + summary
+                        + MUTED + "  " + runtimeLabel + " \u00B7 " + elapsed + RESET);
+            }
+
+            int hidden = runningTasks.size() - visible.size();
+            if (hidden > 0) {
+                lines.add(MUTED + "    ... +" + hidden + " more running task(s)" + RESET);
+            }
+        }
+
+        var pending = permissionBridge.pendingSnapshot();
+        if (!pending.isEmpty()) {
+            int maxPermVisible = 2;
+            for (int i = 0; i < Math.min(maxPermVisible, pending.size()); i++) {
+                var req = pending.get(i);
+                String detail = fitWidth(req.description(), 58);
+                lines.add(MUTED + "  \u2514 " + RESET
+                        + WARNING + "\uD83D\uDD10" + RESET + " "
+                        + INFO + "#" + req.taskId() + RESET + " "
+                        + detail);
+            }
+            if (pending.size() > maxPermVisible) {
+                lines.add(MUTED + "    ... +" + (pending.size() - maxPermVisible)
+                        + " more permission request(s)" + RESET);
+            }
+        }
+
+        return lines;
+    }
+
+    private TaskRuntimeInfo deriveRuntimeInfo(TaskHandle task, Instant now) {
+        if (task.waitingPermission()) {
+            String detail = task.permissionDetail();
+            String label = "awaiting permission";
+            if (detail != null && !detail.isBlank()) {
+                label += ": " + fitWidth(detail, 28);
+            }
+            return new TaskRuntimeInfo(
+                    TaskRuntimeState.WAITING_PERMISSION,
+                    "wait_perm",
+                    label,
+                    WARNING,
+                    "\uD83D\uDD10");
+        }
+
+        Instant lastActivity = task.lastActivityAt();
+        if (lastActivity == null) {
+            lastActivity = task.startedAt();
+        }
+        Duration idle = Duration.between(lastActivity, now);
+        if (idle.isNegative()) {
+            idle = Duration.ZERO;
+        }
+
+        if (idle.compareTo(TASK_TIMEOUT_AFTER) >= 0) {
+            return new TaskRuntimeInfo(
+                    TaskRuntimeState.TIMEOUT,
+                    "timeout",
+                    "timeout suspected (" + formatDuration(idle) + ")",
+                    ERROR,
+                    "\u23F1");
+        }
+        if (idle.compareTo(TASK_STALLED_AFTER) >= 0) {
+            return new TaskRuntimeInfo(
+                    TaskRuntimeState.STALLED,
+                    "stalled",
+                    "no activity " + formatDuration(idle),
+                    WARNING,
+                    "\u26A0");
+        }
+
+        String activity = task.activityLabel();
+        if (activity == null || activity.isBlank()) {
+            activity = "running";
+        }
+        return new TaskRuntimeInfo(
+                TaskRuntimeState.ACTIVE,
+                "running",
+                activity,
+                INFO,
+                "\u23F3");
     }
 
     private static String formatTokenCount(long tokens) {
@@ -760,6 +1067,7 @@ public final class TerminalRepl {
         out.println();
         out.println(BOLD + "Tasks:" + RESET);
         String fgId = taskManager.foregroundTaskId();
+        Instant now = Instant.now();
         for (var handle : tasks) {
             String stateColor = switch (handle.state()) {
                 case RUNNING -> INFO;
@@ -768,16 +1076,27 @@ public final class TerminalRepl {
                 case CANCELLED -> WARNING;
             };
             String stateLabel = handle.state().name().toLowerCase();
+            String runtimeLabel = "";
+            if (handle.isRunning()) {
+                var runtime = deriveRuntimeInfo(handle, now);
+                if (runtime.state() != TaskRuntimeState.ACTIVE) {
+                    stateLabel = runtime.shortState();
+                }
+                runtimeLabel = runtime.label();
+            }
             boolean isFg = handle.taskId().equals(fgId);
-            String elapsed = formatDuration(Duration.between(handle.startedAt(), Instant.now()));
+            String elapsed = formatDuration(Duration.between(handle.startedAt(), now));
 
-            out.printf("  %s#%s%s %s%-10s%s %s%s%s  %s%s%s%n",
+            out.printf("  %s#%s%s %s%-12s%s %s%s%s  %s%s%s%n",
                     BOLD, handle.taskId(), RESET,
                     stateColor, stateLabel, RESET,
                     isFg ? BOLD + "[fg] " : "",
                     handle.promptSummary(),
                     RESET,
                     MUTED, elapsed, RESET);
+            if (!runtimeLabel.isBlank()) {
+                out.printf("      %s%s%s%n", MUTED, runtimeLabel, RESET);
+            }
         }
         out.println();
         out.flush();
@@ -1109,5 +1428,19 @@ public final class TerminalRepl {
         if (mins < 60) return mins + "m " + (secs % 60) + "s";
         long hours = mins / 60;
         return hours + "h " + (mins % 60) + "m";
+    }
+
+    /**
+     * Ensures status-panel lines never soft-wrap, otherwise cursor restoration drifts
+     * and typing can land on the status row instead of the prompt row.
+     */
+    private static String clampStatusLine(String line, int maxWidth) {
+        if (line == null || line.isEmpty()) return "";
+        if (maxWidth <= 0) return "";
+        String plain = ANSI_CSI_PATTERN.matcher(line).replaceAll("");
+        if (displayWidth(plain) <= maxWidth) {
+            return line;
+        }
+        return fitWidth(plain, maxWidth);
     }
 }

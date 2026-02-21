@@ -117,6 +117,7 @@ public final class StreamingAgentLoop {
     public Turn runTurn(String userPrompt, List<Message> conversationHistory,
                         StreamEventHandler handler, CancellationToken cancellationToken)
             throws LlmException {
+        var eventHandler = handler != null ? handler : new StreamEventHandler() {};
         this.activeCancellationToken = cancellationToken;
         long turnStart = System.currentTimeMillis();
         int turnNumber = (int) conversationHistory.stream()
@@ -157,7 +158,7 @@ public final class StreamingAgentLoop {
                 // Check if context compaction is needed before this LLM call
                 if (compactor != null) {
                     compactionResult = checkAndCompact(
-                            allMessages, lastInputTokens, compactionResult, handler);
+                            allMessages, lastInputTokens, compactionResult, eventHandler);
                 }
 
                 log.debug("Streaming ReAct iteration {} (messages: {})", iteration + 1, allMessages.size());
@@ -165,7 +166,7 @@ public final class StreamingAgentLoop {
                 var request = buildRequest(allMessages);
 
                 // Stream the response, accumulating content blocks
-                var accumulator = new StreamAccumulator(handler);
+                var accumulator = new StreamAccumulator(eventHandler);
                 var session = llmClient.streamMessage(request);
 
                 // Register the session with the cancellation token so cancel() propagates
@@ -251,7 +252,7 @@ public final class StreamingAgentLoop {
                                 .toList();
                         log.debug("Streaming tool use requested: {} tool(s)", toolUseBlocks.size());
 
-                        var toolResults = executeTools(toolUseBlocks);
+                        var toolResults = executeTools(toolUseBlocks, eventHandler);
                         var toolResultMessage = Message.toolResults(toolResults);
                         allMessages.add(toolResultMessage);
                         newMessages.add(toolResultMessage);
@@ -391,14 +392,15 @@ public final class StreamingAgentLoop {
     /**
      * Executes tool calls, using virtual threads for parallel execution.
      */
-    private List<ContentBlock.ToolResult> executeTools(List<ContentBlock.ToolUse> toolUseBlocks) {
+    private List<ContentBlock.ToolResult> executeTools(
+            List<ContentBlock.ToolUse> toolUseBlocks, StreamEventHandler handler) {
         if (toolUseBlocks.size() == 1) {
-            return List.of(executeSingleTool(toolUseBlocks.getFirst()));
+            return List.of(executeSingleTool(toolUseBlocks.getFirst(), handler));
         }
 
         try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
             var subtasks = toolUseBlocks.stream()
-                    .map(toolUse -> scope.fork(() -> executeSingleTool(toolUse)))
+                    .map(toolUse -> scope.fork(() -> executeSingleTool(toolUse, handler)))
                     .toList();
 
             scope.join();
@@ -415,7 +417,10 @@ public final class StreamingAgentLoop {
         }
     }
 
-    private ContentBlock.ToolResult executeSingleTool(ContentBlock.ToolUse toolUse) {
+    private ContentBlock.ToolResult executeSingleTool(
+            ContentBlock.ToolUse toolUse, StreamEventHandler handler) {
+        long toolStart = System.currentTimeMillis();
+
         // Check permission before execution
         if (config.permissionChecker() != null) {
             try {
@@ -425,6 +430,9 @@ public final class StreamingAgentLoop {
                     log.info("Tool {} denied: {}", toolUse.name(), reason);
                     publishEvent(new ToolEvent.PermissionDenied(
                             config.sessionId(), toolUse.name(), reason, Instant.now()));
+                    long toolDuration = System.currentTimeMillis() - toolStart;
+                    handler.onToolCompleted(toolUse.id(), toolUse.name(), toolDuration, true,
+                            summarizeError("Permission denied: " + reason));
                     return new ContentBlock.ToolResult(
                             toolUse.id(), "Permission denied: " + toolUse.name(), true);
                 }
@@ -432,6 +440,9 @@ public final class StreamingAgentLoop {
                 log.error("Permission checker threw for tool {}: {}", toolUse.name(), e.getMessage(), e);
                 publishEvent(new ToolEvent.PermissionDenied(
                         config.sessionId(), toolUse.name(), "checker error: " + e.getMessage(), Instant.now()));
+                long toolDuration = System.currentTimeMillis() - toolStart;
+                handler.onToolCompleted(toolUse.id(), toolUse.name(), toolDuration, true,
+                        summarizeError("Permission denied: " + e.getMessage()));
                 return new ContentBlock.ToolResult(
                         toolUse.id(), "Permission denied: " + toolUse.name(), true);
             }
@@ -440,6 +451,9 @@ public final class StreamingAgentLoop {
         var toolOpt = toolRegistry.get(toolUse.name());
         if (toolOpt.isEmpty()) {
             log.warn("Unknown tool requested: {}", toolUse.name());
+            long toolDuration = System.currentTimeMillis() - toolStart;
+            handler.onToolCompleted(toolUse.id(), toolUse.name(), toolDuration, true,
+                    summarizeError("Unknown tool: " + toolUse.name()));
             return new ContentBlock.ToolResult(toolUse.id(), "Unknown tool: " + toolUse.name(), true);
         }
 
@@ -451,7 +465,6 @@ public final class StreamingAgentLoop {
         }
 
         publishEvent(new ToolEvent.Invoked(config.sessionId(), tool.name(), Instant.now()));
-        long toolStart = System.currentTimeMillis();
 
         try {
             log.debug("Executing tool: {} (id: {})", tool.name(), toolUse.id());
@@ -466,6 +479,8 @@ public final class StreamingAgentLoop {
             publishEvent(new ToolEvent.Completed(
                     config.sessionId(), tool.name(), toolDuration, result.isError(), Instant.now()));
             recordMetrics(tool.name(), !result.isError(), toolDuration);
+            String errorPreview = result.isError() ? summarizeError(output) : null;
+            handler.onToolCompleted(toolUse.id(), tool.name(), toolDuration, result.isError(), errorPreview);
             return new ContentBlock.ToolResult(toolUse.id(), output, result.isError());
         } catch (Exception e) {
             long toolDuration = System.currentTimeMillis() - toolStart;
@@ -473,8 +488,20 @@ public final class StreamingAgentLoop {
             publishEvent(new ToolEvent.Completed(
                     config.sessionId(), tool.name(), toolDuration, true, Instant.now()));
             recordMetrics(tool.name(), false, toolDuration);
+            handler.onToolCompleted(toolUse.id(), tool.name(), toolDuration, true, summarizeError(e.getMessage()));
             return new ContentBlock.ToolResult(toolUse.id(), "Tool error: " + e.getMessage(), true);
         }
+    }
+
+    private static String summarizeError(String errorText) {
+        if (errorText == null || errorText.isBlank()) {
+            return null;
+        }
+        var normalized = errorText.replace('\n', ' ').trim();
+        if (normalized.length() <= 120) {
+            return normalized;
+        }
+        return normalized.substring(0, 117) + "...";
     }
 
     /**

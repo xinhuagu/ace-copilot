@@ -286,6 +286,14 @@ class DaemonIntegrationTest {
                     .anyMatch(n -> "stream.tool_use".equals(n.get("method").asText()));
             assertThat(hasToolUse).isTrue();
 
+            // Verify tool completion notification is sent with duration metadata
+            var toolCompleted = result.notifications().stream()
+                    .filter(n -> "stream.tool_completed".equals(n.get("method").asText()))
+                    .findFirst();
+            assertThat(toolCompleted).isPresent();
+            assertThat(toolCompleted.get().path("params").path("durationMs").asLong()).isGreaterThanOrEqualTo(0L);
+            assertThat(toolCompleted.get().path("params").path("name").asText()).isEqualTo("read_file");
+
             // Verify the final response includes the file content
             var response = result.finalResponse();
             assertThat(response.has("result")).isTrue();
@@ -363,6 +371,14 @@ class DaemonIntegrationTest {
 
             // Deny the permission
             var result = sendPromptAndHandlePermissions(channel, promptParams, 2, false);
+
+            // Denied tools should still emit stream.tool_completed so CLI clears running state
+            var toolCompleted = result.notifications().stream()
+                    .filter(n -> "stream.tool_completed".equals(n.get("method").asText()))
+                    .findFirst();
+            assertThat(toolCompleted).isPresent();
+            assertThat(toolCompleted.get().path("params").path("name").asText()).isEqualTo("bash");
+            assertThat(toolCompleted.get().path("params").path("isError").asBoolean()).isTrue();
 
             // The response should indicate the agent handled the denial
             assertThat(result.finalResponse().has("result")).isTrue();

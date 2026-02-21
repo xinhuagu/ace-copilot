@@ -49,6 +49,18 @@ public final class TaskHandle {
     /** Final JSON-RPC result (null while running). */
     private volatile JsonNode result;
 
+    /** Last time we received task activity from the daemon stream. */
+    private volatile Instant lastActivityAt;
+
+    /** Human-readable activity label (e.g. thinking, tool:bash). */
+    private volatile String activityLabel;
+
+    /** Whether the task is currently waiting on a permission decision. */
+    private volatile boolean waitingPermission;
+
+    /** Optional permission description shown while waiting. */
+    private volatile String permissionDetail;
+
     public TaskHandle(String taskId, String promptSummary, DaemonConnection connection,
                       OutputSink initialSink) {
         this.taskId = Objects.requireNonNull(taskId, "taskId");
@@ -59,6 +71,10 @@ public final class TaskHandle {
         this.sinkRef = new AtomicReference<>(Objects.requireNonNull(initialSink, "initialSink"));
         this.startedAt = Instant.now();
         this.state = TaskState.RUNNING;
+        this.lastActivityAt = this.startedAt;
+        this.activityLabel = "starting";
+        this.waitingPermission = false;
+        this.permissionDetail = "";
     }
 
     public String taskId() { return taskId; }
@@ -68,6 +84,10 @@ public final class TaskHandle {
     public TaskState state() { return state; }
     public JsonNode result() { return result; }
     public AtomicBoolean cancelled() { return cancelled; }
+    public Instant lastActivityAt() { return lastActivityAt; }
+    public String activityLabel() { return activityLabel; }
+    public boolean waitingPermission() { return waitingPermission; }
+    public String permissionDetail() { return permissionDetail; }
 
     /**
      * Returns the current output sink.
@@ -96,6 +116,38 @@ public final class TaskHandle {
 
     public void setState(TaskState state) { this.state = state; }
     public void setResult(JsonNode result) { this.result = result; }
+
+    /**
+     * Marks daemon-stream activity for this task and optionally updates a label.
+     */
+    public void markActivity(String label) {
+        this.lastActivityAt = Instant.now();
+        this.waitingPermission = false;
+        this.permissionDetail = "";
+        if (label != null && !label.isBlank()) {
+            this.activityLabel = label;
+        }
+    }
+
+    /**
+     * Marks that this task is blocked waiting for user permission.
+     */
+    public void markWaitingPermission(String detail) {
+        this.lastActivityAt = Instant.now();
+        this.waitingPermission = true;
+        this.permissionDetail = detail != null ? detail : "";
+        this.activityLabel = "awaiting permission";
+    }
+
+    /**
+     * Clears permission-blocked status when the user responds.
+     */
+    public void clearWaitingPermission() {
+        this.lastActivityAt = Instant.now();
+        this.waitingPermission = false;
+        this.permissionDetail = "";
+        this.activityLabel = "resumed";
+    }
 
     public boolean isRunning() { return state == TaskState.RUNNING; }
     public boolean isTerminal() {

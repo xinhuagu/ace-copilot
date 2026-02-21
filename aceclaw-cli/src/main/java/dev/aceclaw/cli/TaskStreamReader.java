@@ -104,6 +104,7 @@ public final class TaskStreamReader implements Runnable {
     private void handleFinalResponse(JsonNode message) {
         boolean hasError = message.has("error") && !message.get("error").isNull();
         handle.setResult(message);
+        handle.markActivity(hasError ? "failed" : "completed");
 
         if (handle.cancelled().get()) {
             handle.setState(TaskHandle.TaskState.CANCELLED);
@@ -125,32 +126,77 @@ public final class TaskStreamReader implements Runnable {
         switch (method) {
             case "stream.thinking" -> {
                 if (params != null && params.has("delta")) {
+                    handle.markActivity("thinking");
                     sink.onThinkingDelta(params.get("delta").asText());
                 }
             }
             case "stream.text" -> {
                 if (params != null && params.has("delta")) {
+                    handle.markActivity("responding");
                     sink.onTextDelta(params.get("delta").asText());
                 }
             }
             case "stream.tool_use" -> {
                 if (params != null) {
+                    String toolId = params.path("id").asText("");
                     String toolName = params.path("name").asText("unknown");
-                    sink.onToolUse(toolName);
+                    String summary = params.path("summary").asText("");
+                    handle.markActivity("tool:" + toolName);
+                    sink.onToolUse(toolId, toolName, summary);
+                }
+            }
+            case "stream.tool_completed" -> {
+                if (params != null) {
+                    String toolId = params.path("id").asText("");
+                    String toolName = params.path("name").asText("unknown");
+                    long durationMs = params.path("durationMs").asLong(0);
+                    boolean isError = params.path("isError").asBoolean(false);
+                    String error = params.path("error").asText("");
+                    handle.markActivity("tool done");
+                    sink.onToolCompleted(toolId, toolName, durationMs, isError, error);
                 }
             }
             case "permission.request" -> handlePermissionRequest(params);
             case "stream.error" -> {
                 if (params != null && params.has("error")) {
+                    handle.markActivity("stream error");
                     sink.onStreamError(params.get("error").asText());
                 }
             }
-            case "stream.cancelled" -> sink.onStreamCancelled();
-            case "stream.plan_created" -> sink.onPlanCreated(params);
-            case "stream.plan_step_started" -> sink.onPlanStepStarted(params);
-            case "stream.plan_step_completed" -> sink.onPlanStepCompleted(params);
-            case "stream.plan_completed" -> sink.onPlanCompleted(params);
-            case "stream.compaction" -> sink.onCompaction(params);
+            case "stream.cancelled" -> {
+                handle.markActivity("cancelled");
+                sink.onStreamCancelled();
+            }
+            case "stream.subagent.start" -> {
+                String agentType = params != null ? params.path("agentType").asText("sub-agent") : "sub-agent";
+                handle.markActivity("sub-agent:" + agentType);
+                sink.onSubAgentStart(params);
+            }
+            case "stream.subagent.end" -> {
+                handle.markActivity("sub-agent done");
+                sink.onSubAgentEnd(params);
+            }
+            case "stream.plan_created" -> {
+                handle.markActivity("plan created");
+                sink.onPlanCreated(params);
+            }
+            case "stream.plan_step_started" -> {
+                String stepName = params != null ? params.path("stepName").asText("plan step") : "plan step";
+                handle.markActivity("plan:" + stepName);
+                sink.onPlanStepStarted(params);
+            }
+            case "stream.plan_step_completed" -> {
+                handle.markActivity("plan step done");
+                sink.onPlanStepCompleted(params);
+            }
+            case "stream.plan_completed" -> {
+                handle.markActivity("plan done");
+                sink.onPlanCompleted(params);
+            }
+            case "stream.compaction" -> {
+                handle.markActivity("compacting");
+                sink.onCompaction(params);
+            }
             default -> log.debug("Task {}: ignoring notification: {}", handle.taskId(), method);
         }
     }
@@ -169,6 +215,7 @@ public final class TaskStreamReader implements Runnable {
 
         var request = new PermissionBridge.PermissionRequest(
                 handle.taskId(), tool, description, requestId);
+        handle.markWaitingPermission(description);
 
         try {
             var answer = permissionBridge.requestPermission(request);
@@ -179,12 +226,15 @@ public final class TaskStreamReader implements Runnable {
             responseParams.put("approved", answer.approved());
             responseParams.put("remember", answer.remember());
             connection.sendNotification("permission.response", responseParams);
+            handle.clearWaitingPermission();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.debug("Task {}: permission request interrupted", handle.taskId());
+            handle.markActivity("permission interrupted");
         } catch (IOException e) {
             log.error("Task {}: failed to send permission response: {}",
                     handle.taskId(), e.getMessage());
+            handle.markActivity("permission response failed");
         }
     }
 }

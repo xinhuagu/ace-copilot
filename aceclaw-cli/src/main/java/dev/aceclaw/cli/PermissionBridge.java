@@ -27,6 +27,22 @@ public final class PermissionBridge {
     private final BlockingQueue<PermissionRequest> pending = new LinkedBlockingQueue<>();
     private final ConcurrentHashMap<String, CompletableFuture<PermissionAnswer>> futures =
             new ConcurrentHashMap<>();
+    private volatile RequestListener requestListener;
+
+    /**
+     * Listener invoked when a new permission request is enqueued.
+     */
+    @FunctionalInterface
+    public interface RequestListener {
+        void onPermissionRequested(PermissionRequest request);
+    }
+
+    /**
+     * Registers a listener for new permission requests.
+     */
+    public void setRequestListener(RequestListener listener) {
+        this.requestListener = listener;
+    }
 
     /**
      * Called by a task thread to request permission. Blocks until the main thread answers.
@@ -40,6 +56,14 @@ public final class PermissionBridge {
         var future = new CompletableFuture<PermissionAnswer>();
         futures.put(request.requestId(), future);
         pending.put(request);
+        var listener = requestListener;
+        if (listener != null) {
+            try {
+                listener.onPermissionRequested(request);
+            } catch (Exception e) {
+                log.debug("Permission request listener failed: {}", e.getMessage());
+            }
+        }
         try {
             return future.join();
         } finally {
@@ -66,6 +90,20 @@ public final class PermissionBridge {
      */
     public boolean hasPending() {
         return !pending.isEmpty();
+    }
+
+    /**
+     * Returns the number of pending permission requests.
+     */
+    public int pendingCount() {
+        return pending.size();
+    }
+
+    /**
+     * Returns a snapshot of pending requests.
+     */
+    public java.util.List<PermissionRequest> pendingSnapshot() {
+        return java.util.List.copyOf(pending);
     }
 
     /**
