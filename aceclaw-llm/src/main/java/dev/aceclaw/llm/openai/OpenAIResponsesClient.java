@@ -94,7 +94,8 @@ public final class OpenAIResponsesClient implements LlmClient {
                 request,
                 false,
                 shouldIncludeMaxOutputTokens(),
-                shouldIncludeTemperature());
+                shouldIncludeTemperature(),
+                shouldIncludeStoreFalse());
         log.debug("Sending non-streaming Responses API request to {}: model={}", providerName, request.model());
 
         return executeWithRetry(() -> {
@@ -136,7 +137,8 @@ public final class OpenAIResponsesClient implements LlmClient {
                 request,
                 true,
                 shouldIncludeMaxOutputTokens(),
-                shouldIncludeTemperature());
+                shouldIncludeTemperature(),
+                shouldIncludeStoreFalse());
         log.debug("Sending streaming Responses API request to {}: model={}", providerName, request.model());
 
         return executeWithRetry(() -> {
@@ -209,6 +211,10 @@ public final class OpenAIResponsesClient implements LlmClient {
 
     private boolean shouldIncludeTemperature() {
         return !"openai-codex".equals(providerName);
+    }
+
+    private boolean shouldIncludeStoreFalse() {
+        return "openai-codex".equals(providerName);
     }
 
     private <T> T executeWithRetry(RetryableAction<T> action) throws LlmException {

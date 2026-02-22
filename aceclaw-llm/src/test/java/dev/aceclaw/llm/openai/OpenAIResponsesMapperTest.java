@@ -74,10 +74,11 @@ class OpenAIResponsesMapperTest {
                 .maxTokens(2048)
                 .build();
 
-        JsonNode root = objectMapper.readTree(mapper.toRequestJson(request, true, false, false));
+        JsonNode root = objectMapper.readTree(mapper.toRequestJson(request, true, false, false, true));
 
         assertThat(root.has("temperature")).isFalse();
         assertThat(root.has("max_output_tokens")).isFalse();
+        assertThat(root.get("store").asBoolean()).isFalse();
     }
 
     @Test
@@ -91,6 +92,7 @@ class OpenAIResponsesMapperTest {
 
         assertThat(root.get("temperature").asDouble()).isEqualTo(0.2);
         assertThat(root.get("max_output_tokens").asInt()).isEqualTo(2048);
+        assertThat(root.has("store")).isFalse();
     }
 
     @Test

@@ -51,6 +51,17 @@ final class OpenAIResponsesMapper {
      */
     String toRequestJson(LlmRequest request, boolean stream, boolean includeMaxOutputTokens,
                          boolean includeTemperature) {
+        return toRequestJson(request, stream, includeMaxOutputTokens, includeTemperature, false);
+    }
+
+    /**
+     * Converts an {@link LlmRequest} to Responses API JSON body with provider-specific options.
+     *
+     * @param includeMaxOutputTokens whether to include {@code max_output_tokens}
+     * @param includeStoreFalse whether to include {@code store=false}
+     */
+    String toRequestJson(LlmRequest request, boolean stream, boolean includeMaxOutputTokens,
+                         boolean includeTemperature, boolean includeStoreFalse) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", request.model());
         if (includeMaxOutputTokens) {
@@ -84,8 +95,10 @@ final class OpenAIResponsesMapper {
             root.put("stream", true);
         }
 
-        // Codex backend requires store=false for authenticated subscription flow.
-        root.put("store", false);
+        if (includeStoreFalse) {
+            // Codex backend requires store=false for authenticated subscription flow.
+            root.put("store", false);
+        }
 
         return root.toString();
     }
