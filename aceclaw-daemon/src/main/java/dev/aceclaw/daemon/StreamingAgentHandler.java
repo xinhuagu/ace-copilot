@@ -36,6 +36,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -1029,6 +1030,7 @@ public final class StreamingAgentHandler {
 
         private static final int READ_BUFFER_SIZE = 65536;
         private static final long SELECT_TIMEOUT_MS = 100;
+        private static final long PERMISSION_RESPONSE_TIMEOUT_MS = 120_000;
 
         private final StreamContext delegate;
         private final CancellationToken cancellationToken;
@@ -1180,9 +1182,20 @@ public final class StreamingAgentHandler {
          */
         @Override
         public JsonNode readMessage() throws IOException {
+            return readMessage(PERMISSION_RESPONSE_TIMEOUT_MS);
+        }
+
+        @Override
+        public JsonNode readMessage(long timeoutMs) throws IOException {
+            long deadline = System.currentTimeMillis() + timeoutMs;
             while (!cancellationToken.isCancelled()) {
+                long now = System.currentTimeMillis();
+                long remaining = deadline - now;
+                if (remaining <= 0) {
+                    throw new SocketTimeoutException("permission response timeout after " + timeoutMs + "ms");
+                }
                 try {
-                    JsonNode msg = permissionResponses.poll(500, TimeUnit.MILLISECONDS);
+                    JsonNode msg = permissionResponses.poll(Math.min(500, remaining), TimeUnit.MILLISECONDS);
                     if (msg != null) {
                         return msg;
                     }
@@ -1311,6 +1324,8 @@ public final class StreamingAgentHandler {
                 case PermissionDecision.NeedsUserApproval approval -> {
                     // Send permission request to the client
                     var requestId = "perm-" + UUID.randomUUID().toString().substring(0, 8);
+                    long timeoutMs = CancelAwareStreamContext.PERMISSION_RESPONSE_TIMEOUT_MS;
+                    long deadline = System.currentTimeMillis() + timeoutMs;
 
                     try {
                         var params = objectMapper.createObjectNode();
@@ -1319,39 +1334,60 @@ public final class StreamingAgentHandler {
                         params.put("requestId", requestId);
                         context.sendNotification("permission.request", params);
 
-                        // Wait for the client's response
-                        var responseMsg = context.readMessage();
-                        if (responseMsg == null) {
-                            return new ToolResult("Permission denied: client disconnected", true);
+                        while (true) {
+                            long remainingMs = deadline - System.currentTimeMillis();
+                            if (remainingMs <= 0) {
+                                throw new SocketTimeoutException(
+                                        "permission response timeout after " + timeoutMs + "ms");
+                            }
+
+                            // Wait for the client's response
+                            var responseMsg = context.readMessage(remainingMs);
+                            if (responseMsg == null) {
+                                return new ToolResult("Permission denied: client disconnected", true);
+                            }
+
+                            // Parse the permission response
+                            var responseParams = responseMsg.get("params");
+                            if (responseParams == null) {
+                                return new ToolResult("Permission denied: invalid response from client", true);
+                            }
+
+                            var responseRequestId = responseParams.has("requestId")
+                                    ? responseParams.get("requestId").asText() : "";
+                            if (!requestId.equals(responseRequestId)) {
+                                log.warn("Tool {} ignoring stale permission response: expected={}, got={}",
+                                        delegate.name(), requestId, responseRequestId);
+                                continue;
+                            }
+                            boolean approved = responseParams.has("approved")
+                                    && responseParams.get("approved").asBoolean(false);
+                            boolean remember = responseParams.has("remember")
+                                    && responseParams.get("remember").asBoolean(false);
+
+                            if (!approved) {
+                                log.info("Tool {} denied by user (requestId={})", delegate.name(), responseRequestId);
+                                return new ToolResult("Permission denied by user", true);
+                            }
+
+                            // If user chose "remember", grant session-level approval
+                            if (remember) {
+                                permissionManager.approveForSession(delegate.name());
+                            }
+
+                            log.info("Tool {} approved by user (requestId={}, remember={})",
+                                    delegate.name(), responseRequestId, remember);
+                            return executeWithPostHooks(finalInputJson);
                         }
 
-                        // Parse the permission response
-                        var responseParams = responseMsg.get("params");
-                        if (responseParams == null) {
-                            return new ToolResult("Permission denied: invalid response from client", true);
-                        }
-
-                        var responseRequestId = responseParams.has("requestId")
-                                ? responseParams.get("requestId").asText() : "";
-                        boolean approved = responseParams.has("approved")
-                                && responseParams.get("approved").asBoolean(false);
-                        boolean remember = responseParams.has("remember")
-                                && responseParams.get("remember").asBoolean(false);
-
-                        if (!approved) {
-                            log.info("Tool {} denied by user (requestId={})", delegate.name(), responseRequestId);
-                            return new ToolResult("Permission denied by user", true);
-                        }
-
-                        // If user chose "remember", grant session-level approval
-                        if (remember) {
-                            permissionManager.approveForSession(delegate.name());
-                        }
-
-                        log.info("Tool {} approved by user (requestId={}, remember={})",
-                                delegate.name(), responseRequestId, remember);
-                        return executeWithPostHooks(finalInputJson);
-
+                    } catch (SocketTimeoutException e) {
+                        log.info("Tool {} permission response timed out (requestId={})",
+                                delegate.name(), requestId);
+                        long timeoutSeconds = TimeUnit.MILLISECONDS.toSeconds(
+                                CancelAwareStreamContext.PERMISSION_RESPONSE_TIMEOUT_MS);
+                        return new ToolResult(
+                                "Permission pending timeout: no response from client within "
+                                        + timeoutSeconds + "s", true);
                     } catch (IOException e) {
                         log.error("Failed to communicate permission request for tool {}: {}",
                                 delegate.name(), e.getMessage());
