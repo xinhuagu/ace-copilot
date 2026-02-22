@@ -90,7 +90,11 @@ public final class OpenAIResponsesClient implements LlmClient {
 
     @Override
     public LlmResponse sendMessage(LlmRequest request) throws LlmException {
-        String requestBody = mapper.toRequestJson(request, false);
+        String requestBody = mapper.toRequestJson(
+                request,
+                false,
+                shouldIncludeMaxOutputTokens(),
+                shouldIncludeTemperature());
         log.debug("Sending non-streaming Responses API request to {}: model={}", providerName, request.model());
 
         return executeWithRetry(() -> {
@@ -128,7 +132,11 @@ public final class OpenAIResponsesClient implements LlmClient {
 
     @Override
     public StreamSession streamMessage(LlmRequest request) throws LlmException {
-        String requestBody = mapper.toRequestJson(request, true);
+        String requestBody = mapper.toRequestJson(
+                request,
+                true,
+                shouldIncludeMaxOutputTokens(),
+                shouldIncludeTemperature());
         log.debug("Sending streaming Responses API request to {}: model={}", providerName, request.model());
 
         return executeWithRetry(() -> {
@@ -193,6 +201,14 @@ public final class OpenAIResponsesClient implements LlmClient {
         return builder
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
+    }
+
+    private boolean shouldIncludeMaxOutputTokens() {
+        return !"openai-codex".equals(providerName);
+    }
+
+    private boolean shouldIncludeTemperature() {
+        return !"openai-codex".equals(providerName);
     }
 
     private <T> T executeWithRetry(RetryableAction<T> action) throws LlmException {
