@@ -5,6 +5,7 @@ import dev.aceclaw.core.llm.ProviderCapabilities;
 import dev.aceclaw.llm.anthropic.AnthropicClient;
 import dev.aceclaw.llm.openai.CopilotRoutingClient;
 import dev.aceclaw.llm.openai.CopilotTokenProvider;
+import dev.aceclaw.llm.openai.OpenAiCodexTokenProvider;
 import dev.aceclaw.llm.openai.OpenAICompatClient;
 import dev.aceclaw.llm.openai.OpenAIRoutingClient;
 import dev.aceclaw.llm.openai.OpenAIResponsesClient;
@@ -26,6 +27,7 @@ public final class LlmClientFactory {
     /** Default base URLs for known providers (without trailing slash). */
     private static final Map<String, String> DEFAULT_BASE_URLS = Map.of(
             "openai", "https://api.openai.com",
+            "openai-codex", "https://chatgpt.com/backend-api/codex",
             "groq", "https://api.groq.com/openai",
             "together", "https://api.together.xyz",
             "mistral", "https://api.mistral.ai",
@@ -36,6 +38,7 @@ public final class LlmClientFactory {
     /** Default model identifiers for known providers. */
     private static final Map<String, String> DEFAULT_MODELS = Map.of(
             "openai", "gpt-4o",
+            "openai-codex", "gpt-5-codex",
             "groq", "llama-3.3-70b-versatile",
             "together", "meta-llama/Llama-3.3-70B-Instruct-Turbo",
             "mistral", "mistral-large-latest",
@@ -46,6 +49,7 @@ public final class LlmClientFactory {
     /** Providers that support image input. */
     private static final Map<String, ProviderCapabilities> PROVIDER_CAPABILITIES = Map.of(
             "openai", ProviderCapabilities.OPENAI,
+            "openai-codex", ProviderCapabilities.CODEX,
             "groq", ProviderCapabilities.OPENAI_COMPAT,
             "together", ProviderCapabilities.OPENAI_COMPAT,
             "mistral", ProviderCapabilities.OPENAI_COMPAT,
@@ -92,6 +96,7 @@ public final class LlmClientFactory {
             case "anthropic" -> createAnthropicClient(apiKey, refreshToken, baseUrl);
             case "copilot" -> createCopilotClient(apiKey, baseUrl, model);
             case "openai" -> createOpenAiClient(apiKey, baseUrl, model);
+            case "openai-codex" -> createOpenAiCodexClient(apiKey, baseUrl, model);
             case "groq", "together", "mistral", "ollama" -> {
                 String resolvedBaseUrl = baseUrl != null ? baseUrl : DEFAULT_BASE_URLS.get(provider);
                 String resolvedModel = model != null ? model : DEFAULT_MODELS.getOrDefault(provider, "gpt-4o");
@@ -101,7 +106,7 @@ public final class LlmClientFactory {
             }
             default -> throw new IllegalArgumentException(
                     "Unknown provider: " + provider
-                            + ". Supported: anthropic, openai, groq, together, mistral, copilot, ollama");
+                            + ". Supported: anthropic, openai, openai-codex, groq, together, mistral, copilot, ollama");
         };
     }
 
@@ -148,6 +153,21 @@ public final class LlmClientFactory {
                 "openai", resolvedModel, ProviderCapabilities.CODEX, Map.of());
 
         return new OpenAIRoutingClient(chatClient, responsesClient, resolvedModel);
+    }
+
+    private static LlmClient createOpenAiCodexClient(String apiKey, String baseUrl, String model) {
+        var tokenProvider = new OpenAiCodexTokenProvider(apiKey);
+        String resolvedBaseUrl = baseUrl != null ? baseUrl : DEFAULT_BASE_URLS.get("openai-codex");
+        String resolvedModel = model != null ? model : DEFAULT_MODELS.getOrDefault("openai-codex", "gpt-5-codex");
+
+        var chatClient = new OpenAICompatClient(
+                tokenProvider, resolvedBaseUrl, "/v1/chat/completions",
+                "openai-codex", resolvedModel, ProviderCapabilities.OPENAI, Map.of());
+        var responsesClient = new OpenAIResponsesClient(
+                tokenProvider, resolvedBaseUrl, "/v1/responses",
+                "openai-codex", resolvedModel, ProviderCapabilities.CODEX, Map.of());
+
+        return new OpenAIRoutingClient(chatClient, responsesClient, resolvedModel, "openai-codex");
     }
 
     private static LlmClient createAnthropicClient(String apiKey, String refreshToken, String baseUrl) {

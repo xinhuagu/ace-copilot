@@ -490,6 +490,12 @@ public final class StreamingAgentHandler {
      */
     private static String formatLlmError(dev.aceclaw.core.llm.LlmException e) {
         int status = e.statusCode();
+        String message = e.getMessage();
+        String safeMessage = (message == null || message.isBlank()) ? "(no additional details)" : message;
+        if (status == 401 && message != null && message.contains("api.responses.write")) {
+            return "Authentication succeeded but token lacks required scope 'api.responses.write'. "
+                    + "Use a full OpenAI API key or provider=openai-codex with a valid Codex OAuth token.";
+        }
         if (status == 401) {
             return "Invalid API key. Please check your API key configuration in env vars or ~/.aceclaw/config.json.";
         } else if (status == 429) {
@@ -499,11 +505,11 @@ public final class StreamingAgentHandler {
         } else if (status >= 500 && status < 600) {
             return "The LLM service is temporarily unavailable (HTTP " + status + "). Please try again.";
         } else if (status == 400) {
-            return "Bad request to LLM API: " + e.getMessage();
-        } else if (e.getMessage() != null && e.getMessage().contains("not-configured")) {
+            return "Bad request to LLM API: " + safeMessage;
+        } else if (message != null && message.contains("not-configured")) {
             return "API key not configured. Set ANTHROPIC_API_KEY (or OPENAI_API_KEY) or add apiKey to ~/.aceclaw/config.json.";
         } else {
-            return "LLM error: " + e.getMessage();
+            return "LLM error: " + safeMessage;
         }
     }
 

@@ -1,13 +1,16 @@
 package dev.aceclaw.cli;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import dev.aceclaw.daemon.AceClawConfig;
 import dev.aceclaw.daemon.AceClawDaemon;
 import dev.aceclaw.llm.openai.CopilotDeviceAuth;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -29,11 +32,13 @@ import java.nio.file.Path;
     mixinStandardHelpOptions = true,
     version = "aceclaw 0.1.0-SNAPSHOT",
     description = "AI coding agent — Device as Agent",
-    subcommands = { AceClawMain.DaemonCommand.class }
+    subcommands = { AceClawMain.DaemonCommand.class, AceClawMain.ModelsCommand.class }
 )
 public final class AceClawMain implements Runnable {
 
     static final String VERSION = "0.1.0-SNAPSHOT";
+    private static final Path CODEX_AUTH_FILE = Path.of(
+            System.getProperty("user.home"), ".codex", "auth.json");
 
     @Override
     public void run() {
@@ -141,6 +146,24 @@ public final class AceClawMain implements Runnable {
         System.exit(exitCode);
     }
 
+    private static boolean hasCodexAccessToken() {
+        try {
+            if (!Files.exists(CODEX_AUTH_FILE)) {
+                return false;
+            }
+            var mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(Files.readString(CODEX_AUTH_FILE));
+            String accessToken = root.path("tokens").path("access_token").asText("");
+            if (!accessToken.isBlank()) {
+                return true;
+            }
+            String legacy = root.path("OPENAI_API_KEY").asText("");
+            return !legacy.isBlank();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     // -- Daemon subcommand group -----------------------------------------
 
     /**
@@ -159,6 +182,104 @@ public final class AceClawMain implements Runnable {
         @Override
         public void run() {
             new CommandLine(this).usage(System.out);
+        }
+    }
+
+    // -- Models subcommand group -----------------------------------------
+
+    @Command(
+            name = "models",
+            description = "Manage model providers and authentication",
+            subcommands = { ModelsAuthCommand.class }
+    )
+    static final class ModelsCommand implements Runnable {
+        @Override
+        public void run() {
+            new CommandLine(this).usage(System.out);
+        }
+    }
+
+    @Command(
+            name = "auth",
+            description = "Manage model provider authentication",
+            subcommands = { ModelsAuthLoginCommand.class }
+    )
+    static final class ModelsAuthCommand implements Runnable {
+        @Override
+        public void run() {
+            new CommandLine(this).usage(System.out);
+        }
+    }
+
+    @Command(
+            name = "login",
+            description = "Authenticate with a model provider (default: openai-codex)"
+    )
+    static final class ModelsAuthLoginCommand implements Runnable {
+        @Option(
+                names = "--provider",
+                description = "Provider to authenticate: ${COMPLETION-CANDIDATES}",
+                defaultValue = "openai-codex")
+        String provider;
+
+        @Override
+        public void run() {
+            String resolvedProvider = provider == null ? "openai-codex" : provider.trim().toLowerCase();
+            switch (resolvedProvider) {
+                case "openai-codex" -> loginOpenAiCodex();
+                case "copilot" -> loginCopilot();
+                default -> {
+                    System.err.println("Unsupported auth provider: " + resolvedProvider);
+                    System.err.println("Supported: openai-codex, copilot");
+                    System.exit(1);
+                }
+            }
+        }
+
+        private static void loginOpenAiCodex() {
+            try {
+                if (hasCodexAccessToken()) {
+                    System.out.println("OpenAI Codex OAuth token already available at ~/.codex/auth.json.");
+                    return;
+                }
+
+                System.out.println("Starting Codex OAuth login...");
+                var process = new ProcessBuilder("codex", "auth", "login")
+                        .inheritIO()
+                        .start();
+                int exitCode = process.waitFor();
+                if (exitCode != 0) {
+                    throw new RuntimeException("'codex auth login' exited with code " + exitCode);
+                }
+
+                if (!hasCodexAccessToken()) {
+                    throw new RuntimeException("Codex login completed but no access token found in ~/.codex/auth.json");
+                }
+                System.out.println("OpenAI Codex OAuth login successful.");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                System.err.println("OpenAI Codex authentication interrupted.");
+                System.exit(1);
+            } catch (IOException e) {
+                System.err.println("Failed to start 'codex auth login'. Ensure Codex CLI is installed and in PATH.");
+                System.exit(1);
+            } catch (RuntimeException e) {
+                System.err.println("OpenAI Codex authentication failed: " + e.getMessage());
+                System.exit(1);
+            }
+        }
+
+        private static void loginCopilot() {
+            try {
+                if (CopilotDeviceAuth.loadCachedToken() != null) {
+                    System.out.println("Copilot OAuth token already cached.");
+                    return;
+                }
+                CopilotDeviceAuth.authenticate();
+            } catch (RuntimeException e) {
+                System.err.println("Copilot authentication failed: " + e.getMessage());
+                System.exit(1);
+            }
         }
     }
 

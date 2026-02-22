@@ -23,16 +23,25 @@ public final class OpenAIRoutingClient implements LlmClient {
 
     private final OpenAICompatClient chatClient;
     private final OpenAIResponsesClient responsesClient;
+    private final String providerName;
     private final String defaultModel;
 
     public OpenAIRoutingClient(OpenAICompatClient chatClient,
                                OpenAIResponsesClient responsesClient,
                                String defaultModel) {
+        this(chatClient, responsesClient, defaultModel, "openai");
+    }
+
+    public OpenAIRoutingClient(OpenAICompatClient chatClient,
+                               OpenAIResponsesClient responsesClient,
+                               String defaultModel,
+                               String providerName) {
         this.chatClient = chatClient;
         this.responsesClient = responsesClient;
         this.defaultModel = defaultModel;
-        log.info("OpenAI routing client created: defaultModel={}, chatEndpoint=/v1/chat/completions, responsesEndpoint=/v1/responses",
-                defaultModel);
+        this.providerName = providerName != null ? providerName : "openai";
+        log.info("{} routing client created: defaultModel={}, chatEndpoint=/v1/chat/completions, responsesEndpoint=/v1/responses",
+                this.providerName, defaultModel);
     }
 
     @Override
@@ -57,7 +66,7 @@ public final class OpenAIRoutingClient implements LlmClient {
 
     @Override
     public String provider() {
-        return "openai";
+        return providerName;
     }
 
     @Override

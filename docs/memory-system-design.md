@@ -692,7 +692,7 @@ This prevents the pathological case where a 80K-token system prompt + 85% trigge
 
 2. **Multi-channel support** — OpenClaw supports WhatsApp, Telegram, Slack, Discord as first-class channels. AceClaw is CLI-only (web/API planned for P3).
 
-3. **Provider diversity** — OpenClaw's pi-ai SDK supports 20+ providers natively. AceClaw supports 7 providers (Anthropic, OpenAI, Groq, Together, Mistral, Copilot, Ollama) via `LlmClientFactory`.
+3. **Provider diversity** — OpenClaw's pi-ai SDK supports 20+ providers natively. AceClaw supports 8 providers (Anthropic, OpenAI, OpenAI Codex OAuth, Groq, Together, Mistral, Copilot, Ollama) via `LlmClientFactory`.
 
 ---
 

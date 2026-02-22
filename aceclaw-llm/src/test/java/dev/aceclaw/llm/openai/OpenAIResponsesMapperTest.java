@@ -68,6 +68,34 @@ class OpenAIResponsesMapperTest {
     }
 
     @Test
+    void providerOptions_openaiCodexOmitsTemperatureAndMaxOutputTokens() throws Exception {
+        var request = baseRequest()
+                .temperature(0.2)
+                .maxTokens(2048)
+                .build();
+
+        JsonNode root = objectMapper.readTree(mapper.toRequestJson(request, true, false, false, true));
+
+        assertThat(root.has("temperature")).isFalse();
+        assertThat(root.has("max_output_tokens")).isFalse();
+        assertThat(root.get("store").asBoolean()).isFalse();
+    }
+
+    @Test
+    void providerOptions_nonCodexIncludesTemperatureAndMaxOutputTokens() throws Exception {
+        var request = baseRequest()
+                .temperature(0.2)
+                .maxTokens(2048)
+                .build();
+
+        JsonNode root = objectMapper.readTree(mapper.toRequestJson(request, true, true, true));
+
+        assertThat(root.get("temperature").asDouble()).isEqualTo(0.2);
+        assertThat(root.get("max_output_tokens").asInt()).isEqualTo(2048);
+        assertThat(root.has("store")).isFalse();
+    }
+
+    @Test
     void userMessage_mappedToInputItem() throws Exception {
         var request = baseRequest().build();
         JsonNode root = objectMapper.readTree(mapper.toRequestJson(request, false));

@@ -95,6 +95,12 @@ Multi-provider support — see [Provider Configuration](docs/provider-configurat
 # GitHub Copilot (use your subscription — no separate API key needed)
 ./dev.sh copilot
 
+# OpenAI Codex OAuth (reuse ~/.codex/auth.json)
+aceclaw models auth login --provider openai-codex
+./dev.sh openai-codex
+# Note: in openai-codex mode, AceClaw follows Codex backend rules
+# (stream=true, store=false, no temperature/max_output_tokens).
+
 # Ollama (local, offline)
 ./dev.sh ollama
 
@@ -120,7 +126,7 @@ Daemon (persistent JVM, separate process group)
   ├─ Context Compactor    → 3-phase (prune → summarize → memory flush)
   ├─ Scheduler            → persistent cron jobs, heartbeat runner
   ├─ Hook System          → BOOT.md startup, command hooks
-  └─ LLM Client Factory   → 7 providers, extended thinking, prompt caching
+  └─ LLM Client Factory   → 8 providers, extended thinking, prompt caching
 ```
 
 ### Modules
@@ -188,7 +194,7 @@ DANGEROUS   → always prompt, never remembered
 
 - [x] Daemon-first architecture, streaming ReAct loop, 12 tools
 - [x] Extended thinking, retry, prompt caching, context compaction
-- [x] Multi-provider (7 providers), HMAC-signed memory, MCP integration
+- [x] Multi-provider (8 providers), HMAC-signed memory, MCP integration
 - [x] 8-tier memory hierarchy, hybrid search, daily journal, workspace isolation
 - [x] Sub-agents: depth-1 delegation, filtered tool registries, task lifecycle
 - [x] Self-learning: insight hierarchy, error/pattern detection, self-improvement engine
