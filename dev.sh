@@ -1,12 +1,12 @@
 #!/bin/sh
 # Quick rebuild + restart: build, stop old daemon, launch CLI
 # Usage: ./dev.sh [provider]
-#   provider: anthropic (default), openai, ollama, copilot, groq
+#   provider: anthropic (default), openai, openai-codex, ollama, copilot, groq
 #   Example: ./dev.sh ollama
 set -e
 
 PROVIDER="${1:-}"
-VALID_PROVIDERS="anthropic openai ollama copilot groq"
+VALID_PROVIDERS="anthropic openai openai-codex ollama copilot groq"
 
 # Auto-detect JAVA_HOME if not set — require exact Java 21
 if [ -z "$JAVA_HOME" ]; then

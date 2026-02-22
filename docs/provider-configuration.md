@@ -80,6 +80,46 @@ aceclaw> /model gpt-5.2-codex
 
 ---
 
+## OpenAI Codex (OAuth Subscription)
+
+Use Codex OAuth credentials (for example from `codex auth login`) without manually copying short-lived JWTs.
+
+### Authentication Resolution
+
+When `provider` is `openai-codex`, AceClaw resolves token in this order:
+
+1. `apiKey` in profile (explicit override)
+2. `~/.codex/auth.json` → `tokens.access_token`
+3. `~/.codex/auth.json` → `OPENAI_API_KEY` (legacy)
+4. `OPENAI_API_KEY` env var
+
+### Setup
+
+```json
+{
+    "profiles": {
+        "openai-codex": {
+            "provider": "openai-codex",
+            "model": "gpt-5-codex",
+            "maxTokens": 16384,
+            "thinkingBudget": 0
+        }
+    }
+}
+```
+
+```bash
+# Authenticate via AceClaw (runs Codex CLI flow)
+aceclaw models auth login --provider openai-codex
+
+# Start AceClaw with openai-codex provider
+./dev.sh openai-codex
+```
+
+> `openai` and `openai-codex` are different modes. `openai` expects a standard OpenAI API key. `openai-codex` is for Codex OAuth credentials.
+
+---
+
 ## Anthropic Claude (Direct API)
 
 Use Claude models directly via the Anthropic API. Supports extended thinking, prompt caching, and image input.
@@ -162,6 +202,7 @@ AceClaw works with any provider that implements the OpenAI Chat Completions API.
 | Provider | Config Name | Default Base URL |
 |----------|-------------|-----------------|
 | OpenAI | `openai` | `https://api.openai.com` |
+| OpenAI Codex OAuth | `openai-codex` | `https://api.openai.com` |
 | Groq | `groq` | `https://api.groq.com/openai` |
 | Together | `together` | `https://api.together.xyz` |
 | Mistral | `mistral` | `https://api.mistral.ai` |
