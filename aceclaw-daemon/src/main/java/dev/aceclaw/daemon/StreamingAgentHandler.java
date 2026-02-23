@@ -15,6 +15,7 @@ import dev.aceclaw.core.agent.ToolMetricsCollector;
 import dev.aceclaw.core.agent.ToolRegistry;
 import dev.aceclaw.core.llm.ContentBlock;
 import dev.aceclaw.core.llm.Message;
+import dev.aceclaw.core.llm.StopReason;
 import dev.aceclaw.core.llm.StreamEvent;
 import dev.aceclaw.core.llm.StreamEventHandler;
 import dev.aceclaw.core.planner.ComplexityEstimator;
@@ -419,6 +420,8 @@ public final class StreamingAgentHandler {
             });
         }
 
+        recordInjectedCandidateOutcomes(sessionId, turn, cancellationToken.isCancelled());
+
         // Build result
         var result = objectMapper.createObjectNode();
         result.put("sessionId", sessionId);
@@ -759,6 +762,60 @@ public final class StreamingAgentHandler {
         var array = objectMapper.createArrayNode();
         candidateIds.forEach(array::add);
         result.set("injectedCandidateIds", array);
+    }
+
+    private void recordInjectedCandidateOutcomes(String sessionId,
+                                                 dev.aceclaw.core.agent.Turn turn,
+                                                 boolean cancelled) {
+        if (candidateStore == null) {
+            return;
+        }
+        var candidateIds = sessionInjectedCandidateIds.getOrDefault(sessionId, List.of());
+        if (candidateIds.isEmpty()) {
+            return;
+        }
+        boolean success = !cancelled && turn.finalStopReason() != StopReason.ERROR;
+        boolean severeFailure = !success && turn.finalStopReason() == StopReason.ERROR;
+        var outcome = new CandidateStore.CandidateOutcome(
+                success,
+                severeFailure,
+                false,
+                "runtime:" + sessionId,
+                buildOutcomeNote(cancelled, turn.finalStopReason()),
+                null,
+                null
+        );
+
+        int updated = 0;
+        for (var candidateId : candidateIds) {
+            try {
+                if (candidateStore.recordOutcome(candidateId, outcome).isPresent()) {
+                    updated++;
+                }
+            } catch (Exception e) {
+                log.warn("Candidate outcome writeback failed: candidateId={}, reason={}",
+                        candidateId, e.getMessage());
+            }
+        }
+        if (updated == 0) {
+            return;
+        }
+        try {
+            var transitions = candidateStore.evaluateAll();
+            if (!transitions.isEmpty()) {
+                log.info("Candidate outcome enforcement: {} transitions after turn (session={})",
+                        transitions.size(), sessionId);
+            }
+        } catch (Exception e) {
+            log.warn("Candidate outcome enforcement evaluation failed: {}", e.getMessage());
+        }
+    }
+
+    private static String buildOutcomeNote(boolean cancelled, StopReason stopReason) {
+        if (cancelled) {
+            return "runtime-outcome:cancelled";
+        }
+        return "runtime-outcome:" + stopReason.name().toLowerCase(java.util.Locale.ROOT);
     }
 
     /**
