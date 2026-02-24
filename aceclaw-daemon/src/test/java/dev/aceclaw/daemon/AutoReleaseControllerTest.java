@@ -37,7 +37,7 @@ class AutoReleaseControllerTest {
                 Path.of(".aceclaw/metrics/continuous-learning/replay-latest.json"), 0.65);
         var controller = new AutoReleaseController(
                 Clock.fixed(t0.plusSeconds(10), ZoneOffset.UTC),
-                new AutoReleaseController.Config(0.2, 1, 1, 0.5, 0.5, 0.5, 0.6, Duration.ofDays(7)),
+                new AutoReleaseController.Config(0.2, 1, 1, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6, Duration.ofDays(7)),
                 validation);
 
         var first = controller.evaluateAll(tempDir, store, "test-1");
@@ -62,7 +62,7 @@ class AutoReleaseControllerTest {
                 Path.of(".aceclaw/metrics/continuous-learning/replay-latest.json"), 0.65);
         var controller = new AutoReleaseController(
                 Clock.fixed(t0.plusSeconds(10), ZoneOffset.UTC),
-                new AutoReleaseController.Config(0.2, 1, 1, 0.8, 0.8, 0.8, 0.2, Duration.ofDays(7)),
+                new AutoReleaseController.Config(0.2, 1, 1, 0.8, 0.8, 0.8, 0.2, 0.8, 0.8, Duration.ofDays(7)),
                 validation);
 
         controller.evaluateAll(tempDir, store, "bootstrap");

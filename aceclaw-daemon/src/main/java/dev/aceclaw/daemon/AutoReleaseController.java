@@ -307,9 +307,9 @@ public final class AutoReleaseController {
 
     private boolean shouldRollback(HealthMetrics metrics) {
         return metrics.attempts() > 0 && (
-                metrics.failureRate() > config.activeMaxFailureRate()
-                        || metrics.timeoutRate() > config.canaryMaxTimeoutRate()
-                        || metrics.permissionRate() > config.canaryMaxPermissionRate()
+                metrics.failureRate() > config.rollbackMaxFailureRate()
+                        || metrics.timeoutRate() > config.rollbackMaxTimeoutRate()
+                        || metrics.permissionRate() > config.rollbackMaxPermissionRate()
         );
     }
 
@@ -452,7 +452,9 @@ public final class AutoReleaseController {
             double canaryMaxFailureRate,
             double canaryMaxTimeoutRate,
             double canaryMaxPermissionRate,
-            double activeMaxFailureRate,
+            double rollbackMaxFailureRate,
+            double rollbackMaxTimeoutRate,
+            double rollbackMaxPermissionRate,
             Duration healthLookback
     ) {
         public Config {
@@ -460,7 +462,7 @@ public final class AutoReleaseController {
         }
 
         public static Config defaults() {
-            return new Config(0.80, 3, 5, 0.35, 0.20, 0.20, 0.45, Duration.ofDays(7));
+            return new Config(0.80, 3, 5, 0.35, 0.20, 0.20, 0.45, 0.20, 0.20, Duration.ofDays(7));
         }
     }
 

@@ -34,7 +34,10 @@ Config keys in `.aceclaw/config.json`:
 - `skillAutoReleaseCanaryMaxFailureRate` (`double`, default `0.35`)
 - `skillAutoReleaseCanaryMaxTimeoutRate` (`double`, default `0.20`)
 - `skillAutoReleaseCanaryMaxPermissionBlockRate` (`double`, default `0.20`)
-- `skillAutoReleaseActiveMaxFailureRate` (`double`, default `0.45`)
+- `skillAutoReleaseRollbackMaxFailureRate` (`double`, default `0.45`)
+- `skillAutoReleaseRollbackMaxTimeoutRate` (`double`, default `0.20`)
+- `skillAutoReleaseRollbackMaxPermissionBlockRate` (`double`, default `0.20`)
+- `skillAutoReleaseActiveMaxFailureRate` (`double`, legacy alias for rollback failure threshold)
 - `skillAutoReleaseHealthLookbackHours` (`int`, default `168`)
 
 Environment overrides:
@@ -54,6 +57,9 @@ Environment overrides:
 - `ACECLAW_SKILL_AUTO_RELEASE_CANARY_MAX_FAILURE_RATE`
 - `ACECLAW_SKILL_AUTO_RELEASE_CANARY_MAX_TIMEOUT_RATE`
 - `ACECLAW_SKILL_AUTO_RELEASE_CANARY_MAX_PERMISSION_BLOCK_RATE`
+- `ACECLAW_SKILL_AUTO_RELEASE_ROLLBACK_MAX_FAILURE_RATE`
+- `ACECLAW_SKILL_AUTO_RELEASE_ROLLBACK_MAX_TIMEOUT_RATE`
+- `ACECLAW_SKILL_AUTO_RELEASE_ROLLBACK_MAX_PERMISSION_BLOCK_RATE`
 - `ACECLAW_SKILL_AUTO_RELEASE_ACTIVE_MAX_FAILURE_RATE`
 - `ACECLAW_SKILL_AUTO_RELEASE_HEALTH_LOOKBACK_HOURS`
 

@@ -77,7 +77,10 @@ public final class AceClawConfig {
     private static final double DEFAULT_SKILL_AUTO_RELEASE_CANARY_MAX_FAILURE_RATE = 0.35;
     private static final double DEFAULT_SKILL_AUTO_RELEASE_CANARY_MAX_TIMEOUT_RATE = 0.20;
     private static final double DEFAULT_SKILL_AUTO_RELEASE_CANARY_MAX_PERMISSION_BLOCK_RATE = 0.20;
-    private static final double DEFAULT_SKILL_AUTO_RELEASE_ACTIVE_MAX_FAILURE_RATE = 0.45;
+    private static final double DEFAULT_SKILL_AUTO_RELEASE_ACTIVE_MAX_FAILURE_RATE = 0.45; // legacy alias
+    private static final double DEFAULT_SKILL_AUTO_RELEASE_ROLLBACK_MAX_FAILURE_RATE = 0.45;
+    private static final double DEFAULT_SKILL_AUTO_RELEASE_ROLLBACK_MAX_TIMEOUT_RATE = 0.20;
+    private static final double DEFAULT_SKILL_AUTO_RELEASE_ROLLBACK_MAX_PERMISSION_BLOCK_RATE = 0.20;
     private static final int DEFAULT_SKILL_AUTO_RELEASE_HEALTH_LOOKBACK_HOURS = 168;
 
     /** Claude CLI credentials directory. */
@@ -127,6 +130,9 @@ public final class AceClawConfig {
     private double skillAutoReleaseCanaryMaxTimeoutRate;
     private double skillAutoReleaseCanaryMaxPermissionBlockRate;
     private double skillAutoReleaseActiveMaxFailureRate;
+    private double skillAutoReleaseRollbackMaxFailureRate;
+    private double skillAutoReleaseRollbackMaxTimeoutRate;
+    private double skillAutoReleaseRollbackMaxPermissionBlockRate;
     private int skillAutoReleaseHealthLookbackHours;
     private Map<String, List<HookMatcherFormat>> hooks;
 
@@ -166,6 +172,10 @@ public final class AceClawConfig {
         this.skillAutoReleaseCanaryMaxTimeoutRate = DEFAULT_SKILL_AUTO_RELEASE_CANARY_MAX_TIMEOUT_RATE;
         this.skillAutoReleaseCanaryMaxPermissionBlockRate = DEFAULT_SKILL_AUTO_RELEASE_CANARY_MAX_PERMISSION_BLOCK_RATE;
         this.skillAutoReleaseActiveMaxFailureRate = DEFAULT_SKILL_AUTO_RELEASE_ACTIVE_MAX_FAILURE_RATE;
+        this.skillAutoReleaseRollbackMaxFailureRate = DEFAULT_SKILL_AUTO_RELEASE_ROLLBACK_MAX_FAILURE_RATE;
+        this.skillAutoReleaseRollbackMaxTimeoutRate = DEFAULT_SKILL_AUTO_RELEASE_ROLLBACK_MAX_TIMEOUT_RATE;
+        this.skillAutoReleaseRollbackMaxPermissionBlockRate =
+                DEFAULT_SKILL_AUTO_RELEASE_ROLLBACK_MAX_PERMISSION_BLOCK_RATE;
         this.skillAutoReleaseHealthLookbackHours = DEFAULT_SKILL_AUTO_RELEASE_HEALTH_LOOKBACK_HOURS;
         this.providerModels = new java.util.HashMap<>();
     }
@@ -356,9 +366,45 @@ public final class AceClawConfig {
             try {
                 config.skillAutoReleaseActiveMaxFailureRate =
                         clampRate(Double.parseDouble(envSkillAutoReleaseActiveMaxFailureRate));
+                // Legacy env alias maps to rollback failure threshold.
+                config.skillAutoReleaseRollbackMaxFailureRate = config.skillAutoReleaseActiveMaxFailureRate;
             } catch (NumberFormatException e) {
                 log.warn("Invalid ACECLAW_SKILL_AUTO_RELEASE_ACTIVE_MAX_FAILURE_RATE: {}",
                         envSkillAutoReleaseActiveMaxFailureRate);
+            }
+        }
+        var envSkillAutoReleaseRollbackMaxFailureRate =
+                System.getenv("ACECLAW_SKILL_AUTO_RELEASE_ROLLBACK_MAX_FAILURE_RATE");
+        if (envSkillAutoReleaseRollbackMaxFailureRate != null && !envSkillAutoReleaseRollbackMaxFailureRate.isBlank()) {
+            try {
+                config.skillAutoReleaseRollbackMaxFailureRate =
+                        clampRate(Double.parseDouble(envSkillAutoReleaseRollbackMaxFailureRate));
+            } catch (NumberFormatException e) {
+                log.warn("Invalid ACECLAW_SKILL_AUTO_RELEASE_ROLLBACK_MAX_FAILURE_RATE: {}",
+                        envSkillAutoReleaseRollbackMaxFailureRate);
+            }
+        }
+        var envSkillAutoReleaseRollbackMaxTimeoutRate =
+                System.getenv("ACECLAW_SKILL_AUTO_RELEASE_ROLLBACK_MAX_TIMEOUT_RATE");
+        if (envSkillAutoReleaseRollbackMaxTimeoutRate != null && !envSkillAutoReleaseRollbackMaxTimeoutRate.isBlank()) {
+            try {
+                config.skillAutoReleaseRollbackMaxTimeoutRate =
+                        clampRate(Double.parseDouble(envSkillAutoReleaseRollbackMaxTimeoutRate));
+            } catch (NumberFormatException e) {
+                log.warn("Invalid ACECLAW_SKILL_AUTO_RELEASE_ROLLBACK_MAX_TIMEOUT_RATE: {}",
+                        envSkillAutoReleaseRollbackMaxTimeoutRate);
+            }
+        }
+        var envSkillAutoReleaseRollbackMaxPermissionRate =
+                System.getenv("ACECLAW_SKILL_AUTO_RELEASE_ROLLBACK_MAX_PERMISSION_BLOCK_RATE");
+        if (envSkillAutoReleaseRollbackMaxPermissionRate != null
+                && !envSkillAutoReleaseRollbackMaxPermissionRate.isBlank()) {
+            try {
+                config.skillAutoReleaseRollbackMaxPermissionBlockRate =
+                        clampRate(Double.parseDouble(envSkillAutoReleaseRollbackMaxPermissionRate));
+            } catch (NumberFormatException e) {
+                log.warn("Invalid ACECLAW_SKILL_AUTO_RELEASE_ROLLBACK_MAX_PERMISSION_BLOCK_RATE: {}",
+                        envSkillAutoReleaseRollbackMaxPermissionRate);
             }
         }
         var envSkillAutoReleaseLookbackHours = System.getenv("ACECLAW_SKILL_AUTO_RELEASE_HEALTH_LOOKBACK_HOURS");
@@ -730,6 +776,18 @@ public final class AceClawConfig {
         return skillAutoReleaseActiveMaxFailureRate;
     }
 
+    public double skillAutoReleaseRollbackMaxFailureRate() {
+        return skillAutoReleaseRollbackMaxFailureRate;
+    }
+
+    public double skillAutoReleaseRollbackMaxTimeoutRate() {
+        return skillAutoReleaseRollbackMaxTimeoutRate;
+    }
+
+    public double skillAutoReleaseRollbackMaxPermissionBlockRate() {
+        return skillAutoReleaseRollbackMaxPermissionBlockRate;
+    }
+
     public int skillAutoReleaseHealthLookbackHours() {
         return skillAutoReleaseHealthLookbackHours;
     }
@@ -1028,6 +1086,21 @@ public final class AceClawConfig {
         if (fileConfig.skillAutoReleaseActiveMaxFailureRate != null
                 && fileConfig.skillAutoReleaseActiveMaxFailureRate >= 0) {
             this.skillAutoReleaseActiveMaxFailureRate = clampRate(fileConfig.skillAutoReleaseActiveMaxFailureRate);
+            // Legacy config key maps to rollback failure threshold.
+            this.skillAutoReleaseRollbackMaxFailureRate = this.skillAutoReleaseActiveMaxFailureRate;
+        }
+        if (fileConfig.skillAutoReleaseRollbackMaxFailureRate != null
+                && fileConfig.skillAutoReleaseRollbackMaxFailureRate >= 0) {
+            this.skillAutoReleaseRollbackMaxFailureRate = clampRate(fileConfig.skillAutoReleaseRollbackMaxFailureRate);
+        }
+        if (fileConfig.skillAutoReleaseRollbackMaxTimeoutRate != null
+                && fileConfig.skillAutoReleaseRollbackMaxTimeoutRate >= 0) {
+            this.skillAutoReleaseRollbackMaxTimeoutRate = clampRate(fileConfig.skillAutoReleaseRollbackMaxTimeoutRate);
+        }
+        if (fileConfig.skillAutoReleaseRollbackMaxPermissionBlockRate != null
+                && fileConfig.skillAutoReleaseRollbackMaxPermissionBlockRate >= 0) {
+            this.skillAutoReleaseRollbackMaxPermissionBlockRate =
+                    clampRate(fileConfig.skillAutoReleaseRollbackMaxPermissionBlockRate);
         }
         if (fileConfig.skillAutoReleaseHealthLookbackHours != null
                 && fileConfig.skillAutoReleaseHealthLookbackHours > 0) {
@@ -1080,6 +1153,9 @@ public final class AceClawConfig {
         public Double skillAutoReleaseCanaryMaxTimeoutRate;
         public Double skillAutoReleaseCanaryMaxPermissionBlockRate;
         public Double skillAutoReleaseActiveMaxFailureRate;
+        public Double skillAutoReleaseRollbackMaxFailureRate;
+        public Double skillAutoReleaseRollbackMaxTimeoutRate;
+        public Double skillAutoReleaseRollbackMaxPermissionBlockRate;
         public Integer skillAutoReleaseHealthLookbackHours;
         public String defaultProfile;
         public Map<String, ConfigFileFormat> profiles;
