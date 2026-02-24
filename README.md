@@ -1,6 +1,6 @@
 <h1 align="center">AceClaw</h1>
 
-<p align="center">Security-first general-purpose AI agent built on Java 21 — designed for enterprise environments</p>
+<p align="center">Autonomous AI agent for enterprise deployment, powered by Java 21</p>
 
 <p align="center">
   <a href="https://github.com/xinhuagu/AceClaw/actions/workflows/ci.yml"><img src="https://github.com/xinhuagu/AceClaw/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/Gradle-8.14-02303A?logo=gradle&logoColor=white" alt="Gradle 8.14">
 </p>
 
-An enterprise-grade **autonomous AI agent** — pure Java 21, daemon-first architecture, zero network attack surface. Inspired by [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [OpenClaw](https://github.com/openclaw), built from scratch with three key enhancements:
+An enterprise-grade **autonomous AI agent** — pure Java 21, daemon-first architecture, zero network attack surface. Inspired by [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) and [OpenClaw](https://github.com/openclaw), built from scratch with three key enhancements:
 
 1. **Security** — UDS-only communication, sealed 4-level permissions, HMAC-signed memory
 2. **Self-Learning** — Heuristic pattern detection, cross-session insight accumulation, strategy evolution
@@ -177,6 +177,7 @@ DANGEROUS   → always prompt, never remembered
 - [x] 8-tier memory hierarchy, hybrid search, daily journal, workspace isolation
 - [x] Sub-agents: depth-1 delegation, filtered tool registries, task lifecycle
 - [x] Self-learning: insight hierarchy, error/pattern detection, self-improvement engine
+- [x] Candidate pipeline: injected-candidate outcome writeback, clock-injected gates, stale cleanup, score decay
 - [x] Hook system: BOOT.md startup execution, command hooks, persistent cron, heartbeat runner
 - [x] Task planner: complexity estimation, LLM plan generation, sequential execution
 - [ ] Security hardening: content sandboxing, trust levels, encryption at rest

@@ -343,6 +343,10 @@ public final class StreamingAgentHandler {
                     + truncate(prompt, 100) + " | Tokens: " + planResult.totalTokensUsed());
         }
 
+        var plannedStopReason = planResult.success() ? StopReason.END_TURN : StopReason.ERROR;
+        recordInjectedCandidateOutcomes(
+                sessionId, planResult.success(), cancellationToken.isCancelled(), plannedStopReason);
+
         // 6. Build result
         var result = objectMapper.createObjectNode();
         result.put("sessionId", sessionId);
@@ -420,7 +424,9 @@ public final class StreamingAgentHandler {
             });
         }
 
-        recordInjectedCandidateOutcomes(sessionId, turn, cancellationToken.isCancelled());
+        recordInjectedCandidateOutcomes(
+                sessionId, turn.finalStopReason() != StopReason.ERROR, cancellationToken.isCancelled(),
+                turn.finalStopReason());
 
         // Build result
         var result = objectMapper.createObjectNode();
@@ -765,8 +771,9 @@ public final class StreamingAgentHandler {
     }
 
     private void recordInjectedCandidateOutcomes(String sessionId,
-                                                 dev.aceclaw.core.agent.Turn turn,
-                                                 boolean cancelled) {
+                                                 boolean success,
+                                                 boolean cancelled,
+                                                 StopReason stopReason) {
         if (candidateStore == null) {
             return;
         }
@@ -774,14 +781,14 @@ public final class StreamingAgentHandler {
         if (candidateIds.isEmpty()) {
             return;
         }
-        boolean success = !cancelled && turn.finalStopReason() != StopReason.ERROR;
-        boolean severeFailure = !success && turn.finalStopReason() == StopReason.ERROR;
+        boolean effectiveSuccess = success && !cancelled;
+        boolean severeFailure = !effectiveSuccess && stopReason == StopReason.ERROR;
         var outcome = new CandidateStore.CandidateOutcome(
-                success,
+                effectiveSuccess,
                 severeFailure,
                 false,
                 "runtime:" + sessionId,
-                buildOutcomeNote(cancelled, turn.finalStopReason()),
+                buildOutcomeNote(cancelled, stopReason),
                 null,
                 null
         );

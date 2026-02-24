@@ -284,7 +284,7 @@ public final class CandidateStore {
     public List<CandidateTransition> evaluateAll() {
         fileLock.lock();
         try {
-            runMaintenanceLocked(false);
+            var maintenance = runMaintenanceLocked(false);
             var transitions = new ArrayList<CandidateTransition>();
             var promotedThisPass = new java.util.HashSet<String>();
 
@@ -321,12 +321,18 @@ public final class CandidateStore {
                 }
             }
 
-            if (!transitions.isEmpty()) {
+            if (!transitions.isEmpty() || maintenance.hadChanges()) {
                 rewriteFile();
+            }
+            if (!transitions.isEmpty()) {
                 for (var t : transitions) {
                     appendTransition(t);
                 }
                 log.info("evaluateAll: {} transitions applied", transitions.size());
+            }
+            if (maintenance.hadChanges()) {
+                log.info("evaluateAll maintenance applied: removed={}, decayed={}",
+                        maintenance.removedCount(), maintenance.decayedCount());
             }
 
             return List.copyOf(transitions);
