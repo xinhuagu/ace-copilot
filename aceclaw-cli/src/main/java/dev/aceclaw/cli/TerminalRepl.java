@@ -976,6 +976,7 @@ public final class TerminalRepl {
         if (!Files.isRegularFile(replayPath)) return null;
         try {
             JsonNode root = statusMapper.readTree(replayPath.toFile());
+            if (root == null) return "pending";
             JsonNode metrics = root.path("metrics");
             JsonNode tokenErr = metrics.path("token_estimation_error_ratio_max");
             String status = tokenErr.path("status").asText("");
@@ -1001,8 +1002,11 @@ public final class TerminalRepl {
                 String line = it.next();
                 if (line == null || line.isBlank()) continue;
                 total++;
-                if (line.contains("\"state\":\"PROMOTED\"")) promoted++;
-                if (line.contains("\"state\":\"DEMOTED\"")) demoted++;
+                JsonNode node = statusMapper.readTree(line);
+                if (node == null) continue;
+                String state = node.path("state").asText("");
+                if ("PROMOTED".equals(state)) promoted++;
+                if ("DEMOTED".equals(state)) demoted++;
             }
         } catch (Exception e) {
             log.debug("Failed to parse candidates.jsonl: {}", e.getMessage());
@@ -1018,6 +1022,7 @@ public final class TerminalRepl {
         int active = 0;
         try {
             JsonNode root = statusMapper.readTree(releaseStatePath.toFile());
+            if (root == null) return "none";
             JsonNode releases = root.path("releases");
             if (!releases.isArray()) return "none";
             for (JsonNode release : releases) {
