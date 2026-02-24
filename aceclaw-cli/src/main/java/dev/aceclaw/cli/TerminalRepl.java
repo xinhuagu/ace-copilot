@@ -1,5 +1,6 @@
 package dev.aceclaw.cli;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.jline.keymap.KeyMap;
 import org.jline.reader.EndOfFileException;
@@ -26,6 +27,7 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
@@ -58,6 +60,11 @@ public final class TerminalRepl {
             Pattern.compile("\\u001B\\[[0-?]*[ -/]*[@-~]");
     private static final Duration TASK_STALLED_AFTER = Duration.ofSeconds(45);
     private static final Duration TASK_TIMEOUT_AFTER = Duration.ofSeconds(180);
+    private static final Duration LEARNING_STATUS_REFRESH = Duration.ofSeconds(5);
+    private static final String CL_METRICS_DIR = ".aceclaw/metrics/continuous-learning";
+    private static final String CL_REPLAY_REPORT = "replay-latest.json";
+    private static final String CL_RELEASE_STATE = "skill-release-state.json";
+    private static final String CL_CANDIDATES = ".aceclaw/memory/candidates.jsonl";
 
     private final DaemonClient client;
     private final String sessionId;
@@ -65,6 +72,7 @@ public final class TerminalRepl {
     private final TerminalMarkdownRenderer markdownRenderer;
     private final TaskManager taskManager;
     private final PermissionBridge permissionBridge;
+    private final ObjectMapper statusMapper;
     private final Object uiRenderLock = new Object();
     private final AtomicBoolean permissionInterruptRequested = new AtomicBoolean(false);
     private int previousStatusLineCount;
@@ -89,6 +97,9 @@ public final class TerminalRepl {
 
     /** Timestamp when the current prompt was sent (nanos). */
     private long promptStartNanos = 0;
+    /** Cached continuous-learning status line; refreshed periodically. */
+    private volatile String cachedLearningStatusLine;
+    private volatile Instant cachedLearningStatusAt = Instant.EPOCH;
 
     /** Current foreground output sink (for Ctrl+C spinner cleanup). */
     private volatile ForegroundOutputSink activeForegroundSink;
@@ -134,6 +145,7 @@ public final class TerminalRepl {
         this.markdownRenderer = new TerminalMarkdownRenderer();
         this.taskManager = new TaskManager();
         this.permissionBridge = new PermissionBridge();
+        this.statusMapper = new ObjectMapper();
     }
 
     /**
@@ -853,6 +865,10 @@ public final class TerminalRepl {
     private List<String> buildStatusPanelLines() {
         var lines = new ArrayList<String>();
         lines.add(buildStatusString());
+        String learningStatus = buildContinuousLearningStatusLine();
+        if (learningStatus != null && !learningStatus.isBlank()) {
+            lines.add(learningStatus);
+        }
         Instant now = Instant.now();
 
         var runningTasks = taskManager.list().stream()
@@ -902,6 +918,132 @@ public final class TerminalRepl {
         }
 
         return lines;
+    }
+
+    private String buildContinuousLearningStatusLine() {
+        Instant now = Instant.now();
+        if (cachedLearningStatusLine != null
+                && Duration.between(cachedLearningStatusAt, now).compareTo(LEARNING_STATUS_REFRESH) < 0) {
+            return cachedLearningStatusLine;
+        }
+        String next = computeContinuousLearningStatusLine();
+        cachedLearningStatusLine = next;
+        cachedLearningStatusAt = now;
+        return next;
+    }
+
+    private String computeContinuousLearningStatusLine() {
+        if (sessionInfo.project() == null || sessionInfo.project().isBlank()) {
+            return null;
+        }
+        final Path projectRoot;
+        try {
+            projectRoot = Path.of(sessionInfo.project());
+        } catch (Exception e) {
+            log.debug("Invalid project path for learning status: {}", e.getMessage());
+            return null;
+        }
+
+        Path replayPath = projectRoot.resolve(CL_METRICS_DIR).resolve(CL_REPLAY_REPORT);
+        Path releaseStatePath = projectRoot.resolve(CL_METRICS_DIR).resolve(CL_RELEASE_STATE);
+        Path candidatesPath = projectRoot.resolve(CL_CANDIDATES);
+
+        String replaySummary = replayStatusSummary(replayPath);
+        String candidateSummary = candidateStatusSummary(candidatesPath);
+        String releaseSummary = releaseStatusSummary(releaseStatePath);
+        if (replaySummary == null && candidateSummary == null && releaseSummary == null) {
+            return null;
+        }
+
+        var sb = new StringBuilder();
+        sb.append(MUTED).append("  \u2514 ").append(RESET)
+                .append(INFO).append("\uD83E\uDDE0 learning").append(RESET);
+        if (replaySummary != null) {
+            sb.append(MUTED).append(" \u2502 ").append(RESET)
+                    .append(MUTED).append("replay=").append(replaySummary).append(RESET);
+        }
+        if (candidateSummary != null) {
+            sb.append(MUTED).append(" \u2502 ").append(RESET)
+                    .append(MUTED).append("candidates=").append(candidateSummary).append(RESET);
+        }
+        if (releaseSummary != null) {
+            sb.append(MUTED).append(" \u2502 ").append(RESET)
+                    .append(MUTED).append("release=").append(releaseSummary).append(RESET);
+        }
+        return sb.toString();
+    }
+
+    private String replayStatusSummary(Path replayPath) {
+        Objects.requireNonNull(replayPath, "replayPath");
+        if (!Files.isRegularFile(replayPath)) return null;
+        try {
+            JsonNode root = statusMapper.readTree(replayPath.toFile());
+            if (root == null) return "pending";
+            JsonNode metrics = root.path("metrics");
+            JsonNode tokenErr = metrics.path("token_estimation_error_ratio_max");
+            String status = tokenErr.path("status").asText("");
+            JsonNode valueNode = tokenErr.path("value");
+            if (status.isBlank() || valueNode.isMissingNode() || valueNode.isNull() || !valueNode.isNumber()) {
+                return "pending";
+            }
+            return status + ":" + String.format("%.2f", valueNode.asDouble());
+        } catch (Exception e) {
+            log.debug("Failed to parse replay report: {}", e.getMessage());
+            return "read-error";
+        }
+    }
+
+    private String candidateStatusSummary(Path candidatesPath) {
+        Objects.requireNonNull(candidatesPath, "candidatesPath");
+        if (!Files.isRegularFile(candidatesPath)) return null;
+        int total = 0;
+        int promoted = 0;
+        int demoted = 0;
+        try (var lines = Files.lines(candidatesPath)) {
+            var it = lines.iterator();
+            while (it.hasNext()) {
+                String line = it.next();
+                if (line == null || line.isBlank()) continue;
+                total++;
+                JsonNode node = statusMapper.readTree(line);
+                if (node == null) continue;
+                String state = node.path("state").asText("");
+                if ("PROMOTED".equals(state)) promoted++;
+                if ("DEMOTED".equals(state)) demoted++;
+            }
+        } catch (Exception e) {
+            log.debug("Failed to parse candidates.jsonl: {}", e.getMessage());
+            return "read-error";
+        }
+        return total + "(p:" + promoted + ",d:" + demoted + ")";
+    }
+
+    private String releaseStatusSummary(Path releaseStatePath) {
+        Objects.requireNonNull(releaseStatePath, "releaseStatePath");
+        if (!Files.isRegularFile(releaseStatePath)) return null;
+        int shadow = 0;
+        int canary = 0;
+        int active = 0;
+        try {
+            JsonNode root = statusMapper.readTree(releaseStatePath.toFile());
+            if (root == null) return "none";
+            JsonNode releases = root.path("releases");
+            if (!releases.isArray()) return "none";
+            for (JsonNode release : releases) {
+                String stage = release.path("stage").asText("").toUpperCase();
+                switch (stage) {
+                    case "SHADOW" -> shadow++;
+                    case "CANARY" -> canary++;
+                    case "ACTIVE" -> active++;
+                    default -> {
+                    }
+                }
+            }
+            return "s:" + shadow + ",c:" + canary + ",a:" + active;
+        } catch (Exception e) {
+            log.debug("Failed to parse release state: {}", e.getMessage());
+            return "read-error";
+        }
     }
 
     private TaskRuntimeInfo deriveRuntimeInfo(TaskHandle task, Instant now) {
