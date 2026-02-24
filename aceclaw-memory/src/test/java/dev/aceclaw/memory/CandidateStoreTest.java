@@ -238,6 +238,78 @@ class CandidateStoreTest {
     }
 
     @Test
+    void antiPatternCandidateBlocksPromotionForSameTool() throws Exception {
+        var t0 = Instant.parse("2026-02-22T00:00:00Z");
+        var smConfig = new CandidateStateMachine.Config(
+                2, 0.5, 1.0, 1,
+                Duration.ofDays(30), Duration.ofDays(7), 2, 0.6, 2, Duration.ZERO,
+                java.util.Set.of());
+        var testStore = new CandidateStore(tempDir.resolve("anti-pattern-gate"),
+                Duration.ofDays(30), 0.50, smConfig);
+        testStore.load();
+
+        testStore.upsert(new CandidateStore.CandidateObservation(
+                MemoryEntry.Category.ERROR_RECOVERY, CandidateKind.ERROR_RECOVERY,
+                "bash timeout recovery strategy", "bash", List.of("bash", "timeout"),
+                0.9, 1, 0, "src:a", t0));
+        testStore.upsert(new CandidateStore.CandidateObservation(
+                MemoryEntry.Category.ERROR_RECOVERY, CandidateKind.ERROR_RECOVERY,
+                "bash timeout recovery strategy updated", "bash", List.of("bash", "timeout"),
+                0.9, 1, 0, "src:b", t0.plusSeconds(60)));
+
+        testStore.upsert(new CandidateStore.CandidateObservation(
+                MemoryEntry.Category.ANTI_PATTERN, CandidateKind.ANTI_PATTERN,
+                "Avoid bash timeout retries", "bash", List.of("bash", "anti-pattern"),
+                0.95, 0, 1, "src:anti", t0.plusSeconds(120),
+                true, true, "anti-pattern-generated", null));
+
+        var transitions = testStore.evaluateAll();
+        assertThat(transitions).isEmpty();
+        assertThat(testStore.byState(CandidateState.PROMOTED)).isEmpty();
+    }
+
+    @Test
+    void antiPatternCandidateBlocksRePromotionForDemotedCandidate() throws Exception {
+        var t0 = Instant.parse("2026-02-22T00:00:00Z");
+        var smConfig = new CandidateStateMachine.Config(
+                2, 0.5, 1.0, 1,
+                Duration.ofDays(30), Duration.ofDays(7), 2, 0.6, 2, Duration.ZERO,
+                java.util.Set.of());
+        var testStore = new CandidateStore(tempDir.resolve("anti-pattern-repromote"),
+                Duration.ofDays(30), 0.50, smConfig);
+        testStore.load();
+
+        testStore.upsert(observation("timeout recovery strategy", "src:a", t0));
+        testStore.upsert(observation("timeout recovery strategy improved", "src:b", t0.plusSeconds(30)));
+        testStore.evaluateAll();
+        assertThat(testStore.byState(CandidateState.PROMOTED)).hasSize(1);
+
+        for (int i = 0; i < 4; i++) {
+            testStore.upsert(new CandidateStore.CandidateObservation(
+                    MemoryEntry.Category.ERROR_RECOVERY, CandidateKind.ERROR_RECOVERY,
+                    "timeout recovery strategy", "bash", List.of("bash", "timeout"),
+                    0.8, 0, 1, "fail:" + i, t0.plusSeconds(120 + i)));
+        }
+        testStore.evaluateAll();
+        assertThat(testStore.byState(CandidateState.DEMOTED)).hasSize(1);
+
+        testStore.upsert(new CandidateStore.CandidateObservation(
+                MemoryEntry.Category.ANTI_PATTERN, CandidateKind.ANTI_PATTERN,
+                "Avoid bash timeout retries", "bash", List.of("bash", "anti-pattern"),
+                0.95, 0, 1, "src:anti", t0.plusSeconds(400),
+                true, true, "anti-pattern-generated", null));
+        testStore.upsert(new CandidateStore.CandidateObservation(
+                MemoryEntry.Category.ERROR_RECOVERY, CandidateKind.ERROR_RECOVERY,
+                "timeout recovery strategy", "bash", List.of("bash", "timeout"),
+                0.8, 1, 0, "recover:1", t0.plus(Duration.ofDays(5))));
+
+        var transitions = testStore.evaluateAll();
+        assertThat(transitions).noneMatch(t -> t.toState() == CandidateState.PROMOTED);
+        assertThat(testStore.byState(CandidateState.PROMOTED)).isEmpty();
+        assertThat(testStore.byState(CandidateState.DEMOTED)).hasSize(1);
+    }
+
+    @Test
     void byStateFiltersCorrectly() {
         var t0 = Instant.parse("2026-02-22T00:00:00Z");
         store.upsert(observation("strategy alpha", "session:a", t0));
@@ -376,7 +448,7 @@ class CandidateStoreTest {
                 Duration.ofDays(30),     // retention
                 Duration.ofSeconds(1),   // decay half-life
                 Duration.ofHours(1),     // decay grace
-                Duration.ofMillis(1),    // run maintenance on each evaluateAll call after clock advance
+                Duration.ZERO,           // run maintenance every evaluateAll call
                 clock);
         maintenanceStore.load();
 

@@ -94,21 +94,6 @@ public final class CandidateStore {
         this.decayGrace = Objects.requireNonNull(decayGrace, "decayGrace");
         this.maintenanceInterval = Objects.requireNonNull(maintenanceInterval, "maintenanceInterval");
         this.clock = Objects.requireNonNull(clock, "clock");
-        if (this.recentWindow.isZero() || this.recentWindow.isNegative()) {
-            throw new IllegalArgumentException("recentWindow must be positive");
-        }
-        if (this.retention.isZero() || this.retention.isNegative()) {
-            throw new IllegalArgumentException("retention must be positive");
-        }
-        if (this.decayHalfLife.compareTo(Duration.ofSeconds(1)) < 0) {
-            throw new IllegalArgumentException("decayHalfLife must be >= PT1S");
-        }
-        if (this.decayGrace.isNegative()) {
-            throw new IllegalArgumentException("decayGrace must be non-negative");
-        }
-        if (this.maintenanceInterval.isZero() || this.maintenanceInterval.isNegative()) {
-            throw new IllegalArgumentException("maintenanceInterval must be positive");
-        }
         Files.createDirectories(memoryDir);
 
         this.mapper = new ObjectMapper();
@@ -161,12 +146,12 @@ public final class CandidateStore {
                 var merged = candidates.get(mergeIdx).mergeWith(incoming);
                 stored = sign(merged);
                 candidates.set(mergeIdx, stored);
-                rewriteFile();
             } else {
                 stored = sign(incoming);
                 candidates.add(stored);
-                append(stored);
             }
+            // Always rewrite atomically; avoids partial append corruption on crash.
+            rewriteFile();
             return stored;
         } finally {
             fileLock.unlock();
@@ -310,6 +295,9 @@ public final class CandidateStore {
                 var candidate = candidates.get(i);
                 if (candidate.state() != CandidateState.SHADOW
                         && candidate.state() != CandidateState.DEMOTED) continue;
+                if (hasBlockingAntiPatternForTool(candidate.toolTag())) {
+                    continue;
+                }
 
                 var transitionOpt = stateMachine.evaluateForPromotion(candidate);
                 if (transitionOpt.isPresent()) {
@@ -364,6 +352,27 @@ public final class CandidateStore {
             }
         }
         return -1;
+    }
+
+    private boolean hasBlockingAntiPatternForTool(String toolTag) {
+        if (toolTag == null || toolTag.isBlank()) {
+            return false;
+        }
+        var normalized = normalizeToolTag(toolTag);
+        var cutoff = now().minus(recentWindow);
+        for (var candidate : candidates) {
+            if (candidate.kind() != CandidateKind.ANTI_PATTERN) {
+                continue;
+            }
+            if (!normalized.equals(normalizeToolTag(candidate.toolTag()))) {
+                continue;
+            }
+            if (candidate.lastSeenAt().isBefore(cutoff)) {
+                continue;
+            }
+            return true;
+        }
+        return false;
     }
 
     private void appendTransition(CandidateTransition transition) {
@@ -618,19 +627,6 @@ public final class CandidateStore {
             Files.move(tmp, candidatesFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
             log.error("Failed to persist candidate store: {}", e.getMessage());
-        }
-    }
-
-    private void append(LearningCandidate candidate) {
-        try {
-            Files.writeString(
-                    candidatesFile,
-                    mapper.writeValueAsString(candidate) + "\n",
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.APPEND
-            );
-        } catch (IOException e) {
-            log.error("Failed to append candidate to store: {}", e.getMessage());
         }
     }
 

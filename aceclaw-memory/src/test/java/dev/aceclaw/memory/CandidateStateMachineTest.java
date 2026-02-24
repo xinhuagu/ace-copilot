@@ -252,6 +252,19 @@ class CandidateStateMachineTest {
         assertThat(sm.evaluateForPromotion(candidate)).isPresent();
     }
 
+    @Test
+    void antiPatternKindCannotBePromoted() {
+        var sm = new CandidateStateMachine();
+        var candidate = new LearningCandidate(
+                "anti-1", MemoryEntry.Category.ANTI_PATTERN, CandidateKind.ANTI_PATTERN,
+                CandidateState.SHADOW, "avoid risky command", "bash", List.of("bash"),
+                0.95, 5, 4, 1, NOW, NOW, null, LearningCandidate.CURRENT_VERSION,
+                List.of(new LearningCandidate.EvidenceEvent("src", NOW, 1, 0, false, false, "ok")),
+                List.of("src"), null);
+
+        assertThat(sm.evaluateForPromotion(candidate)).isEmpty();
+    }
+
     private static LearningCandidate candidateWith(CandidateState state, double score,
                                                     int evidence, int success, int failure) {
         return new LearningCandidate(
