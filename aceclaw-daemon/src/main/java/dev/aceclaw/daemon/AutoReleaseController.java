@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.aceclaw.memory.CandidateStore;
 import dev.aceclaw.memory.LearningCandidate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -29,6 +31,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * Supports manual emergency overrides: pause, force-promote, force-rollback.
  */
 public final class AutoReleaseController {
+    private static final Logger log = LoggerFactory.getLogger(AutoReleaseController.class);
 
     private static final String DRAFTS_DIR = ".aceclaw/skills-drafts";
     private static final String SKILLS_DIR = ".aceclaw/skills";
@@ -348,6 +351,7 @@ public final class AutoReleaseController {
                     .sorted(Comparator.comparing(SkillRelease::skillName))
                     .toList());
         } catch (Exception e) {
+            log.warn("Failed to load release state from {}: {}", statePath, e.getMessage());
             return new ReleaseState(List.of());
         }
     }
@@ -476,6 +480,8 @@ public final class AutoReleaseController {
             String lastReason
     ) {
         public SkillRelease {
+            skillName = skillName != null ? skillName : "";
+            draftPath = draftPath != null ? draftPath : "";
             candidateId = candidateId != null ? candidateId : "";
             stage = stage != null ? stage : Stage.SHADOW;
             createdAt = createdAt != null ? createdAt : Instant.EPOCH;

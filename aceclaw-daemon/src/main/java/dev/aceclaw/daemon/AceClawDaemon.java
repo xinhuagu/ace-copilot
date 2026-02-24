@@ -621,7 +621,13 @@ public final class AceClawDaemon {
             }
             String skillName = params.get("skillName").asText();
             String stageRaw = params.has("targetStage") ? params.get("targetStage").asText() : "canary";
-            AutoReleaseController.Stage stage = AutoReleaseController.Stage.valueOf(stageRaw.toUpperCase());
+            AutoReleaseController.Stage stage;
+            try {
+                stage = AutoReleaseController.Stage.valueOf(stageRaw.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "Invalid targetStage: " + stageRaw + " (allowed: canary, active)");
+            }
             String reason = params.has("reason") ? params.get("reason").asText() : "manual force promote";
             String trigger = params.has("trigger") ? params.get("trigger").asText() : "manual";
             return toReleaseJson(autoReleaseForRpc.forcePromote(workingDir, skillName, stage, reason, trigger));

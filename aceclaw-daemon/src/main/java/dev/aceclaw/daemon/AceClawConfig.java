@@ -291,7 +291,8 @@ public final class AceClawConfig {
         var envSkillAutoReleaseMinScore = System.getenv("ACECLAW_SKILL_AUTO_RELEASE_MIN_SCORE");
         if (envSkillAutoReleaseMinScore != null && !envSkillAutoReleaseMinScore.isBlank()) {
             try {
-                config.skillAutoReleaseMinCandidateScore = Double.parseDouble(envSkillAutoReleaseMinScore);
+                config.skillAutoReleaseMinCandidateScore =
+                        clampRate(Double.parseDouble(envSkillAutoReleaseMinScore));
             } catch (NumberFormatException e) {
                 log.warn("Invalid ACECLAW_SKILL_AUTO_RELEASE_MIN_SCORE: {}", envSkillAutoReleaseMinScore);
             }
@@ -299,7 +300,7 @@ public final class AceClawConfig {
         var envSkillAutoReleaseMinEvidence = System.getenv("ACECLAW_SKILL_AUTO_RELEASE_MIN_EVIDENCE");
         if (envSkillAutoReleaseMinEvidence != null && !envSkillAutoReleaseMinEvidence.isBlank()) {
             try {
-                config.skillAutoReleaseMinEvidence = Integer.parseInt(envSkillAutoReleaseMinEvidence);
+                config.skillAutoReleaseMinEvidence = Math.max(0, Integer.parseInt(envSkillAutoReleaseMinEvidence));
             } catch (NumberFormatException e) {
                 log.warn("Invalid ACECLAW_SKILL_AUTO_RELEASE_MIN_EVIDENCE: {}", envSkillAutoReleaseMinEvidence);
             }
@@ -309,7 +310,7 @@ public final class AceClawConfig {
         if (envSkillAutoReleaseCanaryMinAttempts != null && !envSkillAutoReleaseCanaryMinAttempts.isBlank()) {
             try {
                 config.skillAutoReleaseCanaryMinAttempts =
-                        Integer.parseInt(envSkillAutoReleaseCanaryMinAttempts);
+                        Math.max(0, Integer.parseInt(envSkillAutoReleaseCanaryMinAttempts));
             } catch (NumberFormatException e) {
                 log.warn("Invalid ACECLAW_SKILL_AUTO_RELEASE_CANARY_MIN_ATTEMPTS: {}",
                         envSkillAutoReleaseCanaryMinAttempts);
@@ -320,7 +321,7 @@ public final class AceClawConfig {
         if (envSkillAutoReleaseCanaryMaxFailureRate != null && !envSkillAutoReleaseCanaryMaxFailureRate.isBlank()) {
             try {
                 config.skillAutoReleaseCanaryMaxFailureRate =
-                        Double.parseDouble(envSkillAutoReleaseCanaryMaxFailureRate);
+                        clampRate(Double.parseDouble(envSkillAutoReleaseCanaryMaxFailureRate));
             } catch (NumberFormatException e) {
                 log.warn("Invalid ACECLAW_SKILL_AUTO_RELEASE_CANARY_MAX_FAILURE_RATE: {}",
                         envSkillAutoReleaseCanaryMaxFailureRate);
@@ -331,7 +332,7 @@ public final class AceClawConfig {
         if (envSkillAutoReleaseCanaryMaxTimeoutRate != null && !envSkillAutoReleaseCanaryMaxTimeoutRate.isBlank()) {
             try {
                 config.skillAutoReleaseCanaryMaxTimeoutRate =
-                        Double.parseDouble(envSkillAutoReleaseCanaryMaxTimeoutRate);
+                        clampRate(Double.parseDouble(envSkillAutoReleaseCanaryMaxTimeoutRate));
             } catch (NumberFormatException e) {
                 log.warn("Invalid ACECLAW_SKILL_AUTO_RELEASE_CANARY_MAX_TIMEOUT_RATE: {}",
                         envSkillAutoReleaseCanaryMaxTimeoutRate);
@@ -343,7 +344,7 @@ public final class AceClawConfig {
                 && !envSkillAutoReleaseCanaryMaxPermissionRate.isBlank()) {
             try {
                 config.skillAutoReleaseCanaryMaxPermissionBlockRate =
-                        Double.parseDouble(envSkillAutoReleaseCanaryMaxPermissionRate);
+                        clampRate(Double.parseDouble(envSkillAutoReleaseCanaryMaxPermissionRate));
             } catch (NumberFormatException e) {
                 log.warn("Invalid ACECLAW_SKILL_AUTO_RELEASE_CANARY_MAX_PERMISSION_BLOCK_RATE: {}",
                         envSkillAutoReleaseCanaryMaxPermissionRate);
@@ -354,7 +355,7 @@ public final class AceClawConfig {
         if (envSkillAutoReleaseActiveMaxFailureRate != null && !envSkillAutoReleaseActiveMaxFailureRate.isBlank()) {
             try {
                 config.skillAutoReleaseActiveMaxFailureRate =
-                        Double.parseDouble(envSkillAutoReleaseActiveMaxFailureRate);
+                        clampRate(Double.parseDouble(envSkillAutoReleaseActiveMaxFailureRate));
             } catch (NumberFormatException e) {
                 log.warn("Invalid ACECLAW_SKILL_AUTO_RELEASE_ACTIVE_MAX_FAILURE_RATE: {}",
                         envSkillAutoReleaseActiveMaxFailureRate);
@@ -363,7 +364,8 @@ public final class AceClawConfig {
         var envSkillAutoReleaseLookbackHours = System.getenv("ACECLAW_SKILL_AUTO_RELEASE_HEALTH_LOOKBACK_HOURS");
         if (envSkillAutoReleaseLookbackHours != null && !envSkillAutoReleaseLookbackHours.isBlank()) {
             try {
-                config.skillAutoReleaseHealthLookbackHours = Integer.parseInt(envSkillAutoReleaseLookbackHours);
+                config.skillAutoReleaseHealthLookbackHours =
+                        Math.max(1, Integer.parseInt(envSkillAutoReleaseLookbackHours));
             } catch (NumberFormatException e) {
                 log.warn("Invalid ACECLAW_SKILL_AUTO_RELEASE_HEALTH_LOOKBACK_HOURS: {}",
                         envSkillAutoReleaseLookbackHours);
@@ -1001,9 +1003,9 @@ public final class AceClawConfig {
         }
         if (fileConfig.skillAutoReleaseMinCandidateScore != null
                 && fileConfig.skillAutoReleaseMinCandidateScore >= 0) {
-            this.skillAutoReleaseMinCandidateScore = fileConfig.skillAutoReleaseMinCandidateScore;
+            this.skillAutoReleaseMinCandidateScore = clampRate(fileConfig.skillAutoReleaseMinCandidateScore);
         }
-        if (fileConfig.skillAutoReleaseMinEvidence != null && fileConfig.skillAutoReleaseMinEvidence >= 0) {
+        if (fileConfig.skillAutoReleaseMinEvidence != null && fileConfig.skillAutoReleaseMinEvidence > 0) {
             this.skillAutoReleaseMinEvidence = fileConfig.skillAutoReleaseMinEvidence;
         }
         if (fileConfig.skillAutoReleaseCanaryMinAttempts != null
@@ -1012,20 +1014,20 @@ public final class AceClawConfig {
         }
         if (fileConfig.skillAutoReleaseCanaryMaxFailureRate != null
                 && fileConfig.skillAutoReleaseCanaryMaxFailureRate >= 0) {
-            this.skillAutoReleaseCanaryMaxFailureRate = fileConfig.skillAutoReleaseCanaryMaxFailureRate;
+            this.skillAutoReleaseCanaryMaxFailureRate = clampRate(fileConfig.skillAutoReleaseCanaryMaxFailureRate);
         }
         if (fileConfig.skillAutoReleaseCanaryMaxTimeoutRate != null
                 && fileConfig.skillAutoReleaseCanaryMaxTimeoutRate >= 0) {
-            this.skillAutoReleaseCanaryMaxTimeoutRate = fileConfig.skillAutoReleaseCanaryMaxTimeoutRate;
+            this.skillAutoReleaseCanaryMaxTimeoutRate = clampRate(fileConfig.skillAutoReleaseCanaryMaxTimeoutRate);
         }
         if (fileConfig.skillAutoReleaseCanaryMaxPermissionBlockRate != null
                 && fileConfig.skillAutoReleaseCanaryMaxPermissionBlockRate >= 0) {
             this.skillAutoReleaseCanaryMaxPermissionBlockRate =
-                    fileConfig.skillAutoReleaseCanaryMaxPermissionBlockRate;
+                    clampRate(fileConfig.skillAutoReleaseCanaryMaxPermissionBlockRate);
         }
         if (fileConfig.skillAutoReleaseActiveMaxFailureRate != null
                 && fileConfig.skillAutoReleaseActiveMaxFailureRate >= 0) {
-            this.skillAutoReleaseActiveMaxFailureRate = fileConfig.skillAutoReleaseActiveMaxFailureRate;
+            this.skillAutoReleaseActiveMaxFailureRate = clampRate(fileConfig.skillAutoReleaseActiveMaxFailureRate);
         }
         if (fileConfig.skillAutoReleaseHealthLookbackHours != null
                 && fileConfig.skillAutoReleaseHealthLookbackHours > 0) {
@@ -1098,4 +1100,8 @@ public final class AceClawConfig {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record HookConfigFormat(String type, String command, int timeout) {}
+
+    private static double clampRate(double value) {
+        return Math.min(1.0, Math.max(0.0, value));
+    }
 }
