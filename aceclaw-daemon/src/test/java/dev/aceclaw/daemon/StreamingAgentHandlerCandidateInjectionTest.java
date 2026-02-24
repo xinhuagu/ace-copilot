@@ -10,7 +10,6 @@ import dev.aceclaw.memory.MemoryEntry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -41,15 +40,12 @@ class StreamingAgentHandlerCandidateInjectionTest {
         store.transition(store.all().getFirst().id(), dev.aceclaw.memory.CandidateState.PROMOTED, "test");
         handler.setCandidateStore(store);
 
-        Method m = StreamingAgentHandler.class.getDeclaredMethod("getSystemPrompt", String.class);
-        m.setAccessible(true);
-
         handler.setCandidateInjectionEnabled(true);
-        String withInjection = (String) m.invoke(handler, "s1");
+        String withInjection = handler.getSystemPromptForTest("s1");
         assertThat(withInjection).contains("Learned Strategies");
 
         handler.setCandidateInjectionEnabled(false);
-        String withoutInjection = (String) m.invoke(handler, "s1");
+        String withoutInjection = handler.getSystemPromptForTest("s1");
         assertThat(withoutInjection).isEqualTo("BASE_PROMPT");
     }
 
@@ -72,14 +68,9 @@ class StreamingAgentHandlerCandidateInjectionTest {
         store.transition(candidateId, CandidateState.PROMOTED, "test");
         handler.setCandidateStore(store);
 
-        Method getPrompt = StreamingAgentHandler.class.getDeclaredMethod("getSystemPrompt", String.class);
-        getPrompt.setAccessible(true);
-        getPrompt.invoke(handler, "plan-session");
+        handler.getSystemPromptForTest("plan-session");
 
-        Method outcome = StreamingAgentHandler.class.getDeclaredMethod(
-                "recordInjectedCandidateOutcomes", String.class, boolean.class, boolean.class, StopReason.class);
-        outcome.setAccessible(true);
-        outcome.invoke(handler, "plan-session", false, false, StopReason.ERROR);
+        handler.recordInjectedCandidateOutcomesForTest("plan-session", false, false, StopReason.ERROR);
 
         var updated = store.byId(candidateId).orElseThrow();
         assertThat(updated.failureCount()).isGreaterThan(0);

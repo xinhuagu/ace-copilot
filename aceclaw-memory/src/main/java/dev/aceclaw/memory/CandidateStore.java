@@ -83,6 +83,7 @@ public final class CandidateStore {
                    CandidateStateMachine.Config smConfig, Duration retention,
                    Duration decayHalfLife, Duration decayGrace, Duration maintenanceInterval,
                    Clock clock) throws IOException {
+        Objects.requireNonNull(smConfig, "smConfig");
         this.memoryDir = aceclawHome.resolve(MEMORY_DIR);
         this.candidatesFile = memoryDir.resolve(CANDIDATES_FILE);
         this.transitionsFile = memoryDir.resolve(TRANSITIONS_FILE);
@@ -93,6 +94,21 @@ public final class CandidateStore {
         this.decayGrace = Objects.requireNonNull(decayGrace, "decayGrace");
         this.maintenanceInterval = Objects.requireNonNull(maintenanceInterval, "maintenanceInterval");
         this.clock = Objects.requireNonNull(clock, "clock");
+        if (this.recentWindow.isZero() || this.recentWindow.isNegative()) {
+            throw new IllegalArgumentException("recentWindow must be positive");
+        }
+        if (this.retention.isZero() || this.retention.isNegative()) {
+            throw new IllegalArgumentException("retention must be positive");
+        }
+        if (this.decayHalfLife.compareTo(Duration.ofSeconds(1)) < 0) {
+            throw new IllegalArgumentException("decayHalfLife must be >= PT1S");
+        }
+        if (this.decayGrace.isNegative()) {
+            throw new IllegalArgumentException("decayGrace must be non-negative");
+        }
+        if (this.maintenanceInterval.isZero() || this.maintenanceInterval.isNegative()) {
+            throw new IllegalArgumentException("maintenanceInterval must be positive");
+        }
         Files.createDirectories(memoryDir);
 
         this.mapper = new ObjectMapper();

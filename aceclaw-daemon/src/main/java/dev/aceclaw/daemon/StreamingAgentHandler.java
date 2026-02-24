@@ -774,6 +774,8 @@ public final class StreamingAgentHandler {
                                                  boolean success,
                                                  boolean cancelled,
                                                  StopReason stopReason) {
+        java.util.Objects.requireNonNull(sessionId, "sessionId");
+        java.util.Objects.requireNonNull(stopReason, "stopReason");
         if (candidateStore == null) {
             return;
         }
@@ -819,10 +821,22 @@ public final class StreamingAgentHandler {
     }
 
     private static String buildOutcomeNote(boolean cancelled, StopReason stopReason) {
+        java.util.Objects.requireNonNull(stopReason, "stopReason");
         if (cancelled) {
             return "runtime-outcome:cancelled";
         }
         return "runtime-outcome:" + stopReason.name().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    String getSystemPromptForTest(String sessionId) {
+        return getSystemPrompt(sessionId);
+    }
+
+    void recordInjectedCandidateOutcomesForTest(String sessionId,
+                                                boolean success,
+                                                boolean cancelled,
+                                                StopReason stopReason) {
+        recordInjectedCandidateOutcomes(sessionId, success, cancelled, stopReason);
     }
 
     /**

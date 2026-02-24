@@ -376,7 +376,7 @@ class CandidateStoreTest {
                 Duration.ofDays(30),     // retention
                 Duration.ofSeconds(1),   // decay half-life
                 Duration.ofHours(1),     // decay grace
-                Duration.ZERO,           // run maintenance every evaluateAll call
+                Duration.ofMillis(1),    // run maintenance on each evaluateAll call after clock advance
                 clock);
         maintenanceStore.load();
 
