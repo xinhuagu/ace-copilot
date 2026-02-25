@@ -11,6 +11,10 @@
 
 An enterprise-grade **autonomous AI agent** — pure Java 21, daemon-first architecture, zero network attack surface. Inspired by [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) and [OpenClaw](https://github.com/openclaw), built from scratch with three key enhancements:
 
+<p align="center">
+  <img src="docs/img/012_trimmed.gif" alt="AceClaw Demo" width="800">
+</p>
+
 1. **Security** — UDS-only communication, sealed 4-level permissions, HMAC-signed memory
 2. **Self-Learning** — Heuristic pattern detection, cross-session insight accumulation, strategy evolution
 3. **Long-Term Memory** — 8-tier hierarchy, hybrid search, automated consolidation
