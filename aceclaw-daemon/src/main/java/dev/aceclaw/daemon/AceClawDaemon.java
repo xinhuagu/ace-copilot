@@ -324,6 +324,10 @@ public final class AceClawDaemon {
         agentHandler.setPlannerConfig(config.plannerEnabled(), config.plannerThreshold());
         agentHandler.setCompactor(compactor);
         agentHandler.setMemoryStore(memoryStore, workingDir);
+        agentHandler.setAntiPatternGateFeedbackStore(new AntiPatternGateFeedbackStore(
+                workingDir,
+                config.antiPatternGateMinBlockedBeforeRollback(),
+                config.antiPatternGateMaxFalsePositiveRate()));
         if (journal != null) {
             agentHandler.setDailyJournal(journal);
         }
@@ -520,6 +524,70 @@ public final class AceClawDaemon {
                 result.put("scope", scope);
                 result.put("configFile", written.toString());
             }
+            return result;
+        });
+        router.register("antiPatternGate.override.set", params -> {
+            if (params == null) {
+                throw new IllegalArgumentException("Missing required params");
+            }
+            if (!params.has("sessionId")) {
+                throw new IllegalArgumentException("Missing required parameter: sessionId");
+            }
+            if (!params.has("tool")) {
+                throw new IllegalArgumentException("Missing required parameter: tool");
+            }
+            String sessionId = params.get("sessionId").asText();
+            String tool = params.get("tool").asText();
+            long ttlSeconds = params.has("ttlSeconds") ? Math.max(1L, params.get("ttlSeconds").asLong()) : 300L;
+            String reason = params.has("reason") ? params.get("reason").asText() : "manual override";
+            agentHandlerRef.setAntiPatternGateOverride(sessionId, tool, ttlSeconds, reason);
+            var status = agentHandlerRef.getAntiPatternGateOverride(sessionId, tool);
+            var result = objectMapper.createObjectNode();
+            result.put("sessionId", status.sessionId());
+            result.put("tool", status.tool());
+            result.put("active", status.active());
+            result.put("ttlSecondsRemaining", status.ttlSecondsRemaining());
+            result.put("reason", status.reason());
+            return result;
+        });
+        router.register("antiPatternGate.override.get", params -> {
+            if (params == null) {
+                throw new IllegalArgumentException("Missing required params");
+            }
+            if (!params.has("sessionId")) {
+                throw new IllegalArgumentException("Missing required parameter: sessionId");
+            }
+            if (!params.has("tool")) {
+                throw new IllegalArgumentException("Missing required parameter: tool");
+            }
+            String sessionId = params.get("sessionId").asText();
+            String tool = params.get("tool").asText();
+            var status = agentHandlerRef.getAntiPatternGateOverride(sessionId, tool);
+            var result = objectMapper.createObjectNode();
+            result.put("sessionId", status.sessionId());
+            result.put("tool", status.tool());
+            result.put("active", status.active());
+            result.put("ttlSecondsRemaining", status.ttlSecondsRemaining());
+            result.put("reason", status.reason());
+            return result;
+        });
+        router.register("antiPatternGate.override.clear", params -> {
+            if (params == null) {
+                throw new IllegalArgumentException("Missing required params");
+            }
+            if (!params.has("sessionId")) {
+                throw new IllegalArgumentException("Missing required parameter: sessionId");
+            }
+            if (!params.has("tool")) {
+                throw new IllegalArgumentException("Missing required parameter: tool");
+            }
+            String sessionId = params.get("sessionId").asText();
+            String tool = params.get("tool").asText();
+            boolean cleared = agentHandlerRef.clearAntiPatternGateOverride(sessionId, tool);
+            var result = objectMapper.createObjectNode();
+            result.put("sessionId", sessionId);
+            result.put("tool", tool);
+            result.put("cleared", cleared);
             return result;
         });
         router.register("candidate.rollback", params -> {

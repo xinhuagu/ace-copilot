@@ -46,6 +46,8 @@ import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -96,6 +98,8 @@ public final class StreamingAgentHandler {
     private final java.util.concurrent.ConcurrentHashMap<String, ToolMetricsCollector> sessionMetrics =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<String, List<String>> sessionInjectedCandidateIds =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, AntiPatternGateOverride> antiPatternGateOverrides =
             new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
@@ -535,6 +539,12 @@ public final class StreamingAgentHandler {
      */
     private ToolRegistry createPermissionAwareRegistry(StreamContext context, String sessionId) {
         var registry = new ToolRegistry();
+        var antiPatternGate = AntiPatternPreExecutionGate.fromStores(
+                memoryStore,
+                candidateStore,
+                antiPatternGateFeedbackStore != null
+                        ? antiPatternGateFeedbackStore
+                        : AntiPatternPreExecutionGate.RuleFeedbackProvider.noop());
         // Prefer session's project path for hook cwd (each session may have a different working directory)
         var session = sessionManager.getSession(sessionId);
         String cwd;
@@ -548,7 +558,10 @@ public final class StreamingAgentHandler {
         for (var tool : toolRegistry.all()) {
             registry.register(new PermissionAwareTool(
                     tool, permissionManager, context, objectMapper,
-                    hookExecutor, sessionId, cwd));
+                    hookExecutor, sessionId, cwd, antiPatternGate,
+                    () -> getAntiPatternGateOverride(sessionId, tool.name()),
+                    antiPatternGateFeedbackStore,
+                    candidateStore));
         }
         return registry;
     }
@@ -571,6 +584,7 @@ public final class StreamingAgentHandler {
     private SelfImprovementEngine selfImprovementEngine;
     private HookExecutor hookExecutor;
     private CandidateStore candidateStore;
+    private AntiPatternGateFeedbackStore antiPatternGateFeedbackStore;
     private volatile boolean candidateInjectionEnabled = true;
     private volatile int candidateInjectionMaxCount = 10;
     private volatile int candidateInjectionMaxTokens = 1200;
@@ -608,6 +622,9 @@ public final class StreamingAgentHandler {
     public void setMemoryStore(AutoMemoryStore memoryStore, Path workingDir) {
         this.memoryStore = memoryStore;
         this.workingDir = workingDir;
+        if (workingDir != null) {
+            this.antiPatternGateFeedbackStore = new AntiPatternGateFeedbackStore(workingDir);
+        }
     }
 
     /**
@@ -636,6 +653,10 @@ public final class StreamingAgentHandler {
      */
     public void setCandidateStore(CandidateStore candidateStore) {
         this.candidateStore = candidateStore;
+    }
+
+    public void setAntiPatternGateFeedbackStore(AntiPatternGateFeedbackStore store) {
+        this.antiPatternGateFeedbackStore = store;
     }
 
     /**
@@ -724,6 +745,7 @@ public final class StreamingAgentHandler {
     public void clearSessionOverride(String sessionId) {
         sessionModelOverrides.remove(sessionId);
         sessionInjectedCandidateIds.remove(sessionId);
+        clearAllAntiPatternGateOverrides(sessionId);
     }
 
     /**
@@ -733,6 +755,55 @@ public final class StreamingAgentHandler {
         java.util.Objects.requireNonNull(sessionId, "sessionId");
         sessionMetrics.remove(sessionId);
         sessionInjectedCandidateIds.remove(sessionId);
+    }
+
+    public record AntiPatternGateOverrideStatus(
+            String sessionId,
+            String tool,
+            boolean active,
+            long ttlSecondsRemaining,
+            String reason
+    ) {}
+
+    public void setAntiPatternGateOverride(String sessionId, String toolName, long ttlSeconds, String reason) {
+        java.util.Objects.requireNonNull(sessionId, "sessionId");
+        java.util.Objects.requireNonNull(toolName, "toolName");
+        long ttl = Math.max(1L, ttlSeconds);
+        String normalizedReason = (reason == null || reason.isBlank()) ? "manual override" : reason;
+        antiPatternGateOverrides.put(
+                antiPatternOverrideKey(sessionId, toolName),
+                new AntiPatternGateOverride(Instant.now().plusSeconds(ttl), normalizedReason));
+    }
+
+    public AntiPatternGateOverrideStatus getAntiPatternGateOverride(String sessionId, String toolName) {
+        java.util.Objects.requireNonNull(sessionId, "sessionId");
+        java.util.Objects.requireNonNull(toolName, "toolName");
+        String key = antiPatternOverrideKey(sessionId, toolName);
+        var value = antiPatternGateOverrides.get(key);
+        if (value == null) {
+            return new AntiPatternGateOverrideStatus(sessionId, toolName, false, 0L, "");
+        }
+        long remaining = Duration.between(Instant.now(), value.expiresAt()).toSeconds();
+        if (remaining <= 0) {
+            antiPatternGateOverrides.remove(key, value);
+            return new AntiPatternGateOverrideStatus(sessionId, toolName, false, 0L, "");
+        }
+        return new AntiPatternGateOverrideStatus(sessionId, toolName, true, remaining, value.reason());
+    }
+
+    public boolean clearAntiPatternGateOverride(String sessionId, String toolName) {
+        java.util.Objects.requireNonNull(sessionId, "sessionId");
+        java.util.Objects.requireNonNull(toolName, "toolName");
+        return antiPatternGateOverrides.remove(antiPatternOverrideKey(sessionId, toolName)) != null;
+    }
+
+    private void clearAllAntiPatternGateOverrides(String sessionId) {
+        String prefix = sessionId + '\u0000';
+        antiPatternGateOverrides.keySet().removeIf(key -> key.startsWith(prefix));
+    }
+
+    private static String antiPatternOverrideKey(String sessionId, String toolName) {
+        return sessionId + '\u0000' + toolName;
     }
 
     /**
@@ -1368,10 +1439,18 @@ public final class StreamingAgentHandler {
         private final HookExecutor hookExecutor;
         private final String sessionId;
         private final String cwd;
+        private final AntiPatternPreExecutionGate antiPatternGate;
+        private final java.util.function.Supplier<AntiPatternGateOverrideStatus> antiPatternOverrideSupplier;
+        private final AntiPatternGateFeedbackStore antiPatternGateFeedbackStore;
+        private final CandidateStore candidateStore;
 
         PermissionAwareTool(Tool delegate, PermissionManager permissionManager,
                             StreamContext context, ObjectMapper objectMapper,
-                            HookExecutor hookExecutor, String sessionId, String cwd) {
+                            HookExecutor hookExecutor, String sessionId, String cwd,
+                            AntiPatternPreExecutionGate antiPatternGate,
+                            java.util.function.Supplier<AntiPatternGateOverrideStatus> antiPatternOverrideSupplier,
+                            AntiPatternGateFeedbackStore antiPatternGateFeedbackStore,
+                            CandidateStore candidateStore) {
             this.delegate = delegate;
             this.permissionManager = permissionManager;
             this.context = context;
@@ -1379,6 +1458,10 @@ public final class StreamingAgentHandler {
             this.hookExecutor = hookExecutor;
             this.sessionId = sessionId;
             this.cwd = cwd;
+            this.antiPatternGate = antiPatternGate;
+            this.antiPatternOverrideSupplier = antiPatternOverrideSupplier;
+            this.antiPatternGateFeedbackStore = antiPatternGateFeedbackStore;
+            this.candidateStore = candidateStore;
         }
 
         @Override
@@ -1444,15 +1527,48 @@ public final class StreamingAgentHandler {
 
             // Build a human-readable description of what the tool will do
             var toolDescription = buildToolDescription(delegate.name(), effectiveInputJson);
+            final String finalInputJson = effectiveInputJson;
 
             var permRequest = new PermissionRequest(delegate.name(), toolDescription, level);
             var decision = permissionManager.check(permRequest);
+            var overrideStatus = antiPatternOverrideSupplier != null
+                    ? antiPatternOverrideSupplier.get()
+                    : new AntiPatternGateOverrideStatus(sessionId, delegate.name(), false, 0L, "");
+            var evaluatedGateDecision = antiPatternGate != null
+                    ? antiPatternGate.evaluate(delegate.name(), finalInputJson, toolDescription)
+                    : AntiPatternPreExecutionGate.Decision.allow();
+            var antiPatternDecision = !overrideStatus.active()
+                    ? evaluatedGateDecision
+                    : AntiPatternPreExecutionGate.Decision.allow();
 
-            final String finalInputJson = effectiveInputJson;
+            if (overrideStatus.active()) {
+                emitGateNotification("OVERRIDE", overrideStatus, evaluatedGateDecision);
+            }
+
+            if (antiPatternDecision.action() == AntiPatternPreExecutionGate.Action.BLOCK) {
+                emitGateNotification("BLOCK", overrideStatus, antiPatternDecision);
+                recordBlockedRule(antiPatternDecision.ruleId());
+                log.info("Anti-pattern gate blocked tool {} (ruleId={})",
+                        delegate.name(), antiPatternDecision.ruleId());
+                return new ToolResult(
+                        "Anti-pattern gate blocked execution: "
+                                + "{gate=anti_pattern_preexec, action=BLOCK, ruleId="
+                                + antiPatternDecision.ruleId()
+                                + ", reason=\"" + antiPatternDecision.reason() + "\""
+                                + ", fallback=\"" + antiPatternDecision.fallback() + "\"}",
+                        true);
+            }
+            if (antiPatternDecision.action() == AntiPatternPreExecutionGate.Action.PENALIZE) {
+                emitGateNotification("PENALIZE", overrideStatus, antiPatternDecision);
+                log.info("Anti-pattern gate penalized tool {} (ruleId={})",
+                        delegate.name(), antiPatternDecision.ruleId());
+            }
 
             switch (decision) {
                 case PermissionDecision.Approved ignored -> {
-                    return executeWithPostHooks(finalInputJson);
+                    var result = executeWithPostHooks(finalInputJson);
+                    maybeRecordFalsePositiveAndRollback(overrideStatus, evaluatedGateDecision, result);
+                    return result;
                 }
 
                 case PermissionDecision.Denied denied -> {
@@ -1516,7 +1632,9 @@ public final class StreamingAgentHandler {
 
                             log.info("Tool {} approved by user (requestId={}, remember={})",
                                     delegate.name(), responseRequestId, remember);
-                            return executeWithPostHooks(finalInputJson);
+                            var result = executeWithPostHooks(finalInputJson);
+                            maybeRecordFalsePositiveAndRollback(overrideStatus, evaluatedGateDecision, result);
+                            return result;
                         }
 
                     } catch (SocketTimeoutException e) {
@@ -1636,5 +1754,86 @@ public final class StreamingAgentHandler {
                 return "Execute tool: " + toolName;
             }
         }
+
+        private void emitGateNotification(String action,
+                                          AntiPatternGateOverrideStatus overrideStatus,
+                                          AntiPatternPreExecutionGate.Decision gateDecision) {
+            try {
+                var params = objectMapper.createObjectNode();
+                params.put("sessionId", sessionId);
+                params.put("tool", delegate.name());
+                params.put("gate", "anti_pattern_preexec");
+                params.put("action", action);
+                if (gateDecision != null) {
+                    if (!gateDecision.ruleId().isBlank()) params.put("ruleId", gateDecision.ruleId());
+                    if (!gateDecision.reason().isBlank()) params.put("reason", gateDecision.reason());
+                    if (!gateDecision.fallback().isBlank()) params.put("fallback", gateDecision.fallback());
+                }
+                if (overrideStatus != null && overrideStatus.active()) {
+                    params.put("override", true);
+                    params.put("overrideTtlSeconds", overrideStatus.ttlSecondsRemaining());
+                    if (!overrideStatus.reason().isBlank()) {
+                        params.put("overrideReason", overrideStatus.reason());
+                    }
+                } else {
+                    params.put("override", false);
+                }
+                context.sendNotification("stream.gate", params);
+            } catch (Exception e) {
+                log.debug("Failed to emit stream.gate notification: {}", e.getMessage());
+            }
+        }
+
+        private void recordBlockedRule(String ruleId) {
+            if (antiPatternGateFeedbackStore == null || ruleId == null || ruleId.isBlank()) {
+                return;
+            }
+            antiPatternGateFeedbackStore.recordBlocked(ruleId);
+        }
+
+        private void maybeRecordFalsePositiveAndRollback(
+                AntiPatternGateOverrideStatus overrideStatus,
+                AntiPatternPreExecutionGate.Decision evaluatedGateDecision,
+                ToolResult toolResult) {
+            if (antiPatternGateFeedbackStore == null || toolResult == null || toolResult.isError()) {
+                return;
+            }
+            if (overrideStatus == null || !overrideStatus.active()) {
+                return;
+            }
+            if (evaluatedGateDecision == null || evaluatedGateDecision.action() != AntiPatternPreExecutionGate.Action.BLOCK) {
+                return;
+            }
+            String ruleId = evaluatedGateDecision.ruleId();
+            if (ruleId == null || ruleId.isBlank()) {
+                return;
+            }
+            boolean shouldRollback = antiPatternGateFeedbackStore.recordFalsePositive(ruleId);
+            if (shouldRollback) {
+                autoRollbackCandidateRule(ruleId);
+            }
+        }
+
+        private void autoRollbackCandidateRule(String ruleId) {
+            if (candidateStore == null || !ruleId.startsWith("candidate:")) {
+                return;
+            }
+            String candidateId = ruleId.substring("candidate:".length());
+            if (candidateId.isBlank()) {
+                return;
+            }
+            try {
+                var rollback = candidateStore.rollbackPromoted(
+                        candidateId, "AUTO_ROLLBACK_FALSE_POSITIVE_RATE");
+                if (rollback.isPresent()) {
+                    log.info("Auto-rolled back anti-pattern candidate due to false-positive gate rate: {}",
+                            candidateId);
+                }
+            } catch (Exception e) {
+                log.warn("Failed auto rollback for candidate {}: {}", candidateId, e.getMessage());
+            }
+        }
     }
+
+    private record AntiPatternGateOverride(Instant expiresAt, String reason) {}
 }

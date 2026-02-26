@@ -1,0 +1,127 @@
+# Anti-Pattern Pre-Execution Gate
+
+## Goal
+Convert learned anti-patterns from passive prompt hints into enforced runtime behavior so the agent automatically avoids repeating known bad paths.
+
+## Scope
+- In scope:
+  - Pre-execution gate before each tool invocation.
+  - Rule model for anti-pattern match and actions.
+  - Deterministic override and cooldown behavior.
+  - Observability and replay validation.
+- Out of scope:
+  - Cross-machine synchronization of gate state.
+  - Restoring opaque external process handles.
+
+## Why
+Current learning artifacts are mostly advisory. The model can still retry known failing paths.
+This gate adds execution constraints so repeated non-progressing failures are blocked or penalized before tool execution.
+
+## Architecture
+1. Rule Store
+- Input: promoted candidates + anti-pattern signals.
+- Output: normalized gate rules.
+- Storage: JSONL with atomic rewrite.
+
+2. Rule Schema
+- `rule_id`
+- `scope` (tool/category/tags)
+- `match`:
+  - `tool_name`
+  - `failure_class` (dependency_missing, capability_mismatch, path, etc.)
+  - `context_tags` (optional)
+  - `min_repeat`
+- `action`:
+  - `BLOCK`
+  - `PENALIZE`
+- `fallback`:
+  - required next strategy/tool preference guidance
+- `failure_types`:
+  - structured taxonomy (`dependency_missing`, `capability_mismatch`, etc.)
+  - used for robust matching in addition to keyword overlap
+- `cooldown_until`
+- `created_at`, `updated_at`
+
+3. Runtime Gate Hook
+- Hook point: immediately before `tool.execute(...)`.
+- Flow:
+  - gather call context
+  - evaluate matching rules
+  - if `BLOCK`: skip execution and return structured gate result
+  - if `PENALIZE`: allow execution with explicit warning and fallback hint attached
+  - emit `stream.gate` notification (`BLOCK`/`PENALIZE`/`OVERRIDE`)
+
+4. Override Policy
+- Explicit runtime override RPC:
+  - `antiPatternGate.override.set`
+  - `antiPatternGate.override.get`
+  - `antiPatternGate.override.clear`
+- Override is session+tool scoped with TTL and reason.
+
+5. Lifecycle
+- Rule promotion: candidate pipeline -> promoted anti-pattern -> active gate rule.
+- Rule decay: cooldown and optional expiration after long healthy windows.
+- Rule rollback: automatic on high false-positive rate.
+  - false-positive signal source: override-active + successful execution on would-be BLOCK path
+
+## Observability
+Emit machine-readable event:
+- `stream.gate` with action `BLOCK` / `PENALIZE` / `OVERRIDE`
+- Feedback persistence:
+  - `.aceclaw/metrics/continuous-learning/anti-pattern-gate-feedback.json`
+  - tracks blocked count + false-positive count per rule
+  - replay report now carries:
+    - `anti_pattern_gate_false_positive_rate_weighted`
+    - `anti_pattern_gate_false_positive_rate_max`
+
+Expose in CLI status:
+- active gate count
+- latest blocked rule id (short)
+
+## Hard Acceptance Criteria
+1. Repeated known bad path is blocked before execution in >=95% replay cases.
+2. First blocked response includes:
+- reason class
+- matched rule id
+- fallback next action
+3. False-positive block rate remains under agreed threshold in replay.
+4. Atomic persistence validated under interruption.
+5. Override flow is deterministic and auditable.
+6. BLOCK rules auto-downgrade to PENALIZE when false-positive rate breaches threshold.
+7. Candidate-backed BLOCK rules auto-rollback when false-positive threshold is sustained.
+
+## Test Plan
+- Unit
+  - matcher correctness
+  - action selection (`BLOCK`/`PENALIZE`)
+  - cooldown/expiry
+  - override scoping
+- Integration
+  - repeated failure -> block on next attempt
+  - penalty path adds warning but executes
+  - user override unblocks only for current task
+  - daemon restart preserves gate rules
+- Replay
+  - track hit rate, prevented-retry rate, false-positive rate
+
+## Rollout
+1. Phase 1: `PENALIZE` default, metrics-only for block candidates.
+2. Phase 2: enable `BLOCK` for high-confidence classes (`dependency_missing`, `capability_mismatch`, `path`) with kill-switch.
+3. Phase 3: full policy with CI replay threshold gate.
+
+## Config
+- `antiPatternGateMinBlockedBeforeRollback` (default `3`)
+- `antiPatternGateMaxFalsePositiveRate` (default `0.50`)
+- env overrides:
+  - `ACECLAW_ANTI_PATTERN_GATE_MIN_BLOCKED_BEFORE_ROLLBACK`
+  - `ACECLAW_ANTI_PATTERN_GATE_MAX_FALSE_POSITIVE_RATE`
+
+## Implementation Checklist
+- [x] Add anti-pattern rule model and persistence.
+- [x] Add pre-execution gate evaluator in agent loop.
+- [x] Add structured blocked response payload.
+- [x] Add override command (session+tool TTL via RPC).
+- [x] Add observability event (`stream.gate`).
+- [x] Add unit tests for gate + override lifecycle.
+- [x] Add persisted false-positive feedback for gate policy adaptation.
+- [x] Add automatic BLOCK->PENALIZE downgrade and candidate auto-rollback trigger.
