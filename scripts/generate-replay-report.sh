@@ -5,10 +5,11 @@ INPUT=""
 OUTPUT=""
 MANIFEST=""
 ANTI_PATTERN_FEEDBACK=""
+CANDIDATE_TRANSITIONS=""
 
 usage() {
   cat <<USAGE
-Usage: ./scripts/generate-replay-report.sh --input <cases.json> [--output <report.json>] [--manifest <manifest.json>] [--anti-pattern-feedback <feedback.json>]
+Usage: ./scripts/generate-replay-report.sh --input <cases.json> [--output <report.json>] [--manifest <manifest.json>] [--anti-pattern-feedback <feedback.json>] [--candidate-transitions <transitions.jsonl>]
 
 Input schema:
 {
@@ -50,6 +51,8 @@ Options:
   --manifest <path> Replay cases manifest JSON with cases_sha256.
   --anti-pattern-feedback <path> Anti-pattern gate feedback JSON
                    (default: .aceclaw/metrics/continuous-learning/anti-pattern-gate-feedback.json)
+  --candidate-transitions <path> Candidate transitions JSONL
+                   (default: .aceclaw/memory/candidate-transitions.jsonl)
   --help           Show this help.
 USAGE
 }
@@ -70,6 +73,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --anti-pattern-feedback)
       ANTI_PATTERN_FEEDBACK="$2"
+      shift 2
+      ;;
+    --candidate-transitions)
+      CANDIDATE_TRANSITIONS="$2"
       shift 2
       ;;
     --help)
@@ -99,6 +106,9 @@ if [[ -z "$MANIFEST" ]]; then
 fi
 if [[ -z "$ANTI_PATTERN_FEEDBACK" ]]; then
   ANTI_PATTERN_FEEDBACK=".aceclaw/metrics/continuous-learning/anti-pattern-gate-feedback.json"
+fi
+if [[ -z "$CANDIDATE_TRANSITIONS" ]]; then
+  CANDIDATE_TRANSITIONS=".aceclaw/memory/candidate-transitions.jsonl"
 fi
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -387,5 +397,73 @@ if [[ -f "$ANTI_PATTERN_FEEDBACK" ]]; then
     ' "$OUTPUT" > "$tmp_report"
   mv "$tmp_report" "$OUTPUT"
 fi
+
+ap_rate_weighted_metric="0.0"
+ap_metric_status="measured"
+if [[ -f "$ANTI_PATTERN_FEEDBACK" ]]; then
+  ap_rate_weighted_metric="$(jq -er '.metrics.anti_pattern_gate_false_positive_rate_weighted.value // 0.0' "$OUTPUT" 2>/dev/null || echo "0.0")"
+  ap_metric_status="$(jq -er '.metrics.anti_pattern_gate_false_positive_rate_weighted.status // "measured"' "$OUTPUT" 2>/dev/null || echo "measured")"
+fi
+
+transition_source="missing"
+promotion_count=0
+demotion_count=0
+rollback_count=0
+transition_total=0
+promotion_rate=0.0
+demotion_rate=0.0
+rollback_rate=0.0
+
+if [[ -f "$CANDIDATE_TRANSITIONS" ]]; then
+  transition_source="candidate-transitions"
+  transition_total="$(jq -s 'length' "$CANDIDATE_TRANSITIONS" 2>/dev/null || echo 0)"
+  promotion_count="$(jq -s '[.[] | select((.toState // "") == "PROMOTED")] | length' "$CANDIDATE_TRANSITIONS" 2>/dev/null || echo 0)"
+  demotion_count="$(jq -s '[.[] | select((.toState // "") == "DEMOTED")] | length' "$CANDIDATE_TRANSITIONS" 2>/dev/null || echo 0)"
+  rollback_count="$(jq -s '[.[] | select(((.reasonCode // "") == "MANUAL_ROLLBACK") or ((.reasonCode // "") == "ANTI_PATTERN_FALSE_POSITIVE_ROLLBACK"))] | length' "$CANDIDATE_TRANSITIONS" 2>/dev/null || echo 0)"
+  promotion_rate="$(jq -ner --argjson p "$promotion_count" --argjson t "$transition_total" 'if $t > 0 then ($p / $t) else 0.0 end')"
+  demotion_rate="$(jq -ner --argjson d "$demotion_count" --argjson t "$transition_total" 'if $t > 0 then ($d / $t) else 0.0 end')"
+  rollback_rate="$(jq -ner --argjson r "$rollback_count" --argjson p "$promotion_count" 'if $p > 0 then ($r / $p) else 0.0 end')"
+fi
+
+tmp_report="${OUTPUT}.tmp-lifecycle"
+jq \
+  --argjson promotion_rate "$promotion_rate" \
+  --argjson demotion_rate "$demotion_rate" \
+  --argjson rollback_rate "$rollback_rate" \
+  --argjson ap_rate "$ap_rate_weighted_metric" \
+  --arg ap_status "$ap_metric_status" \
+  --arg transition_source "$transition_source" \
+  --argjson promotion_count "$promotion_count" \
+  --argjson demotion_count "$demotion_count" \
+  --argjson rollback_count "$rollback_count" \
+  --argjson transition_total "$transition_total" \
+  '
+  .metrics.promotion_rate = {
+    value: $promotion_rate,
+    target: 0.00,
+    status: "measured"
+  }
+  | .metrics.demotion_rate = {
+    value: $demotion_rate,
+    target: 0.35,
+    status: "measured"
+  }
+  | .metrics.rollback_rate = {
+    value: $rollback_rate,
+    target: 0.20,
+    status: "measured"
+  }
+  | .metrics.anti_pattern_false_positive_rate = {
+    value: (if ($ap_rate == null) then 0.0 else $ap_rate end),
+    target: 0.50,
+    status: "measured"
+  }
+  | .diagnostics.learning_lifecycle_source = $transition_source
+  | .diagnostics.learning_lifecycle_transition_total = $transition_total
+  | .diagnostics.learning_lifecycle_promotions = $promotion_count
+  | .diagnostics.learning_lifecycle_demotions = $demotion_count
+  | .diagnostics.learning_lifecycle_rollbacks = $rollback_count
+  ' "$OUTPUT" > "$tmp_report"
+mv "$tmp_report" "$OUTPUT"
 
 echo "Replay report written to: $OUTPUT"
