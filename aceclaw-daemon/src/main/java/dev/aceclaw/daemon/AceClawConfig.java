@@ -527,7 +527,7 @@ public final class AceClawConfig {
                 config.adaptiveContinuationEnabled, config.adaptiveContinuationMaxSegments,
                 config.contextWindowTokens, config.logLevel,
                 config.baseUrl != null ? config.baseUrl : "(default)",
-                config.apiKey != null ? config.apiKey.substring(0, Math.min(15, config.apiKey.length())) + "***" : "(not set)",
+                config.apiKey != null ? "(set)" : "(not set)",
                 config.refreshToken != null ? "***" : "(not set)");
 
         return config;

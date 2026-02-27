@@ -471,7 +471,7 @@ public final class StreamingAgentHandler {
             result.put("compacted", true);
             result.put("compactionPhase", turn.compactionResult().phaseReached().name());
         }
-        if (adaptive != null && adaptive.continuationCount() > 0) {
+        if (adaptive != null) {
             var continuationNode = objectMapper.createObjectNode();
             continuationNode.put("enabled", true);
             continuationNode.put("segment_index", adaptive.segmentIndex());
@@ -523,6 +523,10 @@ public final class StreamingAgentHandler {
             continuationCount = Math.max(0, segment - 1);
             lastStopReason = turn.finalStopReason();
             maxIterationsReached = turn.maxIterationsReached();
+            if (cancellationToken != null && cancellationToken.isCancelled()) {
+                reason = "cancelled";
+                break;
+            }
             if (turn.wasCompacted()) {
                 lastCompaction = turn.compactionResult();
             }
