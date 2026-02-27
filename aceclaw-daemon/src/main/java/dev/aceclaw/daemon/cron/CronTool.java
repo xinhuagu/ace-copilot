@@ -160,7 +160,8 @@ public final class CronTool implements Tool {
         if (input.has("id") && !input.get("id").asText().isBlank()) {
             return statusOne(input.get("id").asText().trim());
         }
-        var jobs = jobStore.all();
+        var allJobs = jobStore.all();
+        var jobs = allJobs != null ? allJobs : List.<CronJob>of();
         long enabled = jobs.stream().filter(CronJob::enabled).count();
         long heartbeat = jobs.stream()
                 .filter(j -> j.id().startsWith(HeartbeatRunner.JOB_ID_PREFIX))
