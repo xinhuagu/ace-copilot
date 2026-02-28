@@ -11,6 +11,7 @@ import dev.aceclaw.daemon.cron.JobStore;
 import dev.aceclaw.daemon.cron.CronTool;
 import dev.aceclaw.daemon.heartbeat.HeartbeatRunner;
 import dev.aceclaw.infra.event.EventBus;
+import dev.aceclaw.infra.event.SchedulerEvent;
 import dev.aceclaw.infra.health.*;
 import dev.aceclaw.llm.LlmClientFactory;
 import dev.aceclaw.memory.AutoMemoryStore;
@@ -63,6 +64,7 @@ public final class AceClawDaemon {
     private final MarkdownMemoryStore markdownStore;
     private final JobStore cronJobStore;
     private final EventBus eventBus;
+    private final SchedulerEventFeed schedulerEventFeed;
     private final HealthMonitor healthMonitor;
     private final RequestRouter router;
     private final ConnectionBridge connectionBridge;
@@ -93,6 +95,8 @@ public final class AceClawDaemon {
         // Event bus (async pub/sub for health events, agent events, etc.)
         this.eventBus = new EventBus();
         eventBus.start();
+        this.schedulerEventFeed = new SchedulerEventFeed();
+        eventBus.subscribe(SchedulerEvent.class, schedulerEventFeed::append);
 
         // Health monitor (aggregates per-component health checks)
         this.healthMonitor = new HealthMonitor(eventBus);
@@ -721,6 +725,59 @@ public final class AceClawDaemon {
             String reason = params.has("reason") ? params.get("reason").asText() : "manual force promote";
             String trigger = params.has("trigger") ? params.get("trigger").asText() : "manual";
             return toReleaseJson(autoReleaseForRpc.forcePromote(workingDir, skillName, stage, reason, trigger));
+        });
+
+        // Scheduler feed polling for foreground CLI notifications.
+        router.register("scheduler.events.poll", params -> {
+            long afterSeq = 0L;
+            int limit = 20;
+            if (params != null) {
+                if (params.has("afterSeq")) {
+                    afterSeq = Math.max(0L, params.get("afterSeq").asLong());
+                }
+                if (params.has("limit")) {
+                    limit = params.get("limit").asInt(20);
+                }
+            }
+
+            var polled = schedulerEventFeed.poll(afterSeq, limit);
+            var result = objectMapper.createObjectNode();
+            result.put("nextSeq", polled.nextSequence());
+            var events = objectMapper.createArrayNode();
+            for (var entry : polled.entries()) {
+                var node = objectMapper.createObjectNode();
+                node.put("seq", entry.sequence());
+                var event = entry.event();
+                node.put("jobId", event.jobId());
+                switch (event) {
+                    case SchedulerEvent.JobTriggered e -> {
+                        node.put("type", "triggered");
+                        node.put("cronExpression", e.cronExpression());
+                        node.put("timestamp", e.timestamp().toString());
+                    }
+                    case SchedulerEvent.JobCompleted e -> {
+                        node.put("type", "completed");
+                        node.put("durationMs", e.durationMs());
+                        node.put("summary", e.summary());
+                        node.put("timestamp", e.timestamp().toString());
+                    }
+                    case SchedulerEvent.JobFailed e -> {
+                        node.put("type", "failed");
+                        node.put("error", e.error());
+                        node.put("attempt", e.attempt());
+                        node.put("maxAttempts", e.maxAttempts());
+                        node.put("timestamp", e.timestamp().toString());
+                    }
+                    case SchedulerEvent.JobSkipped e -> {
+                        node.put("type", "skipped");
+                        node.put("reason", e.reason());
+                        node.put("timestamp", e.timestamp().toString());
+                    }
+                }
+                events.add(node);
+            }
+            result.set("events", events);
+            return result;
         });
 
         // Store references for boot execution

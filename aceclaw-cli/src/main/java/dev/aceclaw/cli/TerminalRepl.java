@@ -116,6 +116,8 @@ public final class TerminalRepl {
 
     /** Current foreground output sink (for Ctrl+C spinner cleanup). */
     private volatile ForegroundOutputSink activeForegroundSink;
+    /** Last consumed scheduler event sequence from daemon. */
+    private volatile long schedulerEventSeq;
 
     /**
      * Session metadata displayed in the startup banner and status line.
@@ -170,6 +172,7 @@ public final class TerminalRepl {
     public void run() {
         var stopStatusTicker = new AtomicBoolean(false);
         Thread statusTicker = null;
+        DaemonConnection schedulerEventConnection = null;
         try (Terminal terminal = TerminalBuilder.builder()
                 .name("aceclaw")
                 .system(true)
@@ -190,7 +193,14 @@ public final class TerminalRepl {
 
             PrintWriter out = terminal.writer();
 
-            statusTicker = startStatusTicker(stopStatusTicker, reader);
+            try {
+                schedulerEventConnection = client.openTaskConnection();
+                schedulerEventSeq = bootstrapSchedulerEventSeq(schedulerEventConnection);
+            } catch (Exception e) {
+                schedulerEventConnection = null;
+                log.debug("Failed to initialize scheduler event polling: {}", e.getMessage());
+            }
+            statusTicker = startStatusTicker(stopStatusTicker, reader, schedulerEventConnection);
 
             // Register callback to auto-push background task output above prompt
             taskManager.setOnTaskComplete(handle -> {
@@ -300,10 +310,13 @@ public final class TerminalRepl {
             if (statusTicker != null) {
                 statusTicker.interrupt();
             }
+            if (schedulerEventConnection != null) {
+                schedulerEventConnection.close();
+            }
         }
     }
 
-    private Thread startStatusTicker(AtomicBoolean stopFlag, LineReader reader) {
+    private Thread startStatusTicker(AtomicBoolean stopFlag, LineReader reader, DaemonConnection schedulerEventConn) {
         return Thread.ofVirtual()
                 .name("aceclaw-status-ticker")
                 .start(() -> {
@@ -315,11 +328,58 @@ public final class TerminalRepl {
                             return;
                         }
 
+                        pollAndRenderSchedulerEvents(schedulerEventConn, reader);
                         if (!readingPrompt) continue;
                         if (taskManager.runningCount() <= 0 && permissionBridge.pendingCount() <= 0) continue;
                         redrawStatusPanelBelowPrompt(reader);
                     }
                 });
+    }
+
+    private long bootstrapSchedulerEventSeq(DaemonConnection conn)
+            throws IOException, DaemonClient.DaemonClientException {
+        var params = client.objectMapper().createObjectNode();
+        params.put("afterSeq", Long.MAX_VALUE);
+        params.put("limit", 1);
+        JsonNode result = conn.sendRequest("scheduler.events.poll", params);
+        return Math.max(0L, result.path("nextSeq").asLong(0L));
+    }
+
+    private void pollAndRenderSchedulerEvents(DaemonConnection conn, LineReader reader) {
+        if (conn == null) return;
+        if (!readingPrompt) return;
+        if (taskManager.hasForegroundTask()) return;
+        try {
+            var params = client.objectMapper().createObjectNode();
+            params.put("afterSeq", schedulerEventSeq);
+            params.put("limit", 20);
+            JsonNode result = conn.sendRequest("scheduler.events.poll", params);
+            schedulerEventSeq = Math.max(schedulerEventSeq, result.path("nextSeq").asLong(schedulerEventSeq));
+            JsonNode events = result.path("events");
+            if (!events.isArray() || events.isEmpty()) {
+                return;
+            }
+
+            for (JsonNode event : events) {
+                String type = event.path("type").asText("");
+                String jobId = event.path("jobId").asText("unknown");
+                String note = switch (type) {
+                    case "completed" -> SUCCESS + "[cron completed] " + RESET + jobId + " - "
+                            + fitWidth(event.path("summary").asText(""), 100);
+                    case "failed" -> ERROR + "[cron failed] " + RESET + jobId + " - "
+                            + fitWidth(event.path("error").asText("unknown error"), 100);
+                    case "skipped" -> WARNING + "[cron skipped] " + RESET + jobId + " - "
+                            + fitWidth(event.path("reason").asText(""), 100);
+                    default -> null; // suppress noisy triggered events
+                };
+                if (note != null) {
+                    reader.printAbove(AttributedString.fromAnsi(note));
+                }
+            }
+            redrawStatusPanelBelowPrompt(reader);
+        } catch (Exception e) {
+            log.debug("Failed to poll scheduler events: {}", e.getMessage());
+        }
     }
 
     // -- Task submission and foreground wait ---------------------------------
