@@ -1,5 +1,7 @@
 package dev.aceclaw.core.llm;
 
+import java.util.Objects;
+
 /**
  * Events emitted during a streaming LLM response.
  *
@@ -55,4 +57,16 @@ public sealed interface StreamEvent {
      * The stream encountered an error.
      */
     record StreamError(LlmException error) implements StreamEvent {}
+
+    /**
+     * A heartbeat signal indicating the agent is still active (e.g. during
+     * long-running tool execution or LLM calls).
+     *
+     * @param phase describes what the agent is doing (e.g. "tool_execution")
+     */
+    record Heartbeat(String phase) implements StreamEvent {
+        public Heartbeat {
+            phase = Objects.requireNonNull(phase, "phase");
+        }
+    }
 }
