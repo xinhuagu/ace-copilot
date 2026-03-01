@@ -17,16 +17,21 @@ public record CompletedStepSummary(
         String outputSummary
 ) {
 
+    private static final int MAX_OUTPUT_SUMMARY_CHARS = 200;
+
     public CompletedStepSummary {
         Objects.requireNonNull(stepName, "stepName");
-        outputSummary = outputSummary != null && outputSummary.length() > 200
-                ? outputSummary.substring(0, 200) + "..." : outputSummary;
+        if (outputSummary != null && outputSummary.length() > MAX_OUTPUT_SUMMARY_CHARS) {
+            outputSummary = outputSummary.substring(0, MAX_OUTPUT_SUMMARY_CHARS - 3) + "...";
+        }
     }
 
     /**
      * Creates a summary from a planned step and its execution result.
      */
     static CompletedStepSummary from(PlannedStep step, StepResult result) {
+        Objects.requireNonNull(step, "step");
+        Objects.requireNonNull(result, "result");
         return new CompletedStepSummary(
                 step.name(),
                 step.description(),

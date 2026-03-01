@@ -1,6 +1,7 @@
 package dev.aceclaw.infra.event;
 
 import java.time.Instant;
+import java.util.Objects;
 
 /**
  * Events emitted during task plan lifecycle.
@@ -32,7 +33,19 @@ public sealed interface PlanEvent extends AceClawEvent {
             implements PlanEvent {}
 
     record PlanReplanned(String planId, int replanAttempt, int newStepCount,
-                         String rationale, Instant timestamp) implements PlanEvent {}
+                         String rationale, Instant timestamp) implements PlanEvent {
+        public PlanReplanned {
+            Objects.requireNonNull(planId, "planId");
+            Objects.requireNonNull(rationale, "rationale");
+            Objects.requireNonNull(timestamp, "timestamp");
+        }
+    }
 
-    record PlanEscalated(String planId, String reason, Instant timestamp) implements PlanEvent {}
+    record PlanEscalated(String planId, String reason, Instant timestamp) implements PlanEvent {
+        public PlanEscalated {
+            Objects.requireNonNull(planId, "planId");
+            Objects.requireNonNull(reason, "reason");
+            Objects.requireNonNull(timestamp, "timestamp");
+        }
+    }
 }

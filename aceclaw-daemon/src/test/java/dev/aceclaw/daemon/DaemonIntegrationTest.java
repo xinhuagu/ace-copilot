@@ -1257,6 +1257,7 @@ class DaemonIntegrationTest {
     @Test
     @Order(24)
     void testAdaptiveReplan_revisesAndCompletes() throws Exception {
+        agentHandlerRef.setAdaptiveReplanEnabled(true);
         // Complex prompt that triggers planning (score >= 5):
         // "multiple_actions" (+3) + "testing" (+2) = 5
         String complexPrompt = "First analyze the config, and then write tests for it";
@@ -1330,6 +1331,7 @@ class DaemonIntegrationTest {
     @Test
     @Order(25)
     void testAdaptiveReplan_escalatesOnPersistentFailure() throws Exception {
+        agentHandlerRef.setAdaptiveReplanEnabled(true);
         // Complex prompt that triggers planning
         String complexPrompt = "First read the database schema, and then migrate the tables";
 

@@ -28,6 +28,12 @@ public record ReplanTrigger(
         Objects.requireNonNull(originalGoal, "originalGoal");
         Objects.requireNonNull(failedStep, "failedStep");
         Objects.requireNonNull(failureReason, "failureReason");
+        if (failedStepIndex < 0) {
+            throw new IllegalArgumentException("failedStepIndex must be >= 0");
+        }
+        if (replanAttempt < 1) {
+            throw new IllegalArgumentException("replanAttempt must be >= 1");
+        }
         completedSummaries = completedSummaries != null ? List.copyOf(completedSummaries) : List.of();
         remainingSteps = remainingSteps != null ? List.copyOf(remainingSteps) : List.of();
     }

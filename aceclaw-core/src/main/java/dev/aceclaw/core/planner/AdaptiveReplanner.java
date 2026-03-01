@@ -29,6 +29,9 @@ public final class AdaptiveReplanner {
     /** Maximum replan attempts per plan execution. */
     public static final int MAX_REPLAN_ATTEMPTS = 3;
 
+    /** Maximum number of revised steps the LLM can produce in a single replan. */
+    static final int MAX_REVISED_STEPS = 20;
+
     static final String REPLAN_SYSTEM_PROMPT = """
             You are an adaptive planning assistant. A multi-step task plan has encountered a failure.
             Your job is to analyze the failure, consider the completed work, and decide whether to:
@@ -199,6 +202,9 @@ public final class AdaptiveReplanner {
         var stepsNode = root.get("steps");
         if (stepsNode == null || !stepsNode.isArray() || stepsNode.isEmpty()) {
             throw new LlmException("Revised plan has no 'steps' array");
+        }
+        if (stepsNode.size() > MAX_REVISED_STEPS) {
+            throw new LlmException("Revised plan exceeds max step count (" + MAX_REVISED_STEPS + ")");
         }
 
         var steps = new ArrayList<PlannedStep>();
