@@ -616,6 +616,9 @@ public final class StreamingAgentHandler {
             if (turn.budgetExhausted()) {
                 budgetExhausted = true;
                 budgetExhaustionReason = turn.budgetExhaustionReason();
+                stoppedByBudget = true;
+                reason = "watchdog_" + turn.budgetExhaustionReason();
+                break;
             }
             if (cancellationToken != null && cancellationToken.isCancelled()) {
                 reason = "cancelled";

@@ -3,10 +3,11 @@ package dev.aceclaw.core.agent;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -22,19 +23,29 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class WatchdogTimer implements AutoCloseable {
 
-    /** Shared daemon-thread scheduler for wall-clock timers across all instances. */
-    private static final ScheduledExecutorService SCHEDULER =
-            Executors.newSingleThreadScheduledExecutor(r -> {
-                var t = new Thread(r, "watchdog-timer");
-                t.setDaemon(true);
-                return t;
-            });
+    /**
+     * Shared daemon-thread scheduler for wall-clock timers across all instances.
+     * Uses {@link ScheduledThreadPoolExecutor} with {@code removeOnCancelPolicy=true}
+     * so that cancelled timer tasks are immediately removed from the work queue
+     * instead of accumulating until their scheduled time.
+     */
+    private static final ScheduledExecutorService SCHEDULER;
+    static {
+        var pool = new ScheduledThreadPoolExecutor(1, r -> {
+            var t = new Thread(r, "watchdog-timer");
+            t.setDaemon(true);
+            return t;
+        });
+        pool.setRemoveOnCancelPolicy(true);
+        SCHEDULER = pool;
+    }
 
     private final int maxTurns;
     private final Duration maxWallTime;
     private final CancellationToken token;
     private final Instant startedAt;
     private final AtomicReference<String> exhaustionReason = new AtomicReference<>(null);
+    private final AtomicInteger cumulativeTurns = new AtomicInteger(0);
     private final ScheduledFuture<?> timerFuture;
 
     /**
@@ -64,18 +75,23 @@ public final class WatchdogTimer implements AutoCloseable {
     /**
      * Passive budget check. Call this before each LLM call in the agent loop.
      *
+     * <p>Tracks cumulative turns internally so that the turn budget is enforced
+     * globally across adaptive continuation segments, not per-segment.
+     *
      * <p>Checks both turn count and wall-clock time (belt-and-suspenders).
      * If either budget is exhausted, sets the exhaustion reason and cancels the token.
      *
-     * @param currentTurn the zero-based iteration index within the current turn
+     * @param currentTurn the zero-based iteration index (used as a hint; cumulative tracking is internal)
      */
     public void checkBudget(int currentTurn) {
         if (exhaustionReason.get() != null) {
             return; // already exhausted
         }
 
-        // Check turn budget
-        if (maxTurns > 0 && currentTurn >= maxTurns) {
+        int cumulative = cumulativeTurns.getAndIncrement();
+
+        // Check turn budget using cumulative count
+        if (maxTurns > 0 && cumulative >= maxTurns) {
             if (exhaustionReason.compareAndSet(null, "turn_budget")) {
                 token.cancel();
             }

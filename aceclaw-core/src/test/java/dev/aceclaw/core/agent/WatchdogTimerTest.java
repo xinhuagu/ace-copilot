@@ -105,9 +105,13 @@ class WatchdogTimerTest {
     void disabledTimeBudget_onlyTurnsApply() {
         var token = new CancellationToken();
         try (var watchdog = new WatchdogTimer(5, Duration.ZERO, token)) {
-            watchdog.checkBudget(4);
+            // 5 calls (cumulative 0-4, all < 5)
+            for (int i = 0; i < 5; i++) {
+                watchdog.checkBudget(i);
+            }
             assertFalse(watchdog.isExhausted());
 
+            // 6th call: cumulative=5 >= 5 -> trigger
             watchdog.checkBudget(5);
             assertTrue(watchdog.isExhausted());
             assertEquals("turn_budget", watchdog.exhaustionReason());
@@ -148,6 +152,9 @@ class WatchdogTimerTest {
     void exhaustionReason_staysOnceSet() {
         var token = new CancellationToken();
         try (var watchdog = new WatchdogTimer(2, Duration.ZERO, token)) {
+            // 3 calls: cumulative 0,1,2. Triggers on 3rd (cumulative=2 >= 2)
+            watchdog.checkBudget(0);
+            watchdog.checkBudget(1);
             watchdog.checkBudget(2);
             assertEquals("turn_budget", watchdog.exhaustionReason());
 
@@ -163,6 +170,30 @@ class WatchdogTimerTest {
         try (var watchdog = new WatchdogTimer(-5, Duration.ZERO, token)) {
             watchdog.checkBudget(1000);
             assertFalse(watchdog.isExhausted());
+        }
+    }
+
+    @Test
+    void cumulativeTurns_trackedAcrossSegments() {
+        var token = new CancellationToken();
+        try (var watchdog = new WatchdogTimer(5, Duration.ZERO, token)) {
+            // Simulate 2 segments where caller resets iteration to 0 each segment
+            // Segment 1: caller passes 0,1,2
+            watchdog.checkBudget(0);
+            watchdog.checkBudget(1);
+            watchdog.checkBudget(2);
+            assertFalse(watchdog.isExhausted());
+
+            // Segment 2: caller resets to 0, but cumulative counter continues (3,4)
+            watchdog.checkBudget(0);
+            watchdog.checkBudget(1);
+            assertFalse(watchdog.isExhausted());
+
+            // Cumulative=5 >= maxTurns=5 -> trigger
+            watchdog.checkBudget(2);
+            assertTrue(watchdog.isExhausted());
+            assertTrue(token.isCancelled());
+            assertEquals("turn_budget", watchdog.exhaustionReason());
         }
     }
 }
