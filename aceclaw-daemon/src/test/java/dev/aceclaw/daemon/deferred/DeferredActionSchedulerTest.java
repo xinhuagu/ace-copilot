@@ -1,6 +1,8 @@
 package dev.aceclaw.daemon.deferred;
 
+import dev.aceclaw.core.agent.ToolRegistry;
 import dev.aceclaw.daemon.AgentSession;
+import dev.aceclaw.daemon.MockLlmClient;
 import dev.aceclaw.daemon.SessionManager;
 import dev.aceclaw.infra.event.DeferEvent;
 import dev.aceclaw.infra.event.EventBus;
@@ -11,11 +13,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantLock;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -374,9 +373,6 @@ class DeferredActionSchedulerTest {
 
         var cancelled = new DeferEvent.ActionCancelled("a1", "s1", "user", Instant.now());
         assertEquals("user", cancelled.reason());
-
-        var queued = new DeferEvent.ActionQueued("a1", "s1", "busy", Instant.now());
-        assertEquals("busy", queued.reason());
     }
 
     // -- Crash recovery tests --
@@ -399,6 +395,68 @@ class DeferredActionSchedulerTest {
         assertEquals(a1.actionId(), store2.allPending().get(0).actionId());
     }
 
+    // -- Parallel execution tests --
+
+    @Test
+    void tickExecutesDueActionImmediately() {
+        var scheduler = createScheduler();
+        scheduler.start();
+
+        // Manually create a due action
+        var dueAction = new DeferredAction(
+                UUID.randomUUID().toString(), "sess-1",
+                "key:" + UUID.randomUUID(),
+                Instant.now().minusSeconds(120),
+                Instant.now().minusSeconds(10),
+                Instant.now().plusSeconds(3600),
+                "check something", 3, 0, DeferredActionState.PENDING, null, null);
+        store.put(dueAction);
+
+        // tick() marks action as RUNNING synchronously before spawning virtual thread
+        scheduler.tick();
+
+        // Action should already be RUNNING after tick() — no need to wait for worker
+        var updated = store.get(dueAction.actionId());
+        assertTrue(updated.isPresent());
+        assertNotEquals(DeferredActionState.PENDING, updated.get().state(),
+                "Due action should no longer be PENDING after tick");
+
+        scheduler.stop();
+    }
+
+    @Test
+    void deferredActionDoesNotModifySessionHistory() {
+        var sessionManager = new SessionManager();
+        var session = sessionManager.createSession(tempDir);
+        String sessionId = session.id();
+
+        // Add a message to session
+        session.addMessage(new AgentSession.ConversationMessage.User("hello"));
+        int messageCountBefore = session.messages().size();
+
+        var scheduler = createSchedulerWith(sessionManager);
+        scheduler.start();
+
+        // Create a due action for this session
+        var dueAction = new DeferredAction(
+                UUID.randomUUID().toString(), sessionId,
+                "key:" + UUID.randomUUID(),
+                Instant.now().minusSeconds(120),
+                Instant.now().minusSeconds(10),
+                Instant.now().plusSeconds(3600),
+                "check build", 3, 0, DeferredActionState.PENDING, null, null);
+        store.put(dueAction);
+
+        scheduler.tick();
+
+        // stop() joins active worker threads, so this is a deterministic sync point
+        scheduler.stop();
+
+        // Session history should NOT have been modified by the deferred action
+        assertEquals(messageCountBefore, session.messages().size(),
+                "Deferred action must not modify session conversation history");
+    }
+
     // -- Helpers --
 
     private DeferredAction createAction(String sessionId, String goal) {
@@ -419,13 +477,15 @@ class DeferredActionSchedulerTest {
         for (int i = 0; i < 20; i++) {
             sessionManager.createSession(tempDir);
         }
+        return createSchedulerWith(sessionManager);
+    }
 
+    private DeferredActionScheduler createSchedulerWith(SessionManager sessionManager) {
         return new DeferredActionScheduler(
                 store, sessionManager,
-                null, null, // LLM client and tool registry not needed for scheduling tests
+                new MockLlmClient(), new ToolRegistry(),
                 "test-model", "test prompt",
                 4096, 0,
-                null, 5,
-                new ConcurrentHashMap<>());
+                null, 5);
     }
 }

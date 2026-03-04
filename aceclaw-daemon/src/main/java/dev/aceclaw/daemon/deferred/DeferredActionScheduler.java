@@ -7,7 +7,6 @@ import dev.aceclaw.core.agent.ToolRegistry;
 import dev.aceclaw.core.agent.Turn;
 import dev.aceclaw.core.llm.ContentBlock;
 import dev.aceclaw.core.llm.LlmClient;
-import dev.aceclaw.core.llm.LlmException;
 import dev.aceclaw.core.llm.Message;
 import dev.aceclaw.core.llm.StreamEventHandler;
 import dev.aceclaw.daemon.AgentSession;
@@ -27,22 +26,19 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
-import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Background scheduler that checks for due deferred actions and executes them.
  *
  * <p>Runs on a single scheduled thread that ticks every N seconds (default 5),
- * checking which actions are due. When a session's turn lock is free, the action
- * is executed on a virtual thread. If busy, the action is queued and drained
- * when the session's turn completes.
+ * checking which actions are due. When an action is due, it executes immediately
+ * on an isolated virtual thread with a snapshot of the session's conversation
+ * history. This avoids contention with the session's main turn lock.
  *
  * <p>Limits:
  * <ul>
@@ -82,17 +78,6 @@ public final class DeferredActionScheduler {
     private final EventBus eventBus;
     private final int tickSeconds;
 
-    /** Per-session turn locks — shared with StreamingAgentHandler. */
-    private final ConcurrentHashMap<String, ReentrantLock> sessionTurnLocks;
-
-    /** Actions queued because session was busy during tick. */
-    private final ConcurrentHashMap<String, Queue<DeferredAction>> queuedActions =
-            new ConcurrentHashMap<>();
-
-    /** Dedup set for queued action IDs per session (prevents re-enqueueing on each tick). */
-    private final ConcurrentHashMap<String, java.util.Set<String>> queuedActionIds =
-            new ConcurrentHashMap<>();
-
     /** Active virtual worker threads for graceful shutdown coordination. */
     private final java.util.Set<Thread> activeWorkers =
             java.util.Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -110,19 +95,17 @@ public final class DeferredActionScheduler {
             int maxTokens,
             int thinkingBudget,
             EventBus eventBus,
-            int tickSeconds,
-            ConcurrentHashMap<String, ReentrantLock> sessionTurnLocks) {
+            int tickSeconds) {
         this.store = Objects.requireNonNull(store, "store");
         this.sessionManager = Objects.requireNonNull(sessionManager, "sessionManager");
-        this.llmClient = llmClient;
-        this.toolRegistry = toolRegistry;
-        this.model = model;
-        this.systemPrompt = systemPrompt;
+        this.llmClient = Objects.requireNonNull(llmClient, "llmClient");
+        this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
+        this.model = Objects.requireNonNull(model, "model");
+        this.systemPrompt = Objects.requireNonNull(systemPrompt, "systemPrompt");
         this.maxTokens = maxTokens;
         this.thinkingBudget = thinkingBudget;
         this.eventBus = eventBus;
         this.tickSeconds = tickSeconds > 0 ? tickSeconds : 5;
-        this.sessionTurnLocks = Objects.requireNonNull(sessionTurnLocks, "sessionTurnLocks");
     }
 
     /**
@@ -140,6 +123,10 @@ public final class DeferredActionScheduler {
         } catch (IOException e) {
             log.error("Failed to load deferred actions: {}", e.getMessage(), e);
         }
+
+        // Crash recovery: actions stuck in RUNNING from a previous crash are
+        // reset to PENDING so they get re-dispatched by the next tick
+        recoverStuckRunningActions();
 
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             var t = new Thread(r, "deferred-scheduler");
@@ -180,8 +167,6 @@ public final class DeferredActionScheduler {
             }
         }
         activeWorkers.clear();
-        queuedActions.clear();
-        queuedActionIds.clear();
         log.info("DeferredActionScheduler stopped");
     }
 
@@ -283,47 +268,6 @@ public final class DeferredActionScheduler {
     }
 
     /**
-     * Called by StreamingAgentHandler after each turn completes and the session
-     * turn lock is released. Drains any queued actions for the session.
-     */
-    public void notifyTurnComplete(String sessionId) {
-        var queue = queuedActions.get(sessionId);
-        if (queue == null || queue.isEmpty()) return;
-
-        // Drain queued actions onto virtual threads (each acquires the turn lock)
-        DeferredAction queued;
-        while ((queued = queue.poll()) != null) {
-            // Remove from dedup set
-            var ids = queuedActionIds.get(sessionId);
-            if (ids != null) {
-                ids.remove(queued.actionId());
-            }
-            // Re-check that the action is still pending (may have been cancelled)
-            var current = store.get(queued.actionId());
-            if (current.isPresent() && current.get().state() == DeferredActionState.PENDING) {
-                final var actionToRun = current.get();
-                var worker = Thread.ofVirtual()
-                        .name("deferred-drain-" + actionToRun.actionId())
-                        .start(() -> {
-                    var turnLock = sessionTurnLocks.computeIfAbsent(
-                            actionToRun.sessionId(), _ -> new ReentrantLock());
-                    turnLock.lock();
-                    try {
-                        executeAction(actionToRun);
-                    } finally {
-                        turnLock.unlock();
-                    }
-                });
-                activeWorkers.add(worker);
-            }
-        }
-
-        // Clean up empty entries to prevent memory leak
-        queuedActions.computeIfPresent(sessionId, (_, q) -> q.isEmpty() ? null : q);
-        queuedActionIds.computeIfPresent(sessionId, (_, s) -> s.isEmpty() ? null : s);
-    }
-
-    /**
      * Returns all pending actions (for status reporting).
      */
     public List<DeferredAction> pendingActions() {
@@ -340,7 +284,29 @@ public final class DeferredActionScheduler {
     // -- internal --------------------------------------------------------
 
     /**
+     * Crash recovery: resets any actions stuck in RUNNING state back to PENDING.
+     * Called once at startup after loading from disk. Actions in RUNNING state at
+     * startup indicate a previous crash during execution.
+     */
+    private void recoverStuckRunningActions() {
+        var stuck = store.all().stream()
+                .filter(a -> a.state() == DeferredActionState.RUNNING)
+                .toList();
+
+        if (stuck.isEmpty()) return;
+
+        for (var action : stuck) {
+            store.put(action.withState(DeferredActionState.PENDING));
+            log.warn("Crash recovery: reset deferred action '{}' from RUNNING to PENDING", action.actionId());
+        }
+        saveQuietly();
+        log.info("Crash recovery: reset {} stuck RUNNING action(s) to PENDING", stuck.size());
+    }
+
+    /**
      * Scheduler tick: scans PENDING actions for due/expired.
+     * Due actions execute immediately on isolated virtual threads with a snapshot
+     * of the session's conversation history — no turn lock contention.
      */
     void tick() {
         if (!running) return;
@@ -365,42 +331,40 @@ public final class DeferredActionScheduler {
                 // Check if due
                 if (!action.isDue(now)) continue;
 
-                // Try to acquire the session turn lock
-                var turnLock = sessionTurnLocks.computeIfAbsent(
-                        action.sessionId(), _ -> new ReentrantLock());
+                // Mark as RUNNING in tick() (single-threaded) before spawning
+                // to prevent duplicate dispatch on the next tick.
+                // Do NOT call withAttempt() here — withFailure() increments attempts,
+                // so incrementing here too would double-count each failure.
+                var dispatchedAction = action.withState(DeferredActionState.RUNNING);
+                store.put(dispatchedAction);
+                saveQuietly();
 
-                if (turnLock.tryLock()) {
-                    try {
-                        // Session is idle — spawn a virtual thread that acquires its own lock
-                        final var actionToRun = action;
-                        var worker = Thread.ofVirtual()
-                                .name("deferred-exec-" + action.actionId())
-                                .start(() -> {
-                            var lock = sessionTurnLocks.computeIfAbsent(
-                                    actionToRun.sessionId(), _ -> new ReentrantLock());
-                            lock.lock();
-                            try {
-                                executeAction(actionToRun);
-                            } finally {
-                                lock.unlock();
-                            }
-                        });
-                        activeWorkers.add(worker);
-                    } finally {
-                        turnLock.unlock();
-                    }
-                } else {
-                    // Session is busy — queue for drain on notifyTurnComplete (deduplicated)
-                    var ids = queuedActionIds.computeIfAbsent(
-                            action.sessionId(), _ -> ConcurrentHashMap.newKeySet());
-                    if (ids.add(action.actionId())) {
-                        queuedActions.computeIfAbsent(action.sessionId(), _ -> new ConcurrentLinkedQueue<>())
-                                .offer(action);
-                        publishEvent(new DeferEvent.ActionQueued(
-                                action.actionId(), action.sessionId(),
-                                "Session busy", Instant.now()));
-                        log.debug("Deferred action '{}' queued (session busy)", action.actionId());
-                    }
+                publishEvent(new DeferEvent.ActionTriggered(
+                        action.actionId(), action.sessionId(), Instant.now()));
+                log.info("Dispatching deferred action '{}' (attempt {}, max retries {})",
+                        action.actionId(), dispatchedAction.attempts(), dispatchedAction.maxRetries());
+
+                // Spawn virtual thread immediately — no turn lock needed.
+                // Use unstarted() + add to activeWorkers before start() to prevent
+                // a fast-finishing thread from removing itself before being tracked.
+                final var actionToRun = dispatchedAction;
+                var worker = Thread.ofVirtual()
+                        .name("deferred-exec-" + action.actionId())
+                        .unstarted(() -> executeAction(actionToRun));
+                activeWorkers.add(worker);
+                try {
+                    worker.start();
+                } catch (Throwable t) {
+                    activeWorkers.remove(worker);
+                    var failed = actionToRun.withFailure("worker-start-failed: " + t.getMessage());
+                    store.put(failed);
+                    saveQuietly();
+                    publishEvent(new DeferEvent.ActionFailed(
+                            actionToRun.actionId(), actionToRun.sessionId(),
+                            String.valueOf(t.getMessage()),
+                            failed.attempts(), failed.maxRetries(), Instant.now()));
+                    log.error("Failed to start worker for deferred action '{}': {}",
+                            actionToRun.actionId(), t.getMessage(), t);
                 }
             }
         } catch (Exception e) {
@@ -408,111 +372,111 @@ public final class DeferredActionScheduler {
         }
     }
 
+    /** Tool names with mutable per-request state that must not be shared concurrently. */
+    private static final java.util.Set<String> UNSAFE_TOOL_NAMES = java.util.Set.of("skill", "defer_check");
+
     /**
      * Executes a single deferred action on the current thread (expected: virtual thread).
+     * Uses a read-only snapshot of the session's conversation history, an isolated
+     * ToolRegistry (excluding tools with mutable per-request state), and does not
+     * modify the session or acquire any turn lock.
+     *
+     * <p>The action must already be in RUNNING state (set by {@link #tick()}).
      */
     private void executeAction(DeferredAction action) {
         try {
-        // Check session still exists
-        var session = sessionManager.getSession(action.sessionId());
-        if (session == null || !session.isActive()) {
-            log.warn("Session '{}' not found or inactive, cancelling deferred action '{}'",
-                    action.sessionId(), action.actionId());
-            store.put(action.withState(DeferredActionState.CANCELLED));
-            saveQuietly();
-            publishEvent(new DeferEvent.ActionCancelled(
-                    action.actionId(), action.sessionId(), "session-gone", Instant.now()));
-            return;
-        }
-
-        // Mark as running
-        var runningAction = action.withAttempt().withState(DeferredActionState.RUNNING);
-        store.put(runningAction);
-        saveQuietly();
-
-        publishEvent(new DeferEvent.ActionTriggered(
-                action.actionId(), action.sessionId(), Instant.now()));
-        log.info("Executing deferred action '{}' (attempt {}, max retries {})",
-                action.actionId(), runningAction.attempts(), runningAction.maxRetries());
-
-        long startNanos = System.nanoTime();
-        try {
-            // Inject system message into session history
-            session.addMessage(new AgentSession.ConversationMessage.System(
-                    "[DEFERRED] Scheduled check-back is now due. Goal: " + action.goal()));
-
-            // Create a temp agent loop (same pattern as CronScheduler)
-            var loopConfig = AgentLoopConfig.builder()
-                    .sessionId("deferred-" + action.actionId())
-                    .maxIterations(15)
-                    .build();
-            var agentLoop = new StreamingAgentLoop(
-                    llmClient, toolRegistry, model, systemPrompt,
-                    maxTokens, thinkingBudget, null, loopConfig);
-
-            String deferPrompt = """
-                    [DEFERRED ACTION] A previously scheduled check-back is now executing.
-
-                    Goal: %s
-
-                    Review the current state and take appropriate action. Report your findings.
-                    """.formatted(action.goal());
-
-            var conversationHistory = toMessages(session.messages());
-            var turn = agentLoop.runTurn(deferPrompt, conversationHistory,
-                    new SilentStreamHandler(), new CancellationToken());
-
-            String output = summarizeTurnOutput(turn);
-            long durationMs = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
-
-            // Store result in session history
-            if (output != null && !output.isBlank()) {
-                session.addMessage(new AgentSession.ConversationMessage.Assistant(output));
-            }
-
-            // Mark success
-            store.put(runningAction.withSuccess(truncate(output, MAX_OUTPUT_CHARS)));
-            saveQuietly();
-
-            publishEvent(new DeferEvent.ActionCompleted(
-                    action.actionId(), action.sessionId(), durationMs,
-                    truncate(output, 200), Instant.now()));
-            log.info("Deferred action '{}' completed in {}ms", action.actionId(), durationMs);
-
-        } catch (Exception e) {
-            long durationMs = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
-            log.error("Deferred action '{}' failed (attempt {}/{}): {}",
-                    action.actionId(), runningAction.attempts(), runningAction.maxRetries(),
-                    e.getMessage());
-
-            var failedAction = runningAction.withFailure(e.getMessage());
-            store.put(failedAction);
-            saveQuietly();
-
-            publishEvent(new DeferEvent.ActionFailed(
-                    action.actionId(), action.sessionId(), e.getMessage(),
-                    failedAction.attempts(), failedAction.maxRetries(), Instant.now()));
-
-            // If still retryable (state went back to PENDING), update runAt for backoff
-            if (failedAction.state() == DeferredActionState.PENDING) {
-                int backoffSeconds = 30 * failedAction.attempts();
-                var retryAction = new DeferredAction(
-                        failedAction.actionId(), failedAction.sessionId(),
-                        failedAction.idempotencyKey(), failedAction.createdAt(),
-                        Instant.now().plusSeconds(backoffSeconds),
-                        failedAction.expiresAt(), failedAction.goal(),
-                        failedAction.maxRetries(), failedAction.attempts(),
-                        DeferredActionState.PENDING, failedAction.lastError(),
-                        failedAction.lastOutput());
-                store.put(retryAction);
+            // Check session still exists
+            var session = sessionManager.getSession(action.sessionId());
+            if (session == null || !session.isActive()) {
+                log.warn("Session '{}' not found or inactive, cancelling deferred action '{}'",
+                        action.sessionId(), action.actionId());
+                store.put(action.withState(DeferredActionState.CANCELLED));
                 saveQuietly();
-                log.info("Deferred action '{}' scheduled for retry in {}s",
-                        action.actionId(), backoffSeconds);
+                publishEvent(new DeferEvent.ActionCancelled(
+                        action.actionId(), action.sessionId(), "session-gone", Instant.now()));
+                return;
             }
+
+            long startNanos = System.nanoTime();
+            try {
+                // Snapshot + registry inside try/catch so pre-execution exceptions
+                // are handled by the failure path (preventing stuck RUNNING state)
+                var conversationSnapshot = toMessages(List.copyOf(session.messages()));
+
+                // Build an isolated ToolRegistry excluding tools with mutable session state
+                // (SkillTool, DeferCheckTool) to prevent cross-contamination with main turns
+                var isolatedRegistry = new ToolRegistry();
+                for (var tool : toolRegistry.all()) {
+                    if (!UNSAFE_TOOL_NAMES.contains(tool.name())) {
+                        isolatedRegistry.register(tool);
+                    }
+                }
+
+                var loopConfig = AgentLoopConfig.builder()
+                        .sessionId("deferred-" + action.actionId())
+                        .maxIterations(15)
+                        .build();
+                var agentLoop = new StreamingAgentLoop(
+                        llmClient, isolatedRegistry, model, systemPrompt,
+                        maxTokens, thinkingBudget, null, loopConfig);
+
+                String deferPrompt = """
+                        [DEFERRED ACTION] A previously scheduled check-back is now executing.
+
+                        Goal: %s
+
+                        Review the current state and take appropriate action. Report your findings.
+                        """.formatted(action.goal());
+
+                var turn = agentLoop.runTurn(deferPrompt, conversationSnapshot,
+                        new SilentStreamHandler(), new CancellationToken());
+
+                String output = summarizeTurnOutput(turn);
+                long durationMs = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
+
+                // Result stays in DeferredAction store + EventFeed — not written to session
+                store.put(action.withSuccess(truncate(output, MAX_OUTPUT_CHARS)));
+                saveQuietly();
+
+                publishEvent(new DeferEvent.ActionCompleted(
+                        action.actionId(), action.sessionId(), durationMs,
+                        truncate(output, 200), Instant.now()));
+                log.info("Deferred action '{}' completed in {}ms", action.actionId(), durationMs);
+
+            } catch (Exception e) {
+                long durationMs = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
+                log.error("Deferred action '{}' failed (attempt {}/{}): {}",
+                        action.actionId(), action.attempts(), action.maxRetries(),
+                        e.getMessage());
+
+                var failedAction = action.withFailure(e.getMessage());
+                store.put(failedAction);
+                saveQuietly();
+
+                publishEvent(new DeferEvent.ActionFailed(
+                        action.actionId(), action.sessionId(), e.getMessage(),
+                        failedAction.attempts(), failedAction.maxRetries(), Instant.now()));
+
+                // If still retryable (state went back to PENDING), update runAt for backoff
+                if (failedAction.state() == DeferredActionState.PENDING) {
+                    int backoffSeconds = 30 * failedAction.attempts();
+                    var retryAction = new DeferredAction(
+                            failedAction.actionId(), failedAction.sessionId(),
+                            failedAction.idempotencyKey(), failedAction.createdAt(),
+                            Instant.now().plusSeconds(backoffSeconds),
+                            failedAction.expiresAt(), failedAction.goal(),
+                            failedAction.maxRetries(), failedAction.attempts(),
+                            DeferredActionState.PENDING, failedAction.lastError(),
+                            failedAction.lastOutput());
+                    store.put(retryAction);
+                    saveQuietly();
+                    log.info("Deferred action '{}' scheduled for retry in {}s",
+                            action.actionId(), backoffSeconds);
+                }
+            }
+        } finally {
+            activeWorkers.remove(Thread.currentThread());
         }
-    } finally {
-        activeWorkers.remove(Thread.currentThread());
-    }
     }
 
     /**
