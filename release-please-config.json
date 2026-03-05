@@ -2,13 +2,11 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "packages": {
     ".": {
-      "release-type": "simple",
-      "package-name": "aceclaw",
-      "include-component-in-tag": false,
+      "release-type": "node",
       "changelog-path": "CHANGELOG.md",
-      "pull-request-title-pattern": "chore${scope}: release ${version}",
       "extra-files": [
-        { "type": "generic", "file": "gradle.properties" }
+        { "type": "generic", "file": "gradle.properties" },
+        { "type": "generic", "file": "version.txt" }
       ]
     }
   }
