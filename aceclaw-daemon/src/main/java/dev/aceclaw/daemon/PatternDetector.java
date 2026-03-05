@@ -39,6 +39,9 @@ public final class PatternDetector {
     private static final double JACCARD_WORKFLOW_THRESHOLD = 0.5;
     private static final int MIN_CORRECTION_FREQUENCY = 2;
     private static final int MIN_WORKFLOW_FREQUENCY = 3;
+    private static final double PREFERENCE_BASE_CONFIDENCE = 0.5;
+    private static final double PREFERENCE_CROSS_SESSION_BOOST = 0.15;
+    private static final int MAX_CROSS_SESSION_MATCH_CANDIDATES = 200;
 
     private final AutoMemoryStore memoryStore;
 
@@ -217,7 +220,7 @@ public final class PatternDetector {
             }
         }
 
-        if (corrections.size() < MIN_CORRECTION_FREQUENCY) {
+        if (corrections.isEmpty()) {
             return List.of();
         }
 
@@ -227,6 +230,7 @@ public final class PatternDetector {
 
         for (var group : groups) {
             if (group.size() >= MIN_CORRECTION_FREQUENCY) {
+                // Existing path: 2+ in-session corrections
                 var evidence = group.stream()
                         .map(c -> "correction: " + truncate(c, 100))
                         .toList();
@@ -236,10 +240,60 @@ public final class PatternDetector {
 
                 insights.add(new PatternInsight(
                         PatternType.USER_PREFERENCE, description, group.size(), confidence, evidence));
+            } else if (memoryStore != null) {
+                // Cross-session boosting: single in-session correction, check prior memory
+                String correction = group.getFirst();
+                int priorMatchCount = countPriorCorrectionMatches(correction);
+
+                if (priorMatchCount > 0) {
+                    double confidence = Math.min(1.0,
+                            PREFERENCE_BASE_CONFIDENCE + priorMatchCount * PREFERENCE_CROSS_SESSION_BOOST);
+
+                    var evidence = new ArrayList<String>();
+                    evidence.add("correction: " + truncate(correction, 100));
+                    evidence.add("cross-session: " + priorMatchCount + " prior matches");
+
+                    String description = "User repeatedly corrects (cross-session): "
+                            + truncate(correction, 150);
+
+                    insights.add(new PatternInsight(
+                            PatternType.USER_PREFERENCE, description,
+                            1 + priorMatchCount, confidence, evidence));
+                }
             }
         }
 
         return insights;
+    }
+
+    /**
+     * Counts prior CORRECTION and PREFERENCE entries in memory that match the
+     * given correction text by Jaccard similarity.
+     */
+    private int countPriorCorrectionMatches(String correction) {
+        int count = 0;
+        try {
+            var priorCorrections = memoryStore.query(
+                    MemoryEntry.Category.CORRECTION, List.of("user-correction"),
+                    MAX_CROSS_SESSION_MATCH_CANDIDATES);
+            var priorPreferences = memoryStore.query(
+                    MemoryEntry.Category.PREFERENCE, List.of("user-preference"),
+                    MAX_CROSS_SESSION_MATCH_CANDIDATES);
+
+            for (var entry : priorCorrections) {
+                if (jaccardSimilarity(correction, entry.content()) >= JACCARD_CORRECTION_THRESHOLD) {
+                    count++;
+                }
+            }
+            for (var entry : priorPreferences) {
+                if (jaccardSimilarity(correction, entry.content()) >= JACCARD_CORRECTION_THRESHOLD) {
+                    count++;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to query memory for cross-session preferences: {}", e.getMessage());
+        }
+        return count;
     }
 
     // -- Strategy 4: WORKFLOW --
@@ -390,7 +444,20 @@ public final class PatternDetector {
         return lower.startsWith("no,") || lower.startsWith("no ") ||
                 lower.startsWith("wrong") || lower.startsWith("actually") ||
                 lower.contains("should be") || lower.contains("instead of") ||
-                lower.startsWith("don't") || lower.startsWith("please use");
+                lower.startsWith("please use") ||
+                lower.startsWith("stop") || lower.startsWith("not that") ||
+                lower.contains("should not") || lower.contains("shouldn't") ||
+                lower.contains("do not use") || lower.contains("don't use") ||
+                (lower.startsWith("use ") && containsCorrectionQualifier(lower)) ||
+                lower.contains("i said") ||
+                lower.contains("i told you") || lower.contains("i already said") ||
+                lower.contains("that's not") || lower.contains("that is not") ||
+                lower.startsWith("why did you");
+    }
+
+    private static boolean containsCorrectionQualifier(String lower) {
+        return lower.contains("instead") || lower.contains("rather") ||
+                lower.contains("not") || lower.contains("for this");
     }
 
     private static List<List<String>> groupBySimilarity(List<String> items, double threshold) {
