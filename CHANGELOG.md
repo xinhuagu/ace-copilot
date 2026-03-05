@@ -1,1 +1,137 @@
 # Changelog
+
+## [0.1.0] - 2026-03-05
+
+### Bug Fixes
+
+- Fall back to /bin/sh on Alpine/BusyBox, harden test assertions
+- Move path_instructions under reviews section in CodeRabbit config
+- Add public unsubscribe() to prevent subscription leaks
+- Drop-oldest queue policy, validate capacity, deterministic tests
+- Resolve tech debt — permission modes, read-before-write, slash commands, tests (#4)
+- Add missing onSubAgentStart/onSubAgentEnd to StreamEventHandler
+- Resolve Java version mismatch and provider profile auto-selection
+- Change copilot default model from gpt5.2 to claude-sonnet-4.5
+- Fix Copilot runtime model switching and Responses API format
+- Resolve sub-agent tech debt TD-1/2/5/6 (#28) (#37)
+- Redraw prompt status panel after async output
+- Prevent status line wrapping from stealing prompt
+- Keep cursor on prompt after async status redraw
+- Redisplay prompt after async status render
+- Close tool status on early exits and clean panel redraw
+- Avoid default profile override when ACECLAW_PROVIDER is set
+- Omit unsupported Responses parameters
+- Scope store=false to codex provider only
+- Avoid null text in user-facing LLM errors
+- Use backend-api endpoint paths in factory
+- Address review feedback for planned outcomes and maintenance persistence
+- Harden null guards and constructor validation per review
+- Harden detectors and structured parsing
+- Guard null toolName in intermediate-step detector
+- Harden candidate store atomicity and anti-pattern gates (#82)
+- Close Files.walk stream in validation engine
+- Address review hardening in validation gate
+- Serialize release state updates with controller lock
+- Harden release RPC/config/state handling
+- Harden observability panel parsing and null guards
+- Require non-null paths in status parsers
+- Resolve review feedback on bridge tests and docs link
+- Fallback candidates status to ~/.aceclaw memory
+- Address review feedback on baseline and anti-pattern metrics
+- Harden cron tool input handling and tests
+- Null-guard cron status job list
+- Address phase2 review findings
+- Persist and surface last cron output
+- Show full completion output in foreground notifications
+- Refresh prompt clock every second while idle
+- Address CodeRabbit review — removeOnCancelPolicy, cumulative turns, budget break
+- Route permission responses to correct thread via per-request futures (#151)
+- Grep exit code 1 no longer triggers false circuit-breaker (#152) (#154)
+- Remove status line refresh on every token delta (#156)
+- Per-step and total-plan watchdog budget for multi-step plans (#158)
+- Update OAuth user-agent to claude-cli/2.1.50 (#160)
+- Rename .release-please-config.json to release-please-config.json
+- Use java release-type for release-please
+- Workaround release-please component undefined bug
+- Switch to simple release-type with version.txt
+- Add explicit package-name to fix componentNoSpace undefined
+- Minimal release-please config with per-package release-type
+- Set include-component-in-tag at package level
+- Use node release-type with package.json for release-please
+- Use v-prefixed initial_tag in cliff.toml to match tag_pattern
+- Use PAT for release workflow to bypass branch protection
+
+### Documentation
+
+- Update BashExecTool Javadoc to mention /bin/sh fallback
+- Add provider configuration guide with Copilot, Claude, and Ollama setup
+- Rewrite README — security-first task agent positioning
+- Emphasize Java 21 + enterprise positioning
+- Add continuous learning baseline plan and collector
+- Close issue-52 baseline metric and replay definition gaps
+- Clarify openai-codex request semantics
+- Refresh README positioning copy
+- Add demo GIF to README
+- Replace demo GIF with 2x speed version
+- Reposition AceClaw as enterprise agent harness
+
+### Features
+
+- Add Windows shell support to BashExecTool
+- Add type-safe event bus with sealed event hierarchy
+- Integrate EventBus, permissions, and auto-memory into agent loop (#5)
+- Add SSE/HTTP transport, resource bridge, health checks, and tests (#6)
+- Add provider selection to dev.sh (#7)
+- Add skill system, dynamic prompt budget, and Ollama fixes
+- Add OpenAI Responses API client for Copilot Codex models (#11)
+- Add /model command for runtime model switching (#12)
+- Add Insight type hierarchy, DetectedPattern model, and ToolMetricsCollector (#13) (#19)
+- Add ErrorDetector for error-correction pattern detection (#14) (#20)
+- Add PatternDetector for recurring tool sequences and workflows (#15) (#21)
+- Add SelfImprovementEngine for post-turn learning (#16) (#22)
+- Add StrategyRefiner for insight consolidation (#17) (#23)
+- Self-learning gaps P0-P3 (#25) (#26)
+- Provider-aware context window auto-detection (#30) (#38)
+- Add HealthMonitor + CircuitBreaker foundation (#31) (#40)
+- Phase 2 gaps — background sub-agents, transcripts, tool descriptions (#27) (#39)
+- Implement command hook system (#32) (#41)
+- Implement BOOT.md execution at daemon startup (#33) (#43)
+- Implement persistent cron scheduler (#34) (#44)
+- Add web tools DDG fallback + dynamic tool guidance in system prompt (#42) (#45)
+- Implement HEARTBEAT.md runner on scheduler (#35) (#46)
+- Implement task planner with complexity estimation and sequential execution (#36) (#47)
+- Implement dual-channel architecture for concurrent task streaming (#48) (#49)
+- Add real-time streaming progress status
+- Show running task list under prompt status
+- Surface pending permission requests for bg/sub-agent tasks
+- Popup permission prompt immediately while typing
+- Show dynamic runtime status for background tasks
+- Wire ToolMetrics into self-learning engine (#53) (#71)
+- Add openai-codex oauth provider and auth CLI
+- Align openai-codex provider with Codex backend endpoint
+- Normalize failure signals into continuous learning (#75)
+- Add standalone pyautogui+opencv vision click CLI
+- Issue-78 unified candidate pipeline with replay quality gates (#79)
+- Close outcome enforcement loop with writeback, clocked gates, and maintenance
+- Generate skill drafts from promoted candidates (#84)
+- Add autonomous draft validation gate engine
+- Add automated skill release controller with guardrails
+- Add continuous-learning status panel in CLI
+- Close governance protocol and permission interaction tests
+- Add compact tool trace logs with single-row status reuse
+- Add hard quality gates and baseline-driven metrics
+- Add cron tool and scheduling self-awareness
+- Make agent max turns configurable in runtime
+- Add adaptive continuation segments (phase 2)
+- Default adaptive continuation and expose ops metrics
+- Stream scheduler completion notices to active cli
+- Add defer_check tool with scheduler and CLI notifications (#141)
+- Add adaptive replanning on step failure (#121)
+- Add WatchdogTimer for turn budget and time budget enforcement (#120)
+- Add pre-flight context budget check (#161)
+- Doom loop defense — argument-aware dedup and progress detection (#164)
+- Budget warning + progress-gated auto-extension (#165)
+- Parallel execution — remove turn lock dependency (#166)
+- Configurable sub-agent auto-approve tool whitelist (#167) (#168)
+- Cross-session preference boosting for self-learning (#169) (#170)
+# Changelog
