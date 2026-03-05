@@ -1,21 +1,10 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "release-type": "simple",
-  "include-v-in-tag": true,
-  "changelog-sections": [
-    { "type": "feat", "section": "Features" },
-    { "type": "fix", "section": "Bug Fixes" },
-    { "type": "docs", "section": "Documentation" },
-    { "type": "deps", "section": "Dependencies" },
-    { "type": "perf", "section": "Performance" },
-    { "type": "refactor", "section": "Refactoring", "hidden": true },
-    { "type": "chore", "section": "Miscellaneous", "hidden": true },
-    { "type": "test", "section": "Tests", "hidden": true }
-  ],
   "packages": {
     ".": {
+      "release-type": "simple",
       "package-name": "aceclaw",
-      "pull-request-title-pattern": "chore${scope}: release ${version}",
+      "changelog-path": "CHANGELOG.md",
       "extra-files": [
         { "type": "generic", "file": "gradle.properties" }
       ]
