@@ -83,7 +83,7 @@ public final class ConnectionBridge implements UdsListener.ConnectionHandler {
 
             if (response != null) {
                 var json = objectMapper.writeValueAsString(response) + "\n";
-                channel.write(ByteBuffer.wrap(json.getBytes(StandardCharsets.UTF_8)));
+                writeAll(channel, json);
             }
         } catch (JsonProcessingException e) {
             log.warn("Invalid JSON-RPC request: {}", e.getMessage());
@@ -97,9 +97,42 @@ public final class ConnectionBridge implements UdsListener.ConnectionHandler {
         try {
             var error = JsonRpc.ErrorResponse.of(id, code, message);
             var json = objectMapper.writeValueAsString(error) + "\n";
-            channel.write(ByteBuffer.wrap(json.getBytes(StandardCharsets.UTF_8)));
+            writeAll(channel, json);
         } catch (IOException e) {
             log.error("Failed to send error response: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Writes all bytes of a JSON line to the channel, handling short writes.
+     *
+     * <p>On a non-blocking channel (e.g. when the cancel monitor sets the channel
+     * to non-blocking mode), {@code channel.write()} may return fewer bytes than
+     * the buffer contains. This method loops until the entire message is written,
+     * preventing JSON corruption on the wire.
+     *
+     * <p>If the channel is under backpressure and {@code write()} returns 0,
+     * uses exponential backoff (1ms to 64ms) to avoid busy-spinning. Gives up
+     * after {@value #WRITE_TIMEOUT_MS}ms total wall-clock time.
+     */
+    private static final long WRITE_TIMEOUT_MS = 30_000;
+
+    private static void writeAll(SocketChannel channel, String json) throws IOException {
+        var buf = ByteBuffer.wrap(json.getBytes(StandardCharsets.UTF_8));
+        long deadline = System.currentTimeMillis() + WRITE_TIMEOUT_MS;
+        long backoffNanos = 1_000_000L; // 1ms initial backoff
+        while (buf.hasRemaining()) {
+            int written = channel.write(buf);
+            if (written == 0) {
+                if (System.currentTimeMillis() >= deadline) {
+                    throw new IOException("Write timed out after " + WRITE_TIMEOUT_MS
+                            + "ms, " + buf.remaining() + " bytes remaining");
+                }
+                java.util.concurrent.locks.LockSupport.parkNanos(backoffNanos);
+                backoffNanos = Math.min(backoffNanos * 2, 64_000_000L); // cap at 64ms
+            } else {
+                backoffNanos = 1_000_000L; // reset on progress
+            }
         }
     }
 
@@ -141,7 +174,7 @@ public final class ConnectionBridge implements UdsListener.ConnectionHandler {
             var notification = JsonRpc.Notification.of(method, params);
             var json = objectMapper.writeValueAsString(notification) + "\n";
             synchronized (channel) {
-                channel.write(ByteBuffer.wrap(json.getBytes(StandardCharsets.UTF_8)));
+                writeAll(channel, json);
             }
         }
 
