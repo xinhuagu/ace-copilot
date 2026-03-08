@@ -73,6 +73,9 @@ public final class TerminalRepl {
     private static final Duration TASK_TIMEOUT_AFTER = Duration.ofSeconds(180);
     private static final Duration LEARNING_STATUS_REFRESH = Duration.ofSeconds(5);
     private static final Duration CRON_STATUS_REFRESH = Duration.ofSeconds(5);
+    /** Slightly shorter than the bridge timeout so user answers win the race near deadline. */
+    private static final long PERMISSION_MODAL_TIMEOUT_MS =
+            TaskStreamReader.CLIENT_PERMISSION_WAIT_TIMEOUT_MS - 5_000L;
     private static final boolean PROMPT_STATUS_PANEL_ENABLED =
             Boolean.parseBoolean(System.getenv().getOrDefault("ACECLAW_PROMPT_STATUS_PANEL", "true"));
     private static final boolean CRON_STATUS_EXPANDED =
@@ -112,6 +115,10 @@ public final class TerminalRepl {
     private volatile Terminal activeTerminal;
     /** True while the main REPL thread is blocked in {@code readLine}. */
     private volatile boolean readingPrompt;
+    /** Current interactive mode of the main console. */
+    private volatile ConsoleMode consoleMode = ConsoleMode.NORMAL_INPUT;
+    /** The permission request currently owning the terminal, if any. */
+    private volatile String activePermissionRequestId;
 
     /** Cumulative token counters across turns. */
     private long totalInputTokens = 0;
@@ -148,6 +155,9 @@ public final class TerminalRepl {
     private record UiNoticeEvent(String ansiText) implements UiEvent {}
     private record UiPrintAboveEvent(String ansiText) implements UiEvent {}
     private record UiNotice(Instant at, String text) {}
+    private record ForegroundPause(TaskHandle handle, ForegroundOutputSink sink,
+                                   BackgroundOutputBuffer buffer) {}
+    private record PermissionDecision(boolean approved, boolean remember, boolean timedOut) {}
 
     private record CronJobStatus(
             String id,
@@ -169,6 +179,12 @@ public final class TerminalRepl {
         private CronStatusSnapshot {
             jobs = jobs != null ? List.copyOf(jobs) : List.of();
         }
+    }
+
+    private enum ConsoleMode {
+        NORMAL_INPUT,
+        FOREGROUND_WAIT,
+        PERMISSION_MODAL
     }
 
     /**
@@ -298,6 +314,7 @@ public final class TerminalRepl {
                 String line;
                 try {
                     readingPrompt = true;
+                    consoleMode = ConsoleMode.NORMAL_INPUT;
                     requestUiRender();
                     try {
                         line = reader.readLine(PROMPT_STR);
@@ -419,7 +436,7 @@ public final class TerminalRepl {
                         // conflicting scroll region adjustments (printAbove temporarily
                         // modifies the scroll region; immediate Status.update() corrupts it).
                         boolean didPrintAbove = false;
-                        if (!pendingPrintAbove.isEmpty() && readingPrompt) {
+                        if (!pendingPrintAbove.isEmpty() && readingPrompt && !isPermissionModalActive()) {
                             for (String text : pendingPrintAbove) {
                                 // Split multi-line content into individual printAbove calls.
                                 // JLine's AttributedString is single-line oriented; passing
@@ -452,6 +469,7 @@ public final class TerminalRepl {
                                 && readingPrompt
                                 && !taskManager.hasForegroundTask()
                                 && PROMPT_STATUS_PANEL_ENABLED
+                                && !isPermissionModalActive()
                                 && !didPrintAbove;
                         if (!shouldRender) {
                             continue;
@@ -798,6 +816,7 @@ public final class TerminalRepl {
             simplePollForeground(out, reader);
             return;
         }
+        consoleMode = ConsoleMode.FOREGROUND_WAIT;
 
         // Enter raw mode: ICANON off (char-at-a-time), ECHO off
         Attributes savedAttrs = terminal.getAttributes();
@@ -844,6 +863,9 @@ public final class TerminalRepl {
         } catch (IOException e) {
             log.debug("I/O error during foreground wait: {}", e.getMessage());
         } finally {
+            if (consoleMode != ConsoleMode.PERMISSION_MODAL) {
+                consoleMode = ConsoleMode.NORMAL_INPUT;
+            }
             terminal.setAttributes(savedAttrs);
         }
     }
@@ -852,6 +874,7 @@ public final class TerminalRepl {
      * Fallback polling without keypress detection (used when terminal is unavailable).
      */
     private void simplePollForeground(PrintWriter out, LineReader reader) {
+        consoleMode = ConsoleMode.FOREGROUND_WAIT;
         while (taskManager.hasForegroundTask()) {
             try {
                 var permReq = permissionBridge.pollPending(50, TimeUnit.MILLISECONDS);
@@ -862,6 +885,9 @@ public final class TerminalRepl {
                 Thread.currentThread().interrupt();
                 break;
             }
+        }
+        if (consoleMode != ConsoleMode.PERMISSION_MODAL) {
+            consoleMode = ConsoleMode.NORMAL_INPUT;
         }
     }
 
@@ -929,58 +955,124 @@ public final class TerminalRepl {
     private void handlePermissionFromBridge(PrintWriter out, LineReader reader,
                                             PermissionBridge.PermissionRequest req) {
         int boxWidth = 50;
-
-        out.println();
-        out.println(PERMISSION + " " + BOX_LIGHT_TOP_LEFT + BOX_LIGHT_HORIZONTAL
-                + " Permission Required " + hlineLight(boxWidth - 22) + RESET);
-        out.println(PERMISSION + " " + BOX_LIGHT_VERTICAL + RESET + " " + req.description());
-        out.println(PERMISSION + " " + BOX_LIGHT_VERTICAL + RESET);
-        out.printf("%s %s%s (%sy%s) Allow  (%sn%s) Deny  (%sa%s) Always: ",
-                PERMISSION, BOX_LIGHT_VERTICAL, RESET,
-                APPROVED, RESET,
-                DENIED, RESET,
-                WARNING, RESET);
-        out.flush();
-
-        boolean approved = false;
-        boolean remember = false;
+        var pausedForeground = pauseForegroundRendering();
+        beginPermissionModal(req);
 
         try {
-            String answer = reader.readLine("");
-            if (answer != null) {
-                answer = answer.trim().toLowerCase();
-                switch (answer) {
-                    case "y", "yes" -> approved = true;
-                    case "a", "always" -> {
-                        approved = true;
-                        remember = true;
-                    }
-                    default -> approved = false;
+            out.println();
+            out.println(PERMISSION + " " + BOX_LIGHT_TOP_LEFT + BOX_LIGHT_HORIZONTAL
+                    + " Permission Required " + hlineLight(boxWidth - 22) + RESET);
+            out.println(PERMISSION + " " + BOX_LIGHT_VERTICAL + RESET + " " + req.description());
+            int queued = permissionBridge.pendingCount();
+            if (queued > 0) {
+                out.println(PERMISSION + " " + BOX_LIGHT_VERTICAL + RESET + " "
+                        + MUTED + queued + " more request(s) queued" + RESET);
+            }
+            out.println(PERMISSION + " " + BOX_LIGHT_VERTICAL + RESET);
+            out.printf("%s %s%s (%sy%s) Allow  (%sn%s) Deny  (%sa%s) Always: ",
+                    PERMISSION, BOX_LIGHT_VERTICAL, RESET,
+                    APPROVED, RESET,
+                    DENIED, RESET,
+                    WARNING, RESET);
+            out.flush();
+
+            var answer = readPermissionAnswer(reader);
+            boolean approved = answer.approved();
+            boolean remember = answer.remember();
+
+            out.println(PERMISSION + " " + BOX_LIGHT_BOTTOM_LEFT + hlineLight(boxWidth) + RESET);
+
+            if (answer.timedOut()) {
+                out.printf("%sTimed out%s%n", WARNING, RESET);
+            } else if (approved) {
+                out.printf("%s%s Approved%s%s%n", APPROVED, CHECKMARK,
+                        remember ? " (always)" : "", RESET);
+            } else {
+                out.printf("%sDenied%s%n", DENIED, RESET);
+            }
+            out.flush();
+
+            permissionBridge.submitAnswer(req.requestId(),
+                    new PermissionBridge.PermissionAnswer(approved, remember));
+            permissionBridge.consumeResolvedAnswer(req.requestId());
+            var task = taskManager.get(req.taskId());
+            if (task != null) {
+                task.clearWaitingPermission();
+            }
+        } finally {
+            permissionInterruptRequested.set(false);
+            endPermissionModal(req);
+            resumeForegroundRendering(pausedForeground);
+            requestUiRender();
+        }
+    }
+
+    private PermissionDecision readPermissionAnswer(LineReader reader) {
+        var terminal = activeTerminal != null ? activeTerminal : reader.getTerminal();
+        if (terminal == null) {
+            return new PermissionDecision(false, false, true);
+        }
+
+        Attributes savedAttrs = terminal.getAttributes();
+        Attributes rawAttrs = new Attributes(savedAttrs);
+        rawAttrs.setLocalFlag(Attributes.LocalFlag.ICANON, false);
+        rawAttrs.setLocalFlag(Attributes.LocalFlag.ECHO, false);
+        rawAttrs.setControlChar(Attributes.ControlChar.VMIN, 0);
+        rawAttrs.setControlChar(Attributes.ControlChar.VTIME, 1);
+
+        long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(PERMISSION_MODAL_TIMEOUT_MS);
+        terminal.setAttributes(rawAttrs);
+        try {
+            while (true) {
+                long remainingNanos = deadlineNanos - System.nanoTime();
+                if (remainingNanos <= 0) {
+                    return new PermissionDecision(false, false, true);
+                }
+
+                int timeoutMs = (int) Math.max(1L, Math.min(250L,
+                        TimeUnit.NANOSECONDS.toMillis(remainingNanos)));
+                int ch = terminal.reader().peek(timeoutMs);
+                if (ch == -2) {
+                    continue;
+                }
+                if (ch < 0) {
+                    return new PermissionDecision(false, false, false);
+                }
+
+                terminal.reader().read(1);
+                switch (Character.toLowerCase((char) ch)) {
+                    case 'y':
+                        discardBufferedPermissionInput(terminal);
+                        return new PermissionDecision(true, false, false);
+                    case 'a':
+                        discardBufferedPermissionInput(terminal);
+                        return new PermissionDecision(true, true, false);
+                    case 'n':
+                    case 'q':
+                    case 3:
+                        discardBufferedPermissionInput(terminal);
+                        return new PermissionDecision(false, false, false);
+                    case '\r':
+                    case '\n':
+                        continue;
+                    default:
+                        terminal.puts(InfoCmp.Capability.bell);
+                        terminal.flush();
                 }
             }
-        } catch (UserInterruptException | EndOfFileException e) {
-            approved = false;
+        } catch (IOException e) {
+            log.debug("Permission modal input failed: {}", e.getMessage());
+            return new PermissionDecision(false, false, false);
+        } finally {
+            terminal.setAttributes(savedAttrs);
+            ensureCursorVisible();
         }
+    }
 
-        out.println(PERMISSION + " " + BOX_LIGHT_BOTTOM_LEFT + hlineLight(boxWidth) + RESET);
-
-        if (approved) {
-            out.printf("%s%s Approved%s%s%n", APPROVED, CHECKMARK,
-                    remember ? " (always)" : "", RESET);
-        } else {
-            out.printf("%sDenied%s%n", DENIED, RESET);
+    private void discardBufferedPermissionInput(Terminal terminal) throws IOException {
+        while (terminal.reader().peek(1) >= 0) {
+            terminal.reader().read(1);
         }
-        out.flush();
-
-        permissionBridge.submitAnswer(req.requestId(),
-                new PermissionBridge.PermissionAnswer(approved, remember));
-        permissionBridge.consumeResolvedAnswer(req.requestId());
-        var task = taskManager.get(req.taskId());
-        if (task != null) {
-            task.clearWaitingPermission();
-        }
-        permissionInterruptRequested.set(false);
-        requestUiRender();
     }
 
     /**
@@ -1013,6 +1105,60 @@ public final class TerminalRepl {
                 Thread.currentThread().interrupt();
                 break;
             }
+        }
+    }
+
+    private void beginPermissionModal(PermissionBridge.PermissionRequest req) {
+        activePermissionRequestId = req.requestId();
+        consoleMode = ConsoleMode.PERMISSION_MODAL;
+    }
+
+    private void endPermissionModal(PermissionBridge.PermissionRequest req) {
+        if (req != null && Objects.equals(activePermissionRequestId, req.requestId())) {
+            activePermissionRequestId = null;
+        }
+        consoleMode = taskManager.hasForegroundTask()
+                ? ConsoleMode.FOREGROUND_WAIT
+                : ConsoleMode.NORMAL_INPUT;
+    }
+
+    private boolean isPermissionModalActive() {
+        return consoleMode == ConsoleMode.PERMISSION_MODAL && activePermissionRequestId != null;
+    }
+
+    private ForegroundPause pauseForegroundRendering() {
+        var handle = taskManager.foregroundTask();
+        if (handle == null || !handle.isRunning()) {
+            return null;
+        }
+        var sink = handle.outputSink();
+        if (!(sink instanceof ForegroundOutputSink fgSink)) {
+            return null;
+        }
+
+        fgSink.stopSpinner();
+        var buffer = new BackgroundOutputBuffer();
+        var previous = handle.swapOutputSink(buffer);
+        if (!(previous instanceof ForegroundOutputSink previousFgSink)) {
+            handle.swapOutputSink(previous);
+            return null;
+        }
+        return new ForegroundPause(handle, previousFgSink, buffer);
+    }
+
+    private void resumeForegroundRendering(ForegroundPause pause) {
+        if (pause == null) {
+            return;
+        }
+        if (!pause.handle().isRunning()) {
+            return;
+        }
+        if (pause.handle().outputSink() != pause.buffer()) {
+            return;
+        }
+        var previous = pause.handle().swapOutputSink(pause.sink());
+        if (previous == pause.buffer()) {
+            pause.buffer().replay(pause.sink());
         }
     }
 
@@ -1095,6 +1241,9 @@ public final class TerminalRepl {
     // -- Background task notifications (fallback at prompt) -------------------
 
     private void notifyCompletedBackgroundTasks(PrintWriter out) {
+        if (isPermissionModalActive()) {
+            return;
+        }
         for (var handle : taskManager.list()) {
             if (!handle.isTerminal()) continue;
             if (handle.taskId().equals(taskManager.foregroundTaskId())) continue;
@@ -1189,12 +1338,19 @@ public final class TerminalRepl {
         }
 
         int pendingPermissions = permissionBridge.pendingCount();
-        if (pendingPermissions > 0) {
+        if (isPermissionModalActive() || pendingPermissions > 0) {
             sb.append(MUTED).append(" | ").append(RESET);
-            sb.append(WARNING).append("permissions=")
-              .append(pendingPermissions)
-              .append(" permission")
-              .append(pendingPermissions > 1 ? "s" : "").append(RESET);
+            if (isPermissionModalActive()) {
+                sb.append(WARNING).append("permission-modal").append(RESET);
+                if (pendingPermissions > 0) {
+                    sb.append(MUTED).append(" (+").append(pendingPermissions).append(" queued)").append(RESET);
+                }
+            } else {
+                sb.append(WARNING).append("permissions=")
+                  .append(pendingPermissions)
+                  .append(" permission")
+                  .append(pendingPermissions > 1 ? "s" : "").append(RESET);
+            }
         }
 
         sb.append(MUTED).append(" | ").append(RESET);
@@ -1331,9 +1487,9 @@ public final class TerminalRepl {
     /**
      * Called when a background/side task requests permission.
      *
-     * <p>Shows an immediate non-blocking notice above the prompt so the user
-     * knows why a task appears stuck, then refreshes the status panel which
-     * includes pending permission entries.
+     * <p>Marks the task as waiting for permission, queues a short notice, and
+     * interrupts the main prompt so the permission modal can take over the
+     * terminal on the main REPL thread.
      */
     private void onPermissionRequested(PermissionBridge.PermissionRequest request, LineReader reader) {
         if (reader == null) return;
@@ -1341,6 +1497,10 @@ public final class TerminalRepl {
         if (task != null) {
             task.markWaitingPermission(request.description());
         }
+        String notice = WARNING + "[Permission] " + RESET
+                + "task #" + request.taskId() + " -> "
+                + fitWidth(request.description(), 100);
+        enqueueUiNotice(notice);
         requestUiRender();
         interruptPromptForPermissionPopup();
     }
