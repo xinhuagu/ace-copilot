@@ -26,6 +26,8 @@ import java.util.Objects;
  */
 public final class ResumeRouter {
 
+    static final int DEFAULT_RESUME_PROMPT_MAX_CHARS = 6_000;
+
     private static final Logger log = LoggerFactory.getLogger(ResumeRouter.class);
 
     private final PlanCheckpointStore checkpointStore;
@@ -101,59 +103,92 @@ public final class ResumeRouter {
      * Uses a clearly delimited block so the LLM can parse the context.
      */
     public static String buildResumePrompt(PlanCheckpoint checkpoint) {
+        return buildResumePrompt(checkpoint, DEFAULT_RESUME_PROMPT_MAX_CHARS);
+    }
+
+    /**
+     * Builds a resume context prompt for injecting into the agent loop with a hard size cap.
+     */
+    public static String buildResumePrompt(PlanCheckpoint checkpoint, int maxChars) {
         Objects.requireNonNull(checkpoint, "checkpoint");
+        int effectiveMaxChars = Math.max(512, maxChars);
         int nextStep = checkpoint.nextStepIndex() + 1; // 1-based for display
         int total = checkpoint.plan().steps().size();
         var nextStepObj = checkpoint.hasRemainingSteps()
                 ? checkpoint.plan().steps().get(checkpoint.nextStepIndex())
                 : null;
 
-        var sb = new StringBuilder();
-        sb.append("[PLAN_RESUME_CONTEXT]\n");
-        sb.append("planId: ").append(checkpoint.planId()).append('\n');
-        sb.append("originalGoal: ").append(checkpoint.originalGoal()).append('\n');
-        sb.append("completedSteps: ").append(checkpoint.lastCompletedStepIndex() + 1)
-                .append("/").append(total).append('\n');
+        var plan = new ContextAssemblyPlan();
+        plan.addSection("resume-header", """
+                [PLAN_RESUME_CONTEXT]
+                goal: %s
+                planId: %s
+                progress: %d/%d steps completed
+                """.formatted(
+                singleLine(checkpoint.originalGoal()),
+                checkpoint.planId(),
+                checkpoint.lastCompletedStepIndex() + 1,
+                total
+        ), 100, true);
 
-        // Summarize completed steps
-        sb.append("completedStepSummary:\n");
+        var doneSteps = new StringBuilder();
+        doneSteps.append("doneSteps:\n");
         for (int i = 0; i <= checkpoint.lastCompletedStepIndex()
                 && i < checkpoint.plan().steps().size(); i++) {
             var step = checkpoint.plan().steps().get(i);
             var result = i < checkpoint.completedStepResults().size()
                     ? checkpoint.completedStepResults().get(i) : null;
-            sb.append("  - Step ").append(i + 1).append(": ").append(step.name());
+            doneSteps.append("  - Step ").append(i + 1).append(": ").append(step.name());
             if (result != null && result.success()) {
                 String out = result.output();
-                String summary = out != null && out.length() > 80
-                        ? out.substring(0, 80) + "..." : (out != null ? out : "done");
-                sb.append(" [OK] ").append(summary);
+                String summary = out != null && out.length() > 120
+                        ? out.substring(0, 120) + "..." : (out != null ? out : "done");
+                doneSteps.append(" [OK] ").append(singleLine(summary));
             } else if (result != null) {
-                sb.append(" [FAILED] ").append(
-                        result.error() != null ? result.error() : "unknown");
+                doneSteps.append(" [FAILED] ").append(singleLine(
+                        result.error() != null ? result.error() : "unknown"));
             }
-            sb.append('\n');
+            doneSteps.append('\n');
         }
+        plan.addSection("resume-done-steps", doneSteps.toString(), 45, false);
 
         if (nextStepObj != null) {
-            sb.append("nextStep: ").append(nextStep).append(" - ")
-                    .append(nextStepObj.name()).append('\n');
-            sb.append("nextStepDescription: ").append(nextStepObj.description()).append('\n');
+            plan.addSection("resume-next-step", """
+                    nextStep:
+                      - index: %d
+                      - name: %s
+                      - description: %s
+                    """.formatted(
+                    nextStep,
+                    singleLine(nextStepObj.name()),
+                    singleLine(nextStepObj.description())
+            ), 95, true);
         }
 
         if (checkpoint.resumeHint() != null && !checkpoint.resumeHint().isBlank()) {
-            sb.append("resumeHint: ").append(checkpoint.resumeHint()).append('\n');
+            plan.addSection("resume-do-not-repeat", """
+                    doNotRepeat:
+                      - %s
+                    """.formatted(singleLine(checkpoint.resumeHint())), 85, false);
         }
 
         if (!checkpoint.artifacts().isEmpty()) {
-            sb.append("artifactsProduced: ")
-                    .append(String.join(", ", checkpoint.artifacts())).append('\n');
+            var artifacts = new StringBuilder("artifacts:\n");
+            for (var artifact : checkpoint.artifacts()) {
+                artifacts.append("  - ").append(singleLine(artifact)).append('\n');
+            }
+            plan.addSection("resume-artifacts", artifacts.toString(), 65, false);
         }
 
-        sb.append("action: Continue from step ").append(nextStep)
-                .append(" without restarting. All prior steps are complete.\n");
-        sb.append("[/PLAN_RESUME_CONTEXT]");
-        return sb.toString();
+        plan.addSection("resume-action", """
+                action: Continue from step %d without restarting completed work.
+                [/PLAN_RESUME_CONTEXT]
+                """.formatted(nextStep), 100, true);
+
+        var budget = new SystemPromptBudget(
+                Math.max(256, effectiveMaxChars / 3),
+                effectiveMaxChars);
+        return plan.build(budget).prompt();
     }
 
     /**
@@ -178,5 +213,12 @@ public final class ResumeRouter {
 
     private static Comparator<PlanCheckpoint> recencyComparator() {
         return Comparator.comparing(PlanCheckpoint::updatedAt).reversed();
+    }
+
+    private static String singleLine(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return value.replace('\n', ' ').strip();
     }
 }

@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ResumeRouterTest {
@@ -240,13 +241,16 @@ class ResumeRouterTest {
         assertTrue(prompt.contains("[PLAN_RESUME_CONTEXT]"));
         assertTrue(prompt.contains("[/PLAN_RESUME_CONTEXT]"));
         assertTrue(prompt.contains("planId: plan-1"));
-        assertTrue(prompt.contains("originalGoal: Build feature X"));
-        assertTrue(prompt.contains("completedSteps: 2/4"));
+        assertTrue(prompt.contains("goal: Build feature X"));
+        assertTrue(prompt.contains("progress: 2/4"));
         assertTrue(prompt.contains("Step 1:"));
         assertTrue(prompt.contains("[OK]"));
-        assertTrue(prompt.contains("nextStep: 3"));
-        assertTrue(prompt.contains("resumeHint: Need to test"));
-        assertTrue(prompt.contains("artifactsProduced: api.java"));
+        assertTrue(prompt.contains("nextStep:"));
+        assertTrue(prompt.contains("index: 3"));
+        assertTrue(prompt.contains("doNotRepeat:"));
+        assertTrue(prompt.contains("Need to test"));
+        assertTrue(prompt.contains("artifacts:"));
+        assertTrue(prompt.contains("api.java"));
         assertTrue(prompt.contains("Continue from step 3"));
     }
 
@@ -260,8 +264,32 @@ class ResumeRouterTest {
                 null, List.of(), Instant.now(), Instant.now());
 
         var prompt = ResumeRouter.buildResumePrompt(cp);
-        assertTrue(prompt.contains("completedSteps: 1/1"));
+        assertTrue(prompt.contains("progress: 1/1"));
         // Should not crash even with no remaining steps
-        assertFalse(prompt.contains("nextStep:"));
+        assertFalse(prompt.contains("nextStep:\n"));
+    }
+
+    @Test
+    void buildResumePromptBudgetsSectionsIndependently() {
+        var plan = samplePlan(4);
+        var longOutput = "step-output ".repeat(200);
+        var cp = new PlanCheckpoint(
+                "plan-1", "s1", "ws", "Build feature X", plan,
+                List.of(
+                        new StepResult(true, longOutput, null, 100, 50, 25),
+                        new StepResult(true, longOutput, null, 200, 80, 40)
+                ),
+                1, List.of(), PlanCheckpoint.CheckpointStatus.ACTIVE,
+                "Do not rerun migrations",
+                List.of("artifact-a.txt", "artifact-b.txt", "artifact-c.txt", "artifact-d.txt"),
+                Instant.now(), Instant.now());
+
+        var prompt = ResumeRouter.buildResumePrompt(cp, 700);
+
+        assertThat(prompt.length()).isLessThanOrEqualTo(700);
+        assertThat(prompt).contains("[PLAN_RESUME_CONTEXT]");
+        assertThat(prompt).contains("nextStep:");
+        assertThat(prompt).contains("Do not rerun migrations");
+        assertThat(prompt).contains("Continue from step 3");
     }
 }
