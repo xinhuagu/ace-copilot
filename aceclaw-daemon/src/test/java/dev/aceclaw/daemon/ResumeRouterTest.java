@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ResumeRouterTest {
@@ -266,5 +267,29 @@ class ResumeRouterTest {
         assertTrue(prompt.contains("progress: 1/1"));
         // Should not crash even with no remaining steps
         assertFalse(prompt.contains("nextStep:\n"));
+    }
+
+    @Test
+    void buildResumePromptBudgetsSectionsIndependently() {
+        var plan = samplePlan(4);
+        var longOutput = "step-output ".repeat(200);
+        var cp = new PlanCheckpoint(
+                "plan-1", "s1", "ws", "Build feature X", plan,
+                List.of(
+                        new StepResult(true, longOutput, null, 100, 50, 25),
+                        new StepResult(true, longOutput, null, 200, 80, 40)
+                ),
+                1, List.of(), PlanCheckpoint.CheckpointStatus.ACTIVE,
+                "Do not rerun migrations",
+                List.of("artifact-a.txt", "artifact-b.txt", "artifact-c.txt", "artifact-d.txt"),
+                Instant.now(), Instant.now());
+
+        var prompt = ResumeRouter.buildResumePrompt(cp, 700);
+
+        assertThat(prompt.length()).isLessThanOrEqualTo(700);
+        assertThat(prompt).contains("[PLAN_RESUME_CONTEXT]");
+        assertThat(prompt).contains("nextStep:");
+        assertThat(prompt).contains("Do not rerun migrations");
+        assertThat(prompt).contains("Continue from step 3");
     }
 }

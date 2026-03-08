@@ -118,58 +118,77 @@ public final class ResumeRouter {
                 ? checkpoint.plan().steps().get(checkpoint.nextStepIndex())
                 : null;
 
-        var sb = new StringBuilder();
-        sb.append("[PLAN_RESUME_CONTEXT]\n");
-        sb.append("goal: ").append(singleLine(checkpoint.originalGoal())).append('\n');
-        sb.append("planId: ").append(checkpoint.planId()).append('\n');
-        sb.append("progress: ").append(checkpoint.lastCompletedStepIndex() + 1)
-                .append("/").append(total).append(" steps completed\n");
-        sb.append("doneSteps:\n");
+        var plan = new ContextAssemblyPlan();
+        plan.addSection("resume-header", """
+                [PLAN_RESUME_CONTEXT]
+                goal: %s
+                planId: %s
+                progress: %d/%d steps completed
+                """.formatted(
+                singleLine(checkpoint.originalGoal()),
+                checkpoint.planId(),
+                checkpoint.lastCompletedStepIndex() + 1,
+                total
+        ), 100, true);
+
+        var doneSteps = new StringBuilder();
+        doneSteps.append("doneSteps:\n");
         for (int i = 0; i <= checkpoint.lastCompletedStepIndex()
                 && i < checkpoint.plan().steps().size(); i++) {
             var step = checkpoint.plan().steps().get(i);
             var result = i < checkpoint.completedStepResults().size()
                     ? checkpoint.completedStepResults().get(i) : null;
-            sb.append("  - Step ").append(i + 1).append(": ").append(step.name());
+            doneSteps.append("  - Step ").append(i + 1).append(": ").append(step.name());
             if (result != null && result.success()) {
                 String out = result.output();
                 String summary = out != null && out.length() > 120
                         ? out.substring(0, 120) + "..." : (out != null ? out : "done");
-                sb.append(" [OK] ").append(singleLine(summary));
+                doneSteps.append(" [OK] ").append(singleLine(summary));
             } else if (result != null) {
-                sb.append(" [FAILED] ").append(singleLine(
+                doneSteps.append(" [FAILED] ").append(singleLine(
                         result.error() != null ? result.error() : "unknown"));
             }
-            sb.append('\n');
+            doneSteps.append('\n');
         }
+        plan.addSection("resume-done-steps", doneSteps.toString(), 45, false);
 
         if (nextStepObj != null) {
-            sb.append("nextStep:\n");
-            sb.append("  - index: ").append(nextStep).append('\n');
-            sb.append("  - name: ").append(singleLine(nextStepObj.name())).append('\n');
-            sb.append("  - description: ").append(singleLine(nextStepObj.description())).append('\n');
+            plan.addSection("resume-next-step", """
+                    nextStep:
+                      - index: %d
+                      - name: %s
+                      - description: %s
+                    """.formatted(
+                    nextStep,
+                    singleLine(nextStepObj.name()),
+                    singleLine(nextStepObj.description())
+            ), 95, true);
         }
 
         if (checkpoint.resumeHint() != null && !checkpoint.resumeHint().isBlank()) {
-            sb.append("doNotRepeat:\n");
-            sb.append("  - ").append(singleLine(checkpoint.resumeHint())).append('\n');
+            plan.addSection("resume-do-not-repeat", """
+                    doNotRepeat:
+                      - %s
+                    """.formatted(singleLine(checkpoint.resumeHint())), 85, false);
         }
 
         if (!checkpoint.artifacts().isEmpty()) {
-            sb.append("artifacts:\n");
+            var artifacts = new StringBuilder("artifacts:\n");
             for (var artifact : checkpoint.artifacts()) {
-                sb.append("  - ").append(singleLine(artifact)).append('\n');
+                artifacts.append("  - ").append(singleLine(artifact)).append('\n');
             }
+            plan.addSection("resume-artifacts", artifacts.toString(), 65, false);
         }
 
-        sb.append("action: Continue from step ").append(nextStep)
-                .append(" without restarting completed work.\n");
-        sb.append("[/PLAN_RESUME_CONTEXT]");
-        String prompt = sb.toString();
-        if (prompt.length() <= effectiveMaxChars) {
-            return prompt;
-        }
-        return TierTruncator.truncateContent(prompt, effectiveMaxChars);
+        plan.addSection("resume-action", """
+                action: Continue from step %d without restarting completed work.
+                [/PLAN_RESUME_CONTEXT]
+                """.formatted(nextStep), 100, true);
+
+        var budget = new SystemPromptBudget(
+                Math.max(256, effectiveMaxChars / 3),
+                effectiveMaxChars);
+        return plan.build(budget).prompt();
     }
 
     /**

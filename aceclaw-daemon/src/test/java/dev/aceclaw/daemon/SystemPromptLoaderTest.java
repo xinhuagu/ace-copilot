@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Tests for {@link SystemPromptLoader} with 6-tier memory hierarchy integration.
@@ -272,5 +273,18 @@ class SystemPromptLoaderTest {
         assertThat(assembly.prompt()).contains("Use AssertJ for Java assertions");
         assertThat(assembly.prompt().length()).isLessThanOrEqualTo(28_000);
         assertThat(assembly.truncatedSectionKeys()).isNotEmpty();
+    }
+
+    @Test
+    void assembleRequestRejectsNullRequiredArguments() {
+        assertThrows(NullPointerException.class, () -> SystemPromptLoader.assembleRequest(
+                null, null, null, null, null, null, SystemPromptBudget.DEFAULT,
+                Set.of(), false, null, CandidatePromptAssembler.Config.disabled(),
+                "", "", List.of()));
+
+        assertThrows(NullPointerException.class, () -> SystemPromptLoader.assembleRequest(
+                workDir, null, null, null, null, null, null,
+                Set.of(), false, null, CandidatePromptAssembler.Config.disabled(),
+                "", "", List.of()));
     }
 }

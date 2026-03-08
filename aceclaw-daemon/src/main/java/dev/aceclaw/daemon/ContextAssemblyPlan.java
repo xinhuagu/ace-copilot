@@ -37,28 +37,8 @@ public final class ContextAssemblyPlan {
             working.add(new SectionState(section, content, truncated));
         }
 
-        int totalChars = totalChars(working);
-        if (totalChars > budget.maxTotalChars()) {
-            var truncatable = working.stream()
-                    .filter(state -> !state.section().protectedSection())
-                    .sorted(Comparator.comparingInt(state -> state.section().priority()))
-                    .toList();
-            for (var state : truncatable) {
-                totalChars = totalChars(working);
-                if (totalChars <= budget.maxTotalChars()) {
-                    break;
-                }
-                int excess = totalChars - budget.maxTotalChars();
-                int currentLen = state.content().length();
-                int targetLen = Math.max(0, currentLen - excess);
-                if (targetLen == 0) {
-                    state.clear();
-                } else if (targetLen < currentLen) {
-                    state.content(TierTruncator.truncateContent(state.content(), targetLen));
-                    state.truncated(true);
-                }
-            }
-        }
+        enforceTotalBudget(working, budget.maxTotalChars(), false);
+        enforceTotalBudget(working, budget.maxTotalChars(), true);
 
         var sb = new StringBuilder();
         var truncatedKeys = new ArrayList<String>();
@@ -73,6 +53,34 @@ public final class ContextAssemblyPlan {
             sb.append(state.content());
         }
         return new Result(sb.toString(), List.copyOf(truncatedKeys));
+    }
+
+    private static void enforceTotalBudget(List<SectionState> working, int maxTotalChars, boolean includeProtected) {
+        int totalChars = totalChars(working);
+        if (totalChars <= maxTotalChars) {
+            return;
+        }
+        var truncatable = working.stream()
+                .filter(state -> state.content() != null && (includeProtected || !state.section().protectedSection()))
+                .sorted(Comparator
+                        .comparing((SectionState state) -> state.section().protectedSection())
+                        .thenComparingInt(state -> state.section().priority()))
+                .toList();
+        for (var state : truncatable) {
+            totalChars = totalChars(working);
+            if (totalChars <= maxTotalChars) {
+                break;
+            }
+            int excess = totalChars - maxTotalChars;
+            int currentLen = state.content().length();
+            int targetLen = Math.max(0, currentLen - excess);
+            if (targetLen == 0) {
+                state.clear();
+            } else if (targetLen < currentLen) {
+                state.content(TierTruncator.truncateContent(state.content(), targetLen));
+                state.truncated(true);
+            }
+        }
     }
 
     private static int totalChars(List<SectionState> sections) {

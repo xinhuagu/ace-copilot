@@ -15,8 +15,8 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -208,6 +208,8 @@ public final class SystemPromptLoader {
             String skillDescriptions,
             String queryHint,
             List<String> activeFilePaths) {
+        Objects.requireNonNull(projectPath, "projectPath");
+        Objects.requireNonNull(budget, "budget");
         var tierResult = MemoryTierLoader.loadAll(
                 GLOBAL_CONFIG_DIR, projectPath, memoryStore, journal, markdownStore);
         Path markdownMemoryDir = markdownStore != null ? markdownStore.memoryDir() : null;
