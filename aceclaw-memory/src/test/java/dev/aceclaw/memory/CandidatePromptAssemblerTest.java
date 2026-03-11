@@ -129,7 +129,7 @@ class CandidatePromptAssemblerTest {
 
     @Test
     void orderingScoreThenEvidenceThenRecency() throws Exception {
-        var t0 = Instant.parse("2026-02-23T00:00:00Z");
+        var t0 = Instant.now().minus(Duration.ofMinutes(10));
 
         // Low score - use different tool tags to prevent merge
         upsertAndPromoteAt("low score strategy for grep searches", "grep", 0.5, t0);
