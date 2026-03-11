@@ -87,6 +87,11 @@ public final class ReadFileTool implements Tool {
     public ToolResult execute(String inputJson) throws Exception {
         var input = MAPPER.readTree(inputJson);
 
+        if (!input.has("file_path") || input.get("file_path").isNull()
+                || input.get("file_path").asText().isBlank()) {
+            return new ToolResult("Missing required parameter: file_path", true);
+        }
+
         var filePath = resolveFilePath(input);
         int offset = getIntParam(input, "offset", 1);
         int limit = getIntParam(input, "limit", DEFAULT_LIMIT);
@@ -240,12 +245,7 @@ public final class ReadFileTool implements Tool {
     }
 
     private Path resolveFilePath(JsonNode input) {
-        var raw = input.get("file_path").asText();
-        var path = Path.of(raw);
-        if (path.isAbsolute()) {
-            return path;
-        }
-        return workingDir.resolve(path).normalize();
+        return PathResolver.resolve(input.get("file_path").asText(), workingDir);
     }
 
     private static int getIntParam(JsonNode input, String field, int defaultValue) {
