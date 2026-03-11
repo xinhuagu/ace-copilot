@@ -15,9 +15,14 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Persists per-skill metrics sidecars next to the resolved skill directory.
+ *
+ * <p>This keeps project-scoped skills under {@code project/.aceclaw/skills/...}
+ * and user-scoped skills under {@code ~/.aceclaw/skills/...}, matching the
+ * existing skill resolution model.
  */
 public final class SkillMetricsStore {
 
@@ -35,6 +40,7 @@ public final class SkillMetricsStore {
      * Loads all persisted skill outcomes for a project into a tracker.
      */
     public SkillOutcomeTracker load(Path projectPath) {
+        Objects.requireNonNull(projectPath, "projectPath");
         var tracker = new SkillOutcomeTracker();
         var registry = SkillRegistry.load(projectPath);
         for (var skillName : registry.names()) {
@@ -51,7 +57,7 @@ public final class SkillMetricsStore {
                 for (var outcome : parseOutcomes(root.path("outcomes"))) {
                     tracker.record(skillName, outcome);
                 }
-            } catch (IOException ignored) {
+            } catch (Exception ignored) {
                 // Corrupt metrics sidecars should not block the agent runtime.
             }
         }
@@ -62,6 +68,9 @@ public final class SkillMetricsStore {
      * Persists a single skill's outcome history and current metrics.
      */
     public void persist(Path projectPath, String skillName, SkillOutcomeTracker tracker) throws IOException {
+        Objects.requireNonNull(projectPath, "projectPath");
+        Objects.requireNonNull(skillName, "skillName");
+        Objects.requireNonNull(tracker, "tracker");
         var config = SkillRegistry.load(projectPath).get(skillName).orElse(null);
         if (config == null) {
             return;
@@ -107,9 +116,14 @@ public final class SkillMetricsStore {
         var outcomes = new ArrayList<SkillOutcome>();
         for (var entry : node) {
             String type = entry.path("type").asText("");
-            var timestamp = entry.hasNonNull("timestamp")
-                    ? java.time.Instant.parse(entry.get("timestamp").asText())
-                    : java.time.Instant.now();
+            java.time.Instant timestamp;
+            try {
+                timestamp = entry.hasNonNull("timestamp")
+                        ? java.time.Instant.parse(entry.get("timestamp").asText())
+                        : java.time.Instant.now();
+            } catch (Exception ignored) {
+                timestamp = java.time.Instant.now();
+            }
             switch (type) {
                 case "success" -> outcomes.add(new SkillOutcome.Success(
                         timestamp,
