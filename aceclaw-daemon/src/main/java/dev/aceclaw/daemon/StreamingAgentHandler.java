@@ -21,6 +21,7 @@ import dev.aceclaw.core.agent.MessageCompactor;
 import dev.aceclaw.core.agent.StreamingAgentLoop;
 import dev.aceclaw.core.agent.Tool;
 import dev.aceclaw.core.agent.ToolMetricsCollector;
+import dev.aceclaw.core.agent.ToolMetrics;
 import dev.aceclaw.core.agent.ToolRegistry;
 import dev.aceclaw.core.llm.ContentBlock;
 import dev.aceclaw.core.llm.LlmException;
@@ -1474,6 +1475,15 @@ public final class StreamingAgentHandler {
         sessionInjectedCandidateIds.remove(sessionId);
         sessionDoomLoops.remove(sessionId);
         sessionProgressDetectors.remove(sessionId);
+    }
+
+    /**
+     * Returns an immutable snapshot of session tool metrics for historical indexing.
+     */
+    public Map<String, ToolMetrics> snapshotSessionMetrics(String sessionId) {
+        java.util.Objects.requireNonNull(sessionId, "sessionId");
+        var collector = sessionMetrics.get(sessionId);
+        return collector == null ? Map.of() : collector.allMetrics();
     }
 
     public record AntiPatternGateOverrideStatus(
