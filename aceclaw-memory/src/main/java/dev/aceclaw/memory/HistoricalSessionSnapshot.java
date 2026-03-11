@@ -5,6 +5,7 @@ import dev.aceclaw.core.agent.ToolMetrics;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Immutable session-close snapshot used to incrementally build the historical learning index.
@@ -20,6 +21,7 @@ public record HistoricalSessionSnapshot(
         String endToEndStrategy
 ) {
     public HistoricalSessionSnapshot {
+        sessionId = Objects.requireNonNull(sessionId, "sessionId");
         executedCommands = executedCommands != null ? List.copyOf(executedCommands) : List.of();
         errorsEncountered = errorsEncountered != null ? List.copyOf(errorsEncountered) : List.of();
         extractedFilePaths = extractedFilePaths != null ? List.copyOf(extractedFilePaths) : List.of();

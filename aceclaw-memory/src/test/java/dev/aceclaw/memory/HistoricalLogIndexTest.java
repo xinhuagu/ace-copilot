@@ -4,6 +4,7 @@ import dev.aceclaw.core.agent.ToolMetrics;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -99,5 +100,33 @@ class HistoricalLogIndexTest {
                 .singleElement()
                 .extracting(HistoricalLogIndex.ToolInvocationEntry::sessionId)
                 .isEqualTo("new-session");
+    }
+
+    @Test
+    void skipsMalformedJsonlLinesWithoutDroppingValidHistory() throws Exception {
+        var index = new HistoricalLogIndex(tempDir);
+        var t0 = Instant.parse("2026-03-12T10:00:00Z");
+
+        index.index(new HistoricalSessionSnapshot(
+                "session-1",
+                t0,
+                List.of("bash build.sh"),
+                List.of(),
+                List.of(),
+                Map.of("bash", new ToolMetrics("bash", 1, 1, 0, 100, t0)),
+                false,
+                ""
+        ));
+
+        Files.writeString(
+                tempDir.resolve("index").resolve("tool_invocations.jsonl"),
+                "{\"broken\":\n",
+                java.nio.file.StandardOpenOption.APPEND
+        );
+
+        assertThat(index.queryByTool("bash", t0.minusSeconds(60), t0.plusSeconds(60)))
+                .singleElement()
+                .extracting(HistoricalLogIndex.ToolInvocationEntry::sessionId)
+                .isEqualTo("session-1");
     }
 }

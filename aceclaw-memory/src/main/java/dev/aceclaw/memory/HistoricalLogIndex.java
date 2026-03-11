@@ -210,7 +210,11 @@ public final class HistoricalLogIndex {
                 if (line == null || line.isBlank()) {
                     continue;
                 }
-                entries.add(mapper.readValue(line, type));
+                try {
+                    entries.add(mapper.readValue(line, type));
+                } catch (IOException e) {
+                    log.warn("Skipping malformed historical index line in {}: {}", file.getFileName(), e.getMessage());
+                }
             }
             return List.copyOf(entries);
         } catch (IOException e) {
