@@ -9,6 +9,7 @@ import dev.aceclaw.core.agent.CompactionConfig;
 import dev.aceclaw.core.agent.ContextEstimator;
 import dev.aceclaw.core.agent.DoomLoopDetector;
 import dev.aceclaw.core.agent.ProgressDetector;
+import dev.aceclaw.core.agent.SkillMetrics;
 import dev.aceclaw.core.agent.SkillOutcome;
 import dev.aceclaw.core.agent.SkillOutcomeTracker;
 import dev.aceclaw.core.agent.WatchdogTimer;
@@ -649,8 +650,8 @@ public final class StreamingAgentHandler {
         for (var skillName : recent) {
             var outcome = new SkillOutcome.UserCorrected(Instant.now(), correction);
             tracker.record(skillName, outcome);
-            persistSkillMetrics(projectPath, skillName, tracker);
-            emitSkillMemoryFeedback(projectPath, skillName, tracker, outcome);
+            var metrics = persistSkillMetrics(projectPath, skillName, tracker);
+            emitSkillMemoryFeedback(projectPath, skillName, metrics, outcome);
         }
     }
 
@@ -693,8 +694,8 @@ public final class StreamingAgentHandler {
                 successfulSkills.add(invocation.skillName());
             }
             tracker.record(invocation.skillName(), outcome);
-            persistSkillMetrics(projectPath, invocation.skillName(), tracker);
-            emitSkillMemoryFeedback(projectPath, invocation.skillName(), tracker, outcome);
+            var metrics = persistSkillMetrics(projectPath, invocation.skillName(), tracker);
+            emitSkillMemoryFeedback(projectPath, invocation.skillName(), metrics, outcome);
         }
 
         if (successfulSkills.isEmpty()) {
@@ -704,23 +705,27 @@ public final class StreamingAgentHandler {
         }
     }
 
-    private void persistSkillMetrics(Path projectPath, String skillName, SkillOutcomeTracker tracker) {
+    private SkillMetrics persistSkillMetrics(Path projectPath, String skillName, SkillOutcomeTracker tracker) {
+        var metrics = tracker.getMetrics(skillName).orElse(null);
+        if (metrics == null) {
+            return null;
+        }
         try {
-            skillMetricsStore.persist(projectPath, skillName, tracker);
+            skillMetricsStore.persist(projectPath, skillName, tracker, metrics);
         } catch (Exception e) {
             log.warn("Failed to persist skill metrics for {}: {}", skillName, e.getMessage());
         }
+        return metrics;
     }
 
     private void emitSkillMemoryFeedback(Path projectPath,
                                          String skillName,
-                                         SkillOutcomeTracker tracker,
+                                         SkillMetrics metrics,
                                          SkillOutcome outcome) {
-        if (skillMemoryFeedback == null) {
+        if (skillMemoryFeedback == null || metrics == null) {
             return;
         }
         try {
-            var metrics = tracker.getMetrics(skillName).orElse(null);
             skillMemoryFeedback.onOutcome(skillName, outcome, metrics, projectPath);
         } catch (Exception e) {
             log.warn("Failed to write skill-memory feedback for {}: {}", skillName, e.getMessage());

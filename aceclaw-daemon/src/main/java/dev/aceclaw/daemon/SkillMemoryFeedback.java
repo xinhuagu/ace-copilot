@@ -6,7 +6,6 @@ import dev.aceclaw.memory.AutoMemoryStore;
 import dev.aceclaw.memory.MemoryEntry;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -93,15 +92,7 @@ public final class SkillMemoryFeedback {
                              List<String> tags,
                              Path projectPath,
                              String source) {
-        var existing = new ArrayList<>(memoryStore.all()).stream()
-                .filter(entry -> entry.category() == category)
-                .filter(entry -> entry.source() != null && entry.source().equals(source))
-                .filter(entry -> normalize(entry.content()).equals(normalize(content)))
-                .findFirst();
-        if (existing.isPresent()) {
-            return;
-        }
-        memoryStore.add(category, content, tags, source, false, projectPath);
+        memoryStore.addIfAbsent(category, content, tags, source, false, projectPath);
     }
 
     private static String normalize(String text) {

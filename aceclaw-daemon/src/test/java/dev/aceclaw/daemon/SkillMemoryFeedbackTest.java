@@ -69,4 +69,16 @@ class SkillMemoryFeedbackTest {
         assertThat(corrections).hasSize(1);
         assertThat(preferences).hasSize(1);
     }
+
+    @Test
+    void duplicateSuccessDoesNotCreateDuplicateMemory() {
+        var now = Instant.now();
+        var metrics = new SkillMetrics("review", 2, 2, 0, 0, 1.0, now, 1.0);
+
+        feedback.onOutcome("review", new SkillOutcome.Success(now, 1), metrics, tempDir);
+        feedback.onOutcome("review", new SkillOutcome.Success(now.plusSeconds(5), 1), metrics, tempDir);
+
+        var memories = store.query(MemoryEntry.Category.SUCCESSFUL_STRATEGY, List.of("review"), 10);
+        assertThat(memories).hasSize(1);
+    }
 }

@@ -170,6 +170,46 @@ public final class AutoMemoryStore {
     }
 
     /**
+     * Adds a new memory entry only if an equivalent entry is not already present.
+     * Equivalence is based on category, source, and normalized content.
+     */
+    public Optional<MemoryEntry> addIfAbsent(MemoryEntry.Category category, String content,
+                                             List<String> tags, String source,
+                                             boolean global, Path projectPath) {
+        fileLock.lock();
+        try {
+            String normalizedContent = normalizeForDedup(content);
+            var existing = entries.stream()
+                    .filter(entry -> entry.category() == category)
+                    .filter(entry -> Objects.equals(entry.source(), source))
+                    .filter(entry -> normalizeForDedup(entry.content()).equals(normalizedContent))
+                    .findFirst();
+            if (existing.isPresent()) {
+                return existing;
+            }
+
+            String id = UUID.randomUUID().toString();
+            Instant now = Instant.now();
+            var unsigned = new MemoryEntry(id, category, content, tags, now, source, null, 0, null);
+            String hmac = signer.sign(unsigned.signablePayload());
+            var entry = new MemoryEntry(id, category, content, tags, now, source, hmac, 0, null);
+
+            String fileName = global ? GLOBAL_FILE : projectHash(projectPath) + ".jsonl";
+            String json = mapper.writeValueAsString(entry);
+            Files.writeString(memoryDir.resolve(fileName), json + "\n",
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            entries.add(entry);
+            log.debug("Added memory if absent: category={}, tags={}, file={}", category, tags, fileName);
+            return Optional.of(entry);
+        } catch (IOException e) {
+            log.error("Failed to persist memory entry: {}", e.getMessage());
+            return Optional.empty();
+        } finally {
+            fileLock.unlock();
+        }
+    }
+
+    /**
      * Retrieves memories matching the given category filter and/or tag filter.
      *
      * @param category optional category filter (null = all categories)
@@ -411,6 +451,13 @@ public final class AutoMemoryStore {
         }
 
         return sb.toString();
+    }
+
+    private static String normalizeForDedup(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
     // -- internal --------------------------------------------------------
