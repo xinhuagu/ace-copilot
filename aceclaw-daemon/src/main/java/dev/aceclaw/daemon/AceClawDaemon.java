@@ -25,6 +25,8 @@ import dev.aceclaw.memory.AutoMemoryStore;
 import dev.aceclaw.memory.CandidateStateMachine;
 import dev.aceclaw.memory.CandidateStore;
 import dev.aceclaw.memory.DailyJournal;
+import dev.aceclaw.memory.HistoricalLogIndex;
+import dev.aceclaw.memory.HistoricalSessionSnapshot;
 import dev.aceclaw.memory.MarkdownMemoryStore;
 import dev.aceclaw.memory.MemoryConsolidator;
 import dev.aceclaw.memory.StrategyRefiner;
@@ -75,6 +77,7 @@ public final class AceClawDaemon {
     private final SessionManager sessionManager;
     private final SessionHistoryStore historyStore;
     private final AutoMemoryStore memoryStore;
+    private final HistoricalLogIndex historicalLogIndex;
     private final MarkdownMemoryStore markdownStore;
     private final JobStore cronJobStore;
     private final EventBus eventBus;
@@ -138,6 +141,13 @@ public final class AceClawDaemon {
             log.warn("Failed to initialize auto-memory store: {}", e.getMessage());
         }
         this.memoryStore = ms;
+        HistoricalLogIndex hli = null;
+        try {
+            hli = new HistoricalLogIndex(homeDir);
+        } catch (java.io.IOException e) {
+            log.warn("Failed to initialize historical log index: {}", e.getMessage());
+        }
+        this.historicalLogIndex = hli;
 
         // Markdown memory store (persistent MEMORY.md + topic files)
         MarkdownMemoryStore mds = null;
@@ -614,7 +624,8 @@ public final class AceClawDaemon {
                     log.info("Extracted {} memories from session {} on destroy",
                             extracted.size(), session.id());
                 }
-                var learnings = sessionAnalyzer.analyze(session.messages(), Map.of());
+                var metricsSnapshot = agentHandlerForCleanup.snapshotSessionMetrics(session.id());
+                var learnings = sessionAnalyzer.analyze(session.messages(), metricsSnapshot);
                 for (var insight : learnings.insights()) {
                     if (!shouldPersistSessionAnalysisInsight(insight)) {
                         continue;
@@ -640,6 +651,22 @@ public final class AceClawDaemon {
                     if (!learnings.sessionSummary().isBlank()) {
                         extractionJournal.append("Session retrospective (" + shortId + "): "
                                 + learnings.sessionSummary());
+                    }
+                }
+                if (historicalLogIndex != null) {
+                    try {
+                        historicalLogIndex.index(new HistoricalSessionSnapshot(
+                                session.id(),
+                                Instant.now(),
+                                learnings.executedCommands(),
+                                learnings.errorsEncountered(),
+                                learnings.extractedFilePaths(),
+                                metricsSnapshot,
+                                learnings.backtrackingDetected(),
+                                learnings.endToEndStrategy()
+                        ));
+                    } catch (Exception e) {
+                        log.warn("Failed to index session history: {}", e.getMessage());
                     }
                 }
 
