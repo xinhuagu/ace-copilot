@@ -34,7 +34,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
@@ -72,6 +74,7 @@ public final class TerminalRepl {
     private static final Duration TASK_STALLED_AFTER = Duration.ofSeconds(45);
     private static final Duration TASK_TIMEOUT_AFTER = Duration.ofSeconds(180);
     private static final Duration LEARNING_STATUS_REFRESH = Duration.ofSeconds(5);
+    private static final Duration SKILL_DRAFT_REFRESH = Duration.ofSeconds(5);
     private static final Duration CRON_STATUS_REFRESH = Duration.ofSeconds(5);
     /** Slightly shorter than the bridge timeout so user answers win the race near deadline. */
     private static final long PERMISSION_MODAL_TIMEOUT_MS =
@@ -84,7 +87,9 @@ public final class TerminalRepl {
     private static final String CL_METRICS_DIR = ".aceclaw/metrics/continuous-learning";
     private static final String CL_REPLAY_REPORT = "replay-latest.json";
     private static final String CL_RELEASE_STATE = "skill-release-state.json";
+    private static final String CL_VALIDATION_AUDIT = "skill-draft-validation-audit.jsonl";
     private static final String CL_CANDIDATES = ".aceclaw/memory/candidates.jsonl";
+    private static final String CL_DRAFTS_DIR = ".aceclaw/skills-drafts";
     private static final Path HOME_CANDIDATES_PATH = Path.of(
             System.getProperty("user.home"), ".aceclaw", "memory", "candidates.jsonl");
 
@@ -132,6 +137,10 @@ public final class TerminalRepl {
     /** Cached continuous-learning status line; refreshed periodically. */
     private volatile String cachedLearningStatusLine;
     private volatile Instant cachedLearningStatusAt = Instant.EPOCH;
+    private volatile SkillDraftSnapshot cachedSkillDraftSnapshot;
+    private volatile Instant cachedSkillDraftSnapshotAt = Instant.EPOCH;
+    private volatile SkillDraftSnapshot lastNotifiedSkillDraftSnapshot;
+    private volatile boolean skillDraftNotificationPrimed;
     /** Cached cron status snapshot from daemon RPC. */
     private volatile CronStatusSnapshot cachedCronStatus;
     private volatile Instant cachedCronStatusAt = Instant.EPOCH;
@@ -178,6 +187,58 @@ public final class TerminalRepl {
     ) {
         private CronStatusSnapshot {
             jobs = jobs != null ? List.copyOf(jobs) : List.of();
+        }
+    }
+
+    private record SkillValidationStatus(
+            String verdict,
+            List<String> reasons
+    ) {
+        private SkillValidationStatus {
+            verdict = verdict == null || verdict.isBlank() ? "pending" : verdict;
+            reasons = reasons != null ? List.copyOf(reasons) : List.of();
+        }
+    }
+
+    private record SkillReleaseStatus(
+            String stage,
+            boolean paused
+    ) {
+        private SkillReleaseStatus {
+            stage = stage == null || stage.isBlank() ? "draft" : stage;
+        }
+    }
+
+    private record SkillDraftRecord(
+            String skillName,
+            String description,
+            String draftPath,
+            String candidateId,
+            String allowedTools,
+            boolean disableModelInvocation,
+            String validationVerdict,
+            List<String> validationReasons,
+            String releaseStage,
+            boolean paused
+    ) {
+        private SkillDraftRecord {
+            skillName = skillName == null ? "" : skillName;
+            description = description == null ? "" : description;
+            draftPath = draftPath == null ? "" : draftPath;
+            candidateId = candidateId == null ? "" : candidateId;
+            allowedTools = allowedTools == null ? "" : allowedTools;
+            validationVerdict = validationVerdict == null || validationVerdict.isBlank()
+                    ? "pending" : validationVerdict;
+            validationReasons = validationReasons != null ? List.copyOf(validationReasons) : List.of();
+            releaseStage = releaseStage == null || releaseStage.isBlank() ? "draft" : releaseStage;
+        }
+    }
+
+    private record SkillDraftSnapshot(
+            Map<String, SkillDraftRecord> drafts
+    ) {
+        private SkillDraftSnapshot {
+            drafts = drafts != null ? Map.copyOf(drafts) : Map.of();
         }
     }
 
@@ -412,6 +473,7 @@ public final class TerminalRepl {
                         pollAndRenderSchedulerEvents(schedulerEventConn, reader);
                         pollAndRenderDeferredEvents(schedulerEventConn, reader);
                         pollCronStatus(schedulerEventConn);
+                        pollSkillDraftNotifications();
                     }
                 });
     }
@@ -1705,7 +1767,8 @@ public final class TerminalRepl {
         String replaySummary = replayStatusSummary(replayPath);
         String candidateSummary = candidateStatusSummary(candidatesPath);
         String releaseSummary = releaseStatusSummary(releaseStatePath);
-        if (replaySummary == null && candidateSummary == null && releaseSummary == null) {
+        String draftSummary = skillDraftStatusSummary(projectRoot);
+        if (replaySummary == null && candidateSummary == null && releaseSummary == null && draftSummary == null) {
             return null;
         }
 
@@ -1723,6 +1786,10 @@ public final class TerminalRepl {
         if (releaseSummary != null) {
             sb.append(MUTED).append(" | ").append(RESET)
                     .append(MUTED).append("release=").append(releaseSummary).append(RESET);
+        }
+        if (draftSummary != null) {
+            sb.append(MUTED).append(" | ").append(RESET)
+                    .append(MUTED).append("drafts=").append(draftSummary).append(RESET);
         }
         return sb.toString();
     }
@@ -1837,6 +1904,258 @@ public final class TerminalRepl {
         }
     }
 
+    private String skillDraftStatusSummary(Path projectRoot) {
+        Objects.requireNonNull(projectRoot, "projectRoot");
+        var snapshot = getSkillDraftSnapshot(projectRoot);
+        if (snapshot == null || snapshot.drafts().isEmpty()) {
+            return null;
+        }
+        int pending = 0;
+        int pass = 0;
+        int hold = 0;
+        int block = 0;
+        for (var draft : snapshot.drafts().values()) {
+            switch (draft.validationVerdict()) {
+                case "pass" -> pass++;
+                case "hold" -> hold++;
+                case "block" -> block++;
+                default -> pending++;
+            }
+        }
+        return snapshot.drafts().size()
+                + "(p:" + pass + ",h:" + hold + ",b:" + block + ",n:" + pending + ")";
+    }
+
+    private void pollSkillDraftNotifications() {
+        if (sessionInfo.project() == null || sessionInfo.project().isBlank()) {
+            return;
+        }
+        final Path projectRoot;
+        try {
+            projectRoot = Path.of(sessionInfo.project());
+        } catch (Exception e) {
+            log.debug("Invalid project path for skill draft polling: {}", e.getMessage());
+            return;
+        }
+
+        var snapshot = getSkillDraftSnapshot(projectRoot);
+        if (snapshot == null) {
+            return;
+        }
+
+        if (!skillDraftNotificationPrimed) {
+            lastNotifiedSkillDraftSnapshot = snapshot;
+            skillDraftNotificationPrimed = true;
+            if (!snapshot.drafts().isEmpty()) {
+                enqueueUiNotice(INFO + "skill drafts pending" + RESET + ": "
+                        + snapshot.drafts().size() + " draft(s); use /skills drafts");
+            }
+            return;
+        }
+
+        var previous = lastNotifiedSkillDraftSnapshot;
+        lastNotifiedSkillDraftSnapshot = snapshot;
+        if (previous == null) {
+            return;
+        }
+
+        for (var entry : snapshot.drafts().entrySet()) {
+            String key = entry.getKey();
+            var current = entry.getValue();
+            var prior = previous.drafts().get(key);
+            if (prior == null) {
+                enqueueUiNotice(INFO + "skill draft created" + RESET + ": "
+                        + current.skillName() + " (" + current.validationVerdict() + ")");
+                continue;
+            }
+            if (!Objects.equals(prior.validationVerdict(), current.validationVerdict())) {
+                String reason = current.validationReasons().isEmpty()
+                        ? current.validationVerdict()
+                        : current.validationReasons().get(0);
+                enqueueUiNotice(INFO + "skill draft " + current.validationVerdict() + RESET + ": "
+                        + current.skillName() + " - " + fitWidth(reason, 72));
+            }
+            if (!Objects.equals(prior.releaseStage(), current.releaseStage())
+                    || prior.paused() != current.paused()) {
+                String suffix = current.paused() ? " (paused)" : "";
+                enqueueUiNotice(INFO + "skill release" + RESET + ": "
+                        + current.skillName() + " -> " + current.releaseStage() + suffix);
+            }
+        }
+        requestUiRender();
+    }
+
+    private SkillDraftSnapshot getSkillDraftSnapshot(Path projectRoot) {
+        Objects.requireNonNull(projectRoot, "projectRoot");
+        Instant now = Instant.now();
+        if (cachedSkillDraftSnapshot != null
+                && Duration.between(cachedSkillDraftSnapshotAt, now).compareTo(SKILL_DRAFT_REFRESH) < 0) {
+            return cachedSkillDraftSnapshot;
+        }
+        SkillDraftSnapshot next = loadSkillDraftSnapshot(projectRoot);
+        cachedSkillDraftSnapshot = next;
+        cachedSkillDraftSnapshotAt = now;
+        return next;
+    }
+
+    private SkillDraftSnapshot loadSkillDraftSnapshot(Path projectRoot) {
+        Path draftsRoot = projectRoot.resolve(CL_DRAFTS_DIR);
+        if (!Files.isDirectory(draftsRoot)) {
+            return new SkillDraftSnapshot(Map.of());
+        }
+
+        Map<String, SkillValidationStatus> validations = loadSkillValidationStatuses(
+                projectRoot.resolve(CL_METRICS_DIR).resolve(CL_VALIDATION_AUDIT));
+        Map<String, SkillReleaseStatus> releases = loadSkillReleaseStatuses(
+                projectRoot.resolve(CL_METRICS_DIR).resolve(CL_RELEASE_STATE));
+        var drafts = new LinkedHashMap<String, SkillDraftRecord>();
+        try (var paths = Files.walk(draftsRoot)) {
+            for (Path draftFile : paths
+                    .filter(Files::isRegularFile)
+                    .filter(path -> "SKILL.md".equals(path.getFileName().toString()))
+                    .sorted()
+                    .toList()) {
+                String draftPath = projectRoot.relativize(draftFile).toString().replace('\\', '/');
+                Map<String, String> frontmatter = parseSkillFrontmatter(Files.readString(draftFile));
+                String skillName = frontmatter.getOrDefault("name", draftFile.getParent().getFileName().toString());
+                var validation = validations.getOrDefault(draftPath, new SkillValidationStatus("pending", List.of()));
+                var release = releases.getOrDefault(skillName, new SkillReleaseStatus("draft", false));
+                drafts.put(skillName.toLowerCase(), new SkillDraftRecord(
+                        skillName,
+                        frontmatter.getOrDefault("description", ""),
+                        draftPath,
+                        frontmatter.getOrDefault("source-candidate-id", ""),
+                        frontmatter.getOrDefault("allowed-tools", ""),
+                        parseBoolean(frontmatter.get("disable-model-invocation")),
+                        validation.verdict(),
+                        validation.reasons(),
+                        release.stage(),
+                        release.paused()
+                ));
+            }
+        } catch (Exception e) {
+            log.debug("Failed to load skill draft snapshot: {}", e.getMessage());
+            return new SkillDraftSnapshot(Map.of());
+        }
+        return new SkillDraftSnapshot(drafts);
+    }
+
+    private Map<String, SkillValidationStatus> loadSkillValidationStatuses(Path auditPath) {
+        var statuses = new LinkedHashMap<String, SkillValidationStatus>();
+        if (!Files.isRegularFile(auditPath)) {
+            return statuses;
+        }
+        try {
+            for (String line : Files.readAllLines(auditPath)) {
+                if (line == null || line.isBlank()) continue;
+                JsonNode node = statusMapper.readTree(line);
+                if (node == null) continue;
+                String draftPath = node.path("draftPath").asText("");
+                if (draftPath.isBlank()) continue;
+                var reasons = new ArrayList<String>();
+                JsonNode arr = node.path("reasons");
+                if (arr.isArray()) {
+                    for (JsonNode reason : arr) {
+                        String code = reason.path("code").asText("");
+                        String message = reason.path("message").asText("");
+                        if (!code.isBlank() && !message.isBlank()) {
+                            reasons.add(code + ": " + message);
+                        } else if (!code.isBlank()) {
+                            reasons.add(code);
+                        } else if (!message.isBlank()) {
+                            reasons.add(message);
+                        }
+                    }
+                }
+                statuses.put(draftPath, new SkillValidationStatus(
+                        node.path("verdict").asText("pending"),
+                        reasons
+                ));
+            }
+        } catch (Exception e) {
+            log.debug("Failed to parse skill draft validation audit: {}", e.getMessage());
+        }
+        return statuses;
+    }
+
+    private Map<String, SkillReleaseStatus> loadSkillReleaseStatuses(Path releaseStatePath) {
+        var statuses = new LinkedHashMap<String, SkillReleaseStatus>();
+        if (!Files.isRegularFile(releaseStatePath)) {
+            return statuses;
+        }
+        try {
+            JsonNode root = statusMapper.readTree(releaseStatePath.toFile());
+            JsonNode releases = root == null ? null : root.path("releases");
+            if (releases == null || !releases.isArray()) {
+                return statuses;
+            }
+            for (JsonNode release : releases) {
+                String skillName = release.path("skillName").asText("");
+                if (skillName.isBlank()) continue;
+                statuses.put(skillName, new SkillReleaseStatus(
+                        release.path("stage").asText("draft"),
+                        release.path("paused").asBoolean(false)
+                ));
+            }
+        } catch (Exception e) {
+            log.debug("Failed to parse skill release state: {}", e.getMessage());
+        }
+        return statuses;
+    }
+
+    private static Map<String, String> parseSkillFrontmatter(String raw) {
+        var map = new LinkedHashMap<String, String>();
+        if (raw == null || raw.isBlank()) {
+            return map;
+        }
+        String[] lines = raw.split("\n");
+        int first = -1;
+        int second = -1;
+        for (int i = 0; i < lines.length; i++) {
+            if ("---".equals(lines[i].trim())) {
+                if (first < 0) {
+                    first = i;
+                } else {
+                    second = i;
+                    break;
+                }
+            }
+        }
+        if (first < 0 || second <= first) {
+            return map;
+        }
+        for (int i = first + 1; i < second; i++) {
+            String line = lines[i];
+            int idx = line.indexOf(':');
+            if (idx <= 0) continue;
+            String key = line.substring(0, idx).trim().toLowerCase();
+            String value = line.substring(idx + 1).trim();
+            map.put(key, stripQuotes(value));
+        }
+        return map;
+    }
+
+    private static boolean parseBoolean(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return false;
+        }
+        return switch (stripQuotes(raw).trim().toLowerCase()) {
+            case "true", "yes", "1" -> true;
+            default -> false;
+        };
+    }
+
+    private static String stripQuotes(String raw) {
+        if (raw == null || raw.length() < 2) {
+            return raw == null ? "" : raw;
+        }
+        if ((raw.startsWith("\"") && raw.endsWith("\""))
+                || (raw.startsWith("'") && raw.endsWith("'"))) {
+            return raw.substring(1, raw.length() - 1);
+        }
+        return raw;
+    }
+
     private TaskRuntimeInfo deriveRuntimeInfo(TaskHandle task, Instant now) {
         if (task.waitingPermission()) {
             String detail = task.permissionDetail();
@@ -1919,6 +2238,7 @@ public final class TerminalRepl {
                 out.println(INFO + "  /tools" + RESET + "    List available tools");
                 out.println(INFO + "  /status" + RESET + "   Show session status");
                 out.println(INFO + "  /project" + RESET + "  Show current session project");
+                out.println(INFO + "  /skills" + RESET + "   List generated skill drafts (/skills inspect <name>)");
                 out.println(INFO + "  /tasks" + RESET + "    List all tasks with status");
                 out.println(INFO + "  /bg" + RESET + "       Send foreground task to background");
                 out.println(INFO + "  /fg" + RESET + "       Bring background task to foreground (/fg [id])");
@@ -1973,6 +2293,8 @@ public final class TerminalRepl {
                 out.println();
                 out.flush();
             }
+
+            case "/skills" -> handleSkillsCommand(out, arg);
 
             case "/tasks" -> handleTasksCommand(out);
 
@@ -2141,6 +2463,114 @@ public final class TerminalRepl {
         } catch (NoSuchAlgorithmException e) {
             return "workspace-unknown";
         }
+    }
+
+    private void handleSkillsCommand(PrintWriter out, String arg) {
+        if (sessionInfo.project() == null || sessionInfo.project().isBlank()) {
+            out.println(WARNING + "No project root available for skill drafts." + RESET);
+            out.flush();
+            return;
+        }
+        final Path projectRoot;
+        try {
+            projectRoot = Path.of(sessionInfo.project());
+        } catch (Exception e) {
+            out.println(WARNING + "Invalid project path: " + e.getMessage() + RESET);
+            out.flush();
+            return;
+        }
+
+        if (arg == null || arg.isBlank() || "drafts".equalsIgnoreCase(arg)) {
+            renderSkillDraftList(out, projectRoot);
+            return;
+        }
+        if (arg.regionMatches(true, 0, "inspect ", 0, "inspect ".length())) {
+            renderSkillDraftInspect(out, projectRoot, arg.substring("inspect ".length()).trim());
+            return;
+        }
+
+        out.println(WARNING + "Usage: /skills drafts | /skills inspect <name>" + RESET);
+        out.flush();
+    }
+
+    private void renderSkillDraftList(PrintWriter out, Path projectRoot) {
+        var snapshot = getSkillDraftSnapshot(projectRoot);
+        if (snapshot == null || snapshot.drafts().isEmpty()) {
+            out.println();
+            out.println(MUTED + "No generated skill drafts." + RESET);
+            out.println();
+            out.flush();
+            return;
+        }
+
+        out.println();
+        out.println(BOLD + "Skill Drafts" + RESET);
+        for (var draft : snapshot.drafts().values().stream()
+                .sorted((left, right) -> left.skillName().compareToIgnoreCase(right.skillName()))
+                .toList()) {
+            String paused = draft.paused() ? " paused" : "";
+            out.printf("  %s%s%s  %sverdict=%s%s  %srelease=%s%s%s%n",
+                    BOLD, draft.skillName(), RESET,
+                    MUTED, draft.validationVerdict(), RESET,
+                    MUTED, draft.releaseStage(), paused, RESET);
+            if (!draft.description().isBlank()) {
+                out.printf("      %s%s%s%n", MUTED, fitWidth(draft.description(), 96), RESET);
+            }
+        }
+        out.println();
+        out.flush();
+    }
+
+    private void renderSkillDraftInspect(PrintWriter out, Path projectRoot, String name) {
+        if (name == null || name.isBlank()) {
+            out.println(WARNING + "Usage: /skills inspect <name>" + RESET);
+            out.flush();
+            return;
+        }
+
+        var snapshot = getSkillDraftSnapshot(projectRoot);
+        if (snapshot == null || snapshot.drafts().isEmpty()) {
+            out.println(MUTED + "No generated skill drafts." + RESET);
+            out.flush();
+            return;
+        }
+
+        SkillDraftRecord selected = snapshot.drafts().values().stream()
+                .filter(draft -> draft.skillName().equalsIgnoreCase(name))
+                .findFirst()
+                .orElse(null);
+        if (selected == null) {
+            out.println(WARNING + "Skill draft not found: " + name + RESET);
+            out.flush();
+            return;
+        }
+
+        out.println();
+        out.println(BOLD + "Skill Draft" + RESET);
+        out.printf("  %sName:%s        %s%n", MUTED, RESET, selected.skillName());
+        out.printf("  %sDraft path:%s  %s%n", MUTED, RESET, selected.draftPath());
+        out.printf("  %sVerdict:%s     %s%n", MUTED, RESET, selected.validationVerdict());
+        out.printf("  %sRelease:%s     %s%s%n", MUTED, RESET, selected.releaseStage(),
+                selected.paused() ? " (paused)" : "");
+        out.printf("  %sModel inv:%s   %s%n", MUTED, RESET,
+                selected.disableModelInvocation() ? "disabled" : "enabled");
+        if (!selected.candidateId().isBlank()) {
+            out.printf("  %sCandidate:%s   %s%n", MUTED, RESET, selected.candidateId());
+        }
+        if (!selected.allowedTools().isBlank()) {
+            out.printf("  %sTools:%s       %s%n", MUTED, RESET, selected.allowedTools());
+        }
+        if (!selected.description().isBlank()) {
+            out.printf("  %sSummary:%s     %s%n", MUTED, RESET, selected.description());
+        }
+        if (!selected.validationReasons().isEmpty()) {
+            out.printf("  %sReasons:%s%n", MUTED, RESET);
+            for (String reason : selected.validationReasons()) {
+                out.printf("    %s- %s%s%n", MUTED, fitWidth(reason, 100), RESET);
+            }
+        }
+        out.println();
+        out.flush();
     }
 
     // -- /tasks command ------------------------------------------------------

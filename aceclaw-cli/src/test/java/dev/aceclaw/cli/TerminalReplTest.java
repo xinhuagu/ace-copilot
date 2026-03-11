@@ -60,6 +60,7 @@ class TerminalReplTest {
         assertThat(output).contains("/model");
         assertThat(output).contains("/tools");
         assertThat(output).contains("/project");
+        assertThat(output).contains("/skills");
         assertThat(output).contains("/tasks");
         assertThat(output).contains("/bg");
         assertThat(output).contains("/fg");
@@ -139,6 +140,36 @@ class TerminalReplTest {
         String output = outputBuffer.toString();
         assertThat(output).contains("Session Project");
         assertThat(output).contains("/tmp/project");
+    }
+
+    @Test
+    void skillsDrafts_listsGeneratedDrafts() throws Exception {
+        var statusRepl = newReplForProject(tempDir);
+        writeSkillDraftArtifacts(tempDir);
+
+        boolean shouldExit = statusRepl.handleSlashCommand(out, "/skills drafts", null);
+
+        assertThat(shouldExit).isFalse();
+        String output = outputBuffer.toString();
+        assertThat(output).contains("Skill Drafts");
+        assertThat(output).contains("retry-safe");
+        assertThat(output).contains("verdict=hold");
+        assertThat(output).contains("release=shadow");
+    }
+
+    @Test
+    void skillsInspect_showsDraftDetails() throws Exception {
+        var statusRepl = newReplForProject(tempDir);
+        writeSkillDraftArtifacts(tempDir);
+
+        boolean shouldExit = statusRepl.handleSlashCommand(out, "/skills inspect retry-safe", null);
+
+        assertThat(shouldExit).isFalse();
+        String output = outputBuffer.toString();
+        assertThat(output).contains("Skill Draft");
+        assertThat(output).contains("retry-safe");
+        assertThat(output).contains("cand-123");
+        assertThat(output).contains("STATIC_ALLOWED_TOOLS_POLICY_VIOLATION");
     }
 
     @Test
@@ -226,6 +257,16 @@ class TerminalReplTest {
         String summary = (String) invokePrivate(statusRepl, "candidateStatusSummary",
                 new Class<?>[]{Path.class}, candidates);
         assertThat(summary).isEqualTo("3(p:1,s:1,d:1)");
+    }
+
+    @Test
+    void skillDraftStatusSummary_includesVerdictCounts() throws Exception {
+        var statusRepl = newReplForProject(tempDir);
+        writeSkillDraftArtifacts(tempDir);
+
+        String summary = (String) invokePrivate(statusRepl, "skillDraftStatusSummary",
+                new Class<?>[]{Path.class}, tempDir);
+        assertThat(summary).isEqualTo("1(p:0,h:1,b:0,n:0)");
     }
 
     @Test
@@ -408,6 +449,36 @@ class TerminalReplTest {
                 {"id":"1","state":"PROMOTED"}
                 {"id":"2","state":"DEMOTED"}
                 {"id":"3","state":"SHADOW"}
+                """);
+    }
+
+    private static void writeSkillDraftArtifacts(Path root) throws Exception {
+        Path draft = root.resolve(".aceclaw/skills-drafts/retry-safe/SKILL.md");
+        Path validation = root.resolve(".aceclaw/metrics/continuous-learning/skill-draft-validation-audit.jsonl");
+        Path release = root.resolve(".aceclaw/metrics/continuous-learning/skill-release-state.json");
+        Files.createDirectories(draft.getParent());
+        Files.createDirectories(validation.getParent());
+
+        Files.writeString(draft, """
+                ---
+                name: "retry-safe"
+                description: "Retry safe external calls"
+                allowed-tools: ["bash"]
+                disable-model-invocation: true
+                source-candidate-id: "cand-123"
+                ---
+
+                # Draft Skill
+                """);
+        Files.writeString(validation, """
+                {"draftPath":".aceclaw/skills-drafts/retry-safe/SKILL.md","verdict":"hold","reasons":[{"code":"STATIC_ALLOWED_TOOLS_POLICY_VIOLATION","message":"allowed-tools includes unsafe or malformed values"}]}
+                """);
+        Files.writeString(release, """
+                {
+                  "releases": [
+                    {"skillName":"retry-safe","stage":"shadow","paused":false}
+                  ]
+                }
                 """);
     }
 }
