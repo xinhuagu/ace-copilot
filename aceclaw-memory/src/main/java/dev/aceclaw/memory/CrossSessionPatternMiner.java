@@ -26,6 +26,14 @@ public final class CrossSessionPatternMiner {
 
     public MiningResult mine(HistoricalLogIndex index,
                              AutoMemoryStore memoryStore,
+                             int sessionWindow) {
+        Objects.requireNonNull(index, "index");
+        Objects.requireNonNull(memoryStore, "memoryStore");
+        return mine(index, memoryStore, null, null, sessionWindow);
+    }
+
+    public MiningResult mine(HistoricalLogIndex index,
+                             AutoMemoryStore memoryStore,
                              String workspaceHash,
                              Path projectPath) {
         return mine(index, memoryStore, workspaceHash, projectPath, DEFAULT_SESSION_WINDOW);
@@ -38,31 +46,23 @@ public final class CrossSessionPatternMiner {
                              int sessionWindow) {
         Objects.requireNonNull(index, "index");
         Objects.requireNonNull(memoryStore, "memoryStore");
-        Objects.requireNonNull(projectPath, "projectPath");
 
         int effectiveWindow = Math.max(1, sessionWindow);
-        var recentSessions = recentSessionIds(index, workspaceHash, effectiveWindow);
-        if (recentSessions.isEmpty()) {
+        var windowData = loadWindowData(index, workspaceHash, effectiveWindow);
+        if (windowData.recentSessions().isEmpty()) {
             return new MiningResult(List.of(), List.of(), List.of(), List.of());
         }
-        var chronologicalSessions = new ArrayList<>(recentSessions);
-        chronologicalSessions.sort(Comparator.comparingInt(recentSessions::indexOf).reversed());
-
-        var recentSessionSet = Set.copyOf(recentSessions);
-        var toolEntries = index.toolInvocations(workspaceHash, null, null).stream()
-                .filter(entry -> recentSessionSet.contains(entry.sessionId()))
-                .toList();
-        var errorEntries = index.errorEntries(workspaceHash, null, null).stream()
-                .filter(entry -> recentSessionSet.contains(entry.sessionId()))
-                .toList();
-        var patternEntries = index.patterns(workspaceHash, null, null).stream()
-                .filter(entry -> recentSessionSet.contains(entry.sessionId()))
-                .toList();
-
-        var frequentErrorChains = frequentErrorSequences(errorEntries, chronologicalSessions, MIN_ERROR_CHAIN_SUPPORT);
-        var stableWorkflows = stableWorkflows(patternEntries, recentSessions, MIN_WORKFLOW_SUPPORT);
-        var convergingStrategies = convergingStrategies(stableWorkflows, patternEntries, toolEntries, chronologicalSessions);
-        var degradationSignals = degradationSignals(toolEntries, chronologicalSessions, MIN_DEGRADATION_SUPPORT);
+        var frequentErrorChains = frequentErrorSequences(
+                windowData.errorEntries(), windowData.chronologicalSessions(), MIN_ERROR_CHAIN_SUPPORT);
+        var stableWorkflows = stableWorkflows(
+                windowData.patternEntries(), windowData.recentSessions(), MIN_WORKFLOW_SUPPORT);
+        var convergingStrategies = convergingStrategies(
+                stableWorkflows,
+                windowData.patternEntries(),
+                windowData.toolEntries(),
+                windowData.chronologicalSessions());
+        var degradationSignals = degradationSignals(
+                windowData.toolEntries(), windowData.chronologicalSessions(), MIN_DEGRADATION_SUPPORT);
 
         persistPatterns(memoryStore, projectPath, frequentErrorChains, stableWorkflows, convergingStrategies, degradationSignals);
         return new MiningResult(
@@ -76,53 +76,63 @@ public final class CrossSessionPatternMiner {
                                                            String workspaceHash,
                                                            int sessionWindow,
                                                            int minSupport) {
-        var sessions = recentSessionIds(index, workspaceHash, Math.max(1, sessionWindow));
-        var sessionSet = Set.copyOf(sessions);
-        var errors = index.errorEntries(workspaceHash, null, null).stream()
-                .filter(entry -> sessionSet.contains(entry.sessionId()))
-                .toList();
-        return frequentErrorSequences(errors, sessions, minSupport);
+        var windowData = loadWindowData(index, workspaceHash, Math.max(1, sessionWindow));
+        return frequentErrorSequences(windowData.errorEntries(), windowData.chronologicalSessions(), minSupport);
     }
 
     public List<ConvergingStrategy> convergingStrategies(HistoricalLogIndex index,
                                                          String workspaceHash,
                                                          int sessionWindow) {
-        var sessions = recentSessionIds(index, workspaceHash, Math.max(1, sessionWindow));
-        var chronologicalSessions = new ArrayList<>(sessions);
-        chronologicalSessions.sort(Comparator.comparingInt(sessions::indexOf).reversed());
-        var sessionSet = Set.copyOf(sessions);
-        var tools = index.toolInvocations(workspaceHash, null, null).stream()
-                .filter(entry -> sessionSet.contains(entry.sessionId()))
-                .toList();
-        var patterns = index.patterns(workspaceHash, null, null).stream()
-                .filter(entry -> sessionSet.contains(entry.sessionId()))
-                .toList();
-        var workflows = stableWorkflows(patterns, sessions, MIN_WORKFLOW_SUPPORT);
-        return convergingStrategies(workflows, patterns, tools, chronologicalSessions);
+        var windowData = loadWindowData(index, workspaceHash, Math.max(1, sessionWindow));
+        var workflows = stableWorkflows(windowData.patternEntries(), windowData.recentSessions(), MIN_WORKFLOW_SUPPORT);
+        return convergingStrategies(workflows, windowData.patternEntries(), windowData.toolEntries(),
+                windowData.chronologicalSessions());
     }
 
     public List<DegradationSignal> degradationSignals(HistoricalLogIndex index,
                                                       String workspaceHash,
                                                       int sessionWindow) {
-        var sessions = recentSessionIds(index, workspaceHash, Math.max(1, sessionWindow));
-        var chronologicalSessions = new ArrayList<>(sessions);
-        chronologicalSessions.sort(Comparator.comparingInt(sessions::indexOf).reversed());
-        var sessionSet = Set.copyOf(sessions);
-        var tools = index.toolInvocations(workspaceHash, null, null).stream()
-                .filter(entry -> sessionSet.contains(entry.sessionId()))
-                .toList();
-        return degradationSignals(tools, chronologicalSessions, MIN_DEGRADATION_SUPPORT);
+        var windowData = loadWindowData(index, workspaceHash, Math.max(1, sessionWindow));
+        return degradationSignals(windowData.toolEntries(), windowData.chronologicalSessions(), MIN_DEGRADATION_SUPPORT);
+    }
+
+    private static SessionWindowData loadWindowData(HistoricalLogIndex index, String workspaceHash, int sessionWindow) {
+        var allToolEntries = index.toolInvocations(workspaceHash, null, null);
+        var allErrorEntries = index.errorEntries(workspaceHash, null, null);
+        var allPatternEntries = index.patterns(workspaceHash, null, null);
+        var recentSessions = recentSessionIds(allToolEntries, allErrorEntries, allPatternEntries, sessionWindow);
+        var chronologicalSessions = new ArrayList<>(recentSessions);
+        chronologicalSessions.sort(Comparator.comparingInt(recentSessions::indexOf).reversed());
+        var recentSessionSet = Set.copyOf(recentSessions);
+        return new SessionWindowData(
+                recentSessions,
+                chronologicalSessions,
+                allToolEntries.stream().filter(entry -> recentSessionSet.contains(entry.sessionId())).toList(),
+                allErrorEntries.stream().filter(entry -> recentSessionSet.contains(entry.sessionId())).toList(),
+                allPatternEntries.stream().filter(entry -> recentSessionSet.contains(entry.sessionId())).toList()
+        );
     }
 
     private static List<String> recentSessionIds(HistoricalLogIndex index, String workspaceHash, int sessionWindow) {
+        return recentSessionIds(
+                index.toolInvocations(workspaceHash, null, null),
+                index.errorEntries(workspaceHash, null, null),
+                index.patterns(workspaceHash, null, null),
+                sessionWindow);
+    }
+
+    private static List<String> recentSessionIds(List<HistoricalLogIndex.ToolInvocationEntry> toolEntries,
+                                                 List<HistoricalLogIndex.ErrorEntry> errorEntries,
+                                                 List<HistoricalLogIndex.PatternEntry> patternEntries,
+                                                 int sessionWindow) {
         var latestBySession = new LinkedHashMap<String, Instant>();
-        for (var entry : index.toolInvocations(workspaceHash, null, null)) {
+        for (var entry : toolEntries) {
             latestBySession.merge(entry.sessionId(), entry.timestamp(), CrossSessionPatternMiner::latest);
         }
-        for (var entry : index.errorEntries(workspaceHash, null, null)) {
+        for (var entry : errorEntries) {
             latestBySession.merge(entry.sessionId(), entry.timestamp(), CrossSessionPatternMiner::latest);
         }
-        for (var entry : index.patterns(workspaceHash, null, null)) {
+        for (var entry : patternEntries) {
             latestBySession.merge(entry.sessionId(), entry.timestamp(), CrossSessionPatternMiner::latest);
         }
         return latestBySession.entrySet().stream()
@@ -188,7 +198,7 @@ public final class CrossSessionPatternMiner {
                 .filter(entry -> entry.patternType() == PatternType.WORKFLOW)
                 .filter(entry -> sessions.contains(entry.sessionId()))
                 .collect(Collectors.groupingBy(
-                        entry -> normalize(entry.description()),
+                        entry -> workflowSignature(entry.description()),
                         LinkedHashMap::new,
                         Collectors.toCollection(ArrayList::new)));
 
@@ -202,12 +212,13 @@ public final class CrossSessionPatternMiner {
                 continue;
             }
             double confidence = Math.min(1.0, 0.4 + support * 0.08);
+            String signature = entry.getKey();
             String description = entry.getValue().getFirst().description();
             var sessionIds = entry.getValue().stream()
                     .map(HistoricalLogIndex.PatternEntry::sessionId)
                     .distinct()
                     .toList();
-            results.add(new StableWorkflow(description, (int) support, confidence, sessionIds));
+            results.add(new StableWorkflow(signature, description, (int) support, confidence, sessionIds));
         }
         results.sort(Comparator.comparingInt(StableWorkflow::support).reversed());
         return results;
@@ -227,7 +238,7 @@ public final class CrossSessionPatternMiner {
         for (var workflow : stableWorkflows) {
             var sessionIds = patternEntries.stream()
                     .filter(entry -> entry.patternType() == PatternType.WORKFLOW)
-                    .filter(entry -> normalize(entry.description()).equals(normalize(workflow.description())))
+                    .filter(entry -> workflowSignature(entry.description()).equals(workflow.signature()))
                     .map(HistoricalLogIndex.PatternEntry::sessionId)
                     .distinct()
                     .sorted(Comparator.comparingInt(id -> order.getOrDefault(id, Integer.MAX_VALUE)))
@@ -250,6 +261,7 @@ public final class CrossSessionPatternMiner {
             }
             double confidence = Math.min(1.0, 0.45 + workflow.support() * 0.08);
             results.add(new ConvergingStrategy(
+                    workflow.signature(),
                     workflow.description(),
                     workflow.support(),
                     earlyAverage,
@@ -320,7 +332,7 @@ public final class CrossSessionPatternMiner {
                     projectPath);
         }
         for (var workflow : stableWorkflows) {
-            String key = stableWorkflowKey(workflow.description());
+            String key = stableWorkflowKey(workflow.signature());
             memoryStore.addIfAbsent(
                     MemoryEntry.Category.WORKFLOW,
                     "Stable cross-session workflow observed in " + workflow.support()
@@ -331,7 +343,7 @@ public final class CrossSessionPatternMiner {
                     projectPath);
         }
         for (var strategy : convergingStrategies) {
-            String key = stableWorkflowKey(strategy.description());
+            String key = stableWorkflowKey(strategy.signature());
             memoryStore.addIfAbsent(
                     MemoryEntry.Category.SUCCESSFUL_STRATEGY,
                     "A converging strategy is emerging: " + strategy.description()
@@ -381,6 +393,27 @@ public final class CrossSessionPatternMiner {
         return normalized.length() <= 80 ? normalized : normalized.substring(0, 80);
     }
 
+    private static String workflowSignature(String description) {
+        var parts = new ArrayList<String>();
+        String normalized = normalize(description);
+        if (normalized.contains("inspect files")) {
+            parts.add("inspect-files");
+        }
+        if (normalized.contains("run commands")) {
+            parts.add("run-commands");
+        }
+        if (normalized.contains("address errors")) {
+            parts.add("address-errors");
+        }
+        if (normalized.contains("adjust course")) {
+            parts.add("adjust-course");
+        }
+        if (parts.isEmpty()) {
+            return stableWorkflowKey(normalized);
+        }
+        return String.join(">", parts);
+    }
+
     private static double averageInts(List<Integer> values) {
         if (values.isEmpty()) {
             return 0.0;
@@ -411,30 +444,54 @@ public final class CrossSessionPatternMiner {
             List<StableWorkflow> stableWorkflows,
             List<ConvergingStrategy> convergingStrategies,
             List<DegradationSignal> degradationSignals
-    ) {}
+    ) {
+        public MiningResult {
+            frequentErrorChains = frequentErrorChains != null ? List.copyOf(frequentErrorChains) : List.of();
+            stableWorkflows = stableWorkflows != null ? List.copyOf(stableWorkflows) : List.of();
+            convergingStrategies = convergingStrategies != null ? List.copyOf(convergingStrategies) : List.of();
+            degradationSignals = degradationSignals != null ? List.copyOf(degradationSignals) : List.of();
+        }
+    }
 
     public record FrequentErrorChain(
             List<ErrorClass> chain,
             int support,
             double confidence,
             List<String> sessionIds
-    ) {}
+    ) {
+        public FrequentErrorChain {
+            chain = chain != null ? List.copyOf(chain) : List.of();
+            sessionIds = sessionIds != null ? List.copyOf(sessionIds) : List.of();
+        }
+    }
 
     public record StableWorkflow(
+            String signature,
             String description,
             int support,
             double confidence,
             List<String> sessionIds
-    ) {}
+    ) {
+        public StableWorkflow {
+            signature = signature != null ? signature : "";
+            sessionIds = sessionIds != null ? List.copyOf(sessionIds) : List.of();
+        }
+    }
 
     public record ConvergingStrategy(
+            String signature,
             String description,
             int support,
             double earlyAverageSteps,
             double lateAverageSteps,
             double confidence,
             List<String> sessionIds
-    ) {}
+    ) {
+        public ConvergingStrategy {
+            signature = signature != null ? signature : "";
+            sessionIds = sessionIds != null ? List.copyOf(sessionIds) : List.of();
+        }
+    }
 
     public record DegradationSignal(
             String toolName,
@@ -443,7 +500,19 @@ public final class CrossSessionPatternMiner {
             int support,
             double confidence,
             List<String> sessionIds
-    ) {}
+    ) {
+        public DegradationSignal {
+            sessionIds = sessionIds != null ? List.copyOf(sessionIds) : List.of();
+        }
+    }
 
     private record SessionErrorRate(String sessionId, double errorRate) {}
+
+    private record SessionWindowData(
+            List<String> recentSessions,
+            List<String> chronologicalSessions,
+            List<HistoricalLogIndex.ToolInvocationEntry> toolEntries,
+            List<HistoricalLogIndex.ErrorEntry> errorEntries,
+            List<HistoricalLogIndex.PatternEntry> patternEntries
+    ) {}
 }

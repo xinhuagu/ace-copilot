@@ -23,7 +23,10 @@ public record HistoricalSessionSnapshot(
 ) {
     public HistoricalSessionSnapshot {
         sessionId = Objects.requireNonNull(sessionId, "sessionId");
-        workspaceHash = workspaceHash != null ? workspaceHash : "";
+        workspaceHash = Objects.requireNonNull(workspaceHash, "workspaceHash");
+        if (workspaceHash.isBlank()) {
+            throw new IllegalArgumentException("workspaceHash must not be blank");
+        }
         executedCommands = executedCommands != null ? List.copyOf(executedCommands) : List.of();
         errorsEncountered = errorsEncountered != null ? List.copyOf(errorsEncountered) : List.of();
         extractedFilePaths = extractedFilePaths != null ? List.copyOf(extractedFilePaths) : List.of();
