@@ -47,17 +47,21 @@ public final class TrendDetector {
                               Path projectPath,
                               int windowSize) {
         Objects.requireNonNull(index, "index");
+        String effectiveWorkspaceHash = workspaceHash;
         if (memoryStore != null) {
             Objects.requireNonNull(projectPath, "projectPath");
+            effectiveWorkspaceHash = Objects.requireNonNull(workspaceHash,
+                    "workspaceHash must be provided when persisting trends");
+            if (effectiveWorkspaceHash.isBlank()) {
+                throw new IllegalArgumentException("workspaceHash must not be blank when persisting trends");
+            }
             String expectedWorkspaceHash = WorkspacePaths.workspaceHash(projectPath);
-            if (workspaceHash != null
-                    && !workspaceHash.isBlank()
-                    && !Objects.equals(expectedWorkspaceHash, workspaceHash)) {
+            if (!Objects.equals(expectedWorkspaceHash, effectiveWorkspaceHash)) {
                 throw new IllegalArgumentException("workspaceHash does not match projectPath");
             }
         }
         int effectiveWindow = Math.max(1, windowSize);
-        var windowData = loadWindowData(index, workspaceHash, effectiveWindow);
+        var windowData = loadWindowData(index, effectiveWorkspaceHash, effectiveWindow);
         if (windowData.recentSessions().isEmpty()) {
             return List.of();
         }
