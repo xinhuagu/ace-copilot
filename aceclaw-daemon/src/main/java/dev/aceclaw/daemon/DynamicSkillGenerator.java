@@ -101,9 +101,7 @@ public final class DynamicSkillGenerator {
         String sequenceSignature = signatureOf(allowedTools);
         var state = sessionStates.computeIfAbsent(sessionId, ignored -> new SessionRuntimeState());
         synchronized (state) {
-            if (closedSessions.contains(sessionId)) {
-                sessionStates.remove(sessionId, state);
-                skillRegistry.clearRuntime(sessionId);
+            if (closedSessions.contains(sessionId) || state.closing) {
                 return java.util.Optional.empty();
             }
             if (state.skillsByName.size() >= MAX_RUNTIME_SKILLS_PER_SESSION) {
@@ -150,31 +148,45 @@ public final class DynamicSkillGenerator {
         Objects.requireNonNull(projectPath, "projectPath");
 
         closedSessions.add(sessionId);
-        var state = sessionStates.remove(sessionId);
+        var state = sessionStates.get(sessionId);
         if (state == null) {
             skillRegistry.clearRuntime(sessionId);
             return 0;
         }
 
         int persisted = 0;
+        boolean success = false;
         synchronized (state) {
+            if (state.closing) {
+                return 0;
+            }
+            state.closing = true;
             Path draftsRoot = projectPath.resolve(DRAFTS_DIR);
-            Files.createDirectories(draftsRoot);
-            for (var record : state.skillsByName.values()) {
-                String resolvedName = resolveDraftName(draftsRoot, record.skill().name(), sessionId);
-                Path skillDir = draftsRoot.resolve(resolvedName);
-                Files.createDirectories(skillDir);
-                Path skillFile = skillDir.resolve("SKILL.md");
-                if (!Files.exists(skillFile)) {
-                    Path temp = skillDir.resolve("SKILL.md.tmp");
-                    Files.writeString(temp, renderDraftMarkdown(resolvedName, record, sessionId));
-                    Files.move(temp, skillFile,
-                            StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-                    persisted++;
+            try {
+                Files.createDirectories(draftsRoot);
+                for (var record : state.skillsByName.values()) {
+                    String resolvedName = resolveDraftName(draftsRoot, record.skill().name(), sessionId);
+                    Path skillDir = draftsRoot.resolve(resolvedName);
+                    Files.createDirectories(skillDir);
+                    Path skillFile = skillDir.resolve("SKILL.md");
+                    if (!Files.exists(skillFile)) {
+                        Path temp = skillDir.resolve("SKILL.md.tmp");
+                        Files.writeString(temp, renderDraftMarkdown(resolvedName, record, sessionId));
+                        Files.move(temp, skillFile,
+                                StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                        persisted++;
+                    }
+                }
+                success = true;
+            } finally {
+                if (!success) {
+                    state.closing = false;
+                    closedSessions.remove(sessionId);
                 }
             }
         }
 
+        sessionStates.remove(sessionId, state);
         skillRegistry.clearRuntime(sessionId);
         return persisted;
     }
@@ -473,6 +485,7 @@ public final class DynamicSkillGenerator {
     private static final class SessionRuntimeState {
         private final LinkedHashMap<String, RuntimeSkillRecord> skillsByName = new LinkedHashMap<>();
         private final LinkedHashSet<String> signatures = new LinkedHashSet<>();
+        private boolean closing;
     }
 
     private record RuntimeSkillRecord(
