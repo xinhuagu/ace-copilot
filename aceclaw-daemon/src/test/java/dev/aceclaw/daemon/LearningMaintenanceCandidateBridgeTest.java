@@ -56,4 +56,39 @@ class LearningMaintenanceCandidateBridgeTest {
                 .extracting(LearningCandidate::state)
                 .isNotEmpty();
     }
+
+    @Test
+    void suppressesRecentlyObservedMaintenanceSourceRefs() throws Exception {
+        var candidateStore = new CandidateStore(tempDir);
+        candidateStore.upsert(new CandidateStore.CandidateObservation(
+                dev.aceclaw.memory.MemoryEntry.Category.SUCCESSFUL_STRATEGY,
+                dev.aceclaw.memory.CandidateKind.SKILL_SEED,
+                "Inspect files, then run commands.",
+                "general",
+                List.of("cross-session", "converging-strategy", "maintenance"),
+                0.86,
+                1,
+                0,
+                "maintenance:scheduled:strategy:inspect-files>run-commands",
+                java.time.Instant.now()));
+
+        var bridge = new LearningMaintenanceCandidateBridge(candidateStore);
+        var result = bridge.bridge(
+                "scheduled",
+                new CrossSessionPatternMiner.MiningResult(
+                        List.of(),
+                        List.of(),
+                        List.of(new CrossSessionPatternMiner.ConvergingStrategy(
+                                "inspect-files>run-commands",
+                                "Inspect files, then run commands.",
+                                4,
+                                8.0,
+                                4.0,
+                                0.86,
+                                List.of("s1", "s2", "s3", "s4"))),
+                        List.of()),
+                List.of());
+
+        assertThat(result.upserts()).isEqualTo(0);
+    }
 }

@@ -32,6 +32,8 @@ public final class MemoryConsolidator {
 
     private static final double SIMILARITY_THRESHOLD = 0.80;
     private static final Duration AGE_THRESHOLD = Duration.ofDays(90);
+    private static final Duration MAINTENANCE_SIGNAL_AGE_THRESHOLD = Duration.ofDays(30);
+    private static final Duration SESSION_ANALYSIS_AGE_THRESHOLD = Duration.ofDays(45);
     private static final String ARCHIVE_FILE = "archived.jsonl";
 
     private MemoryConsolidator() {}
@@ -169,7 +171,7 @@ public final class MemoryConsolidator {
     }
 
     /**
-     * Pass 3: Archive entries older than 90 days with zero access count.
+     * Pass 3: Archive entries based on source/category-specific aging.
      *
      * <p>If {@code archiveDir} is null, pruning is skipped entirely to prevent
      * silent data loss (entries would be removed without being archived).
@@ -180,11 +182,10 @@ public final class MemoryConsolidator {
             return 0;
         }
 
-        Instant cutoff = Instant.now().minus(AGE_THRESHOLD);
         var toArchive = new ArrayList<MemoryEntry>();
 
         for (var entry : entries) {
-            if (entry.createdAt().isBefore(cutoff) && entry.accessCount() == 0) {
+            if (shouldArchive(entry, Instant.now())) {
                 toArchive.add(entry);
             }
         }
@@ -213,6 +214,39 @@ public final class MemoryConsolidator {
 
         entries.removeAll(toArchive);
         return toArchive.size();
+    }
+
+    private static boolean shouldArchive(MemoryEntry entry, Instant now) {
+        Instant lastSignalAt = entry.lastAccessedAt() != null && entry.lastAccessedAt().isAfter(entry.createdAt())
+                ? entry.lastAccessedAt()
+                : entry.createdAt();
+        Instant cutoff = now.minus(ageThreshold(entry));
+        if (!lastSignalAt.isBefore(cutoff)) {
+            return false;
+        }
+        if (isMaintenanceDerived(entry)) {
+            return entry.accessCount() <= 1;
+        }
+        return entry.accessCount() == 0;
+    }
+
+    private static Duration ageThreshold(MemoryEntry entry) {
+        String source = entry.source() == null ? "" : entry.source();
+        if (source.startsWith("trend:") || source.startsWith("cross-session:") || source.startsWith("maintenance:")) {
+            return MAINTENANCE_SIGNAL_AGE_THRESHOLD;
+        }
+        if (source.startsWith("session-analysis:")) {
+            return SESSION_ANALYSIS_AGE_THRESHOLD;
+        }
+        return AGE_THRESHOLD;
+    }
+
+    private static boolean isMaintenanceDerived(MemoryEntry entry) {
+        String source = entry.source() == null ? "" : entry.source();
+        return source.startsWith("trend:")
+                || source.startsWith("cross-session:")
+                || source.startsWith("maintenance:")
+                || source.startsWith("session-analysis:");
     }
 
     /**

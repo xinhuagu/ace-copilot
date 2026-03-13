@@ -11,7 +11,9 @@ import dev.aceclaw.memory.MemoryEntry;
 import dev.aceclaw.memory.TrendDetector;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -20,6 +22,8 @@ import java.util.Objects;
  * Bridges deferred learning-maintenance signals into the candidate pipeline.
  */
 public final class LearningMaintenanceCandidateBridge {
+
+    private static final Duration SOURCE_SUPPRESSION_WINDOW = Duration.ofHours(24);
 
     private final CandidateStore candidateStore;
 
@@ -36,7 +40,11 @@ public final class LearningMaintenanceCandidateBridge {
 
         int upserts = 0;
         var observedCandidates = new ArrayList<LearningCandidate>();
+        var recentSources = recentSourceRefs();
         for (var observation : toObservations(trigger, miningResult, trends)) {
+            if (shouldSuppress(observation, recentSources)) {
+                continue;
+            }
             observedCandidates.add(candidateStore.upsert(observation));
             upserts++;
         }
@@ -50,6 +58,25 @@ public final class LearningMaintenanceCandidateBridge {
                 promoted,
                 List.copyOf(observedCandidates),
                 List.copyOf(transitions));
+    }
+
+    private boolean shouldSuppress(CandidateStore.CandidateObservation observation, java.util.Set<String> recentSources) {
+        String sourceRef = observation.sourceRef();
+        return sourceRef != null
+                && !sourceRef.isBlank()
+                && recentSources.contains(sourceRef);
+    }
+
+    private java.util.Set<String> recentSourceRefs() {
+        Instant cutoff = Instant.now().minus(SOURCE_SUPPRESSION_WINDOW);
+        var sourceRefs = new HashSet<String>();
+        for (var candidate : candidateStore.all()) {
+            if (candidate.lastSeenAt().isBefore(cutoff)) {
+                continue;
+            }
+            sourceRefs.addAll(candidate.sourceRefs());
+        }
+        return java.util.Set.copyOf(sourceRefs);
     }
 
     private static List<CandidateStore.CandidateObservation> toObservations(

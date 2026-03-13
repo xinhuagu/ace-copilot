@@ -138,6 +138,40 @@ class MemoryConsolidatorTest {
     }
 
     @Test
+    void agePruneRemovesLowValueMaintenanceSignalsMoreAggressively() throws IOException {
+        var entries = new ArrayList<>(store.entries());
+        entries.add(new MemoryEntry(
+                java.util.UUID.randomUUID().toString(),
+                MemoryEntry.Category.FAILURE_SIGNAL,
+                "Tool 'bash' error rate rose from 10% to 30%",
+                List.of("trend", "bash"),
+                Instant.now().minus(31, ChronoUnit.DAYS),
+                "trend:bash.errorRate:rising",
+                "skip-hmac",
+                1,
+                Instant.now().minus(31, ChronoUnit.DAYS)));
+        entries.add(new MemoryEntry(
+                java.util.UUID.randomUUID().toString(),
+                MemoryEntry.Category.PATTERN,
+                "Still useful explicit pattern",
+                List.of("design"),
+                Instant.now().minus(31, ChronoUnit.DAYS),
+                "manual",
+                "skip-hmac",
+                1,
+                Instant.now().minus(2, ChronoUnit.DAYS)));
+        store.replaceEntries(entries, projectPath);
+
+        var result = MemoryConsolidator.consolidate(store, projectPath, tempDir.resolve("archive"));
+
+        assertThat(result.pruned()).isEqualTo(1);
+        assertThat(store.entries())
+                .extracting(MemoryEntry::content)
+                .contains("Still useful explicit pattern")
+                .doesNotContain("Tool 'bash' error rate rose from 10% to 30%");
+    }
+
+    @Test
     void emptyStoreNoOp() {
         var result = MemoryConsolidator.consolidate(store, projectPath, tempDir.resolve("archive"));
 

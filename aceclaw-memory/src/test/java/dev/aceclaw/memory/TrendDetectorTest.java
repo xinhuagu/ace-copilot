@@ -128,6 +128,31 @@ class TrendDetectorTest {
                 () -> detector.detect(index, store, "   ", workspace, 10));
     }
 
+    @Test
+    void rerunningDetectorUpsertsTrendSignalsInsteadOfAccumulatingCopies() throws Exception {
+        var workspace = tempDir.resolve("workspace-d");
+        var store = AutoMemoryStore.forWorkspace(tempDir, workspace);
+        var index = new HistoricalLogIndex(tempDir);
+        var detector = new TrendDetector();
+        var t0 = Instant.parse("2026-03-12T10:00:00Z");
+        String workspaceHash = WorkspacePaths.workspaceHash(workspace);
+
+        index.index(snapshot("s1", workspaceHash, t0, 5, 0, 600, List.of()));
+        index.index(snapshot("s2", workspaceHash, t0.plusSeconds(60), 5, 1, 650, List.of("Command timed out after 30s")));
+        index.index(snapshot("s3", workspaceHash, t0.plusSeconds(120), 5, 2, 700,
+                List.of("Command timed out after 30s", "Permission denied")));
+        index.index(snapshot("s4", workspaceHash, t0.plusSeconds(180), 5, 3, 760,
+                List.of("Command timed out after 30s", "Command timed out after 30s", "Permission denied")));
+
+        detector.detect(index, store, workspaceHash, workspace, 10);
+        detector.detect(index, store, workspaceHash, workspace, 10);
+
+        assertThat(store.query(MemoryEntry.Category.ANTI_PATTERN, List.of("trend"), 20)
+                .stream()
+                .filter(entry -> entry.source().startsWith("trend:bash.errorRate"))
+                .toList()).hasSize(1);
+    }
+
     private static HistoricalSessionSnapshot snapshot(String sessionId,
                                                      String workspaceHash,
                                                      Instant timestamp,

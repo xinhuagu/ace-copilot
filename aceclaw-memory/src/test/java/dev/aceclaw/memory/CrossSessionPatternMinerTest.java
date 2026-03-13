@@ -88,6 +88,26 @@ class CrossSessionPatternMinerTest {
                 .anySatisfy(entry -> assertThat(entry.content()).contains("degradation signal"));
     }
 
+    @Test
+    void rerunningMinerUpsertsMaintenanceSignalsInsteadOfAccumulatingCopies() throws Exception {
+        var workspace = tempDir.resolve("workspace-c");
+        var store = AutoMemoryStore.forWorkspace(tempDir, workspace);
+        var index = new HistoricalLogIndex(tempDir);
+        var miner = new CrossSessionPatternMiner();
+        var t0 = Instant.parse("2026-03-12T10:00:00Z");
+        String workspaceHash = WorkspacePaths.workspaceHash(workspace);
+
+        index.index(snapshot("s1", workspaceHash, t0, 6, 2, true));
+        index.index(snapshot("s2", workspaceHash, t0.plusSeconds(60), 5, 2, true));
+        index.index(snapshot("s3", workspaceHash, t0.plusSeconds(120), 4, 2, true));
+
+        miner.mine(index, store, workspaceHash, workspace, 20);
+        miner.mine(index, store, workspaceHash, workspace, 20);
+
+        assertThat(store.query(MemoryEntry.Category.ANTI_PATTERN, List.of("cross-session"), 20))
+                .hasSize(1);
+    }
+
     private static HistoricalSessionSnapshot snapshot(String sessionId,
                                                      String workspaceHash,
                                                      Instant timestamp,

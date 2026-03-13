@@ -322,7 +322,7 @@ public final class CrossSessionPatternMiner {
                                         List<DegradationSignal> degradationSignals) {
         for (var chain : frequentErrorChains) {
             String key = chain.chain().stream().map(Enum::name).collect(Collectors.joining("->"));
-            memoryStore.addIfAbsent(
+            memoryStore.upsertBySource(
                     MemoryEntry.Category.ANTI_PATTERN,
                     "Across recent sessions, the error chain "
                             + key + " recurred in " + chain.support() + " sessions. Avoid repeating this recovery path.",
@@ -333,7 +333,7 @@ public final class CrossSessionPatternMiner {
         }
         for (var workflow : stableWorkflows) {
             String key = stableWorkflowKey(workflow.signature());
-            memoryStore.addIfAbsent(
+            memoryStore.upsertBySource(
                     MemoryEntry.Category.WORKFLOW,
                     "Stable cross-session workflow observed in " + workflow.support()
                             + " sessions: " + workflow.description(),
@@ -344,7 +344,7 @@ public final class CrossSessionPatternMiner {
         }
         for (var strategy : convergingStrategies) {
             String key = stableWorkflowKey(strategy.signature());
-            memoryStore.addIfAbsent(
+            memoryStore.upsertBySource(
                     MemoryEntry.Category.SUCCESSFUL_STRATEGY,
                     "A converging strategy is emerging: " + strategy.description()
                             + " improved from average " + format(strategy.earlyAverageSteps())
@@ -357,7 +357,7 @@ public final class CrossSessionPatternMiner {
         }
         for (var signal : degradationSignals) {
             String key = normalize(signal.toolName());
-            memoryStore.addIfAbsent(
+            memoryStore.upsertBySource(
                     MemoryEntry.Category.FAILURE_SIGNAL,
                     "Tool '" + signal.toolName() + "' shows a degradation signal: average error rate rose from "
                             + format(signal.earlierErrorRate()) + " to " + format(signal.laterErrorRate())

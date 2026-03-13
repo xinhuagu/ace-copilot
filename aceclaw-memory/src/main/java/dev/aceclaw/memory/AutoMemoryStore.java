@@ -220,6 +220,84 @@ public final class AutoMemoryStore {
     }
 
     /**
+     * Adds or replaces a memory entry identified by the same category + source within
+     * the same backing file. This is useful for maintenance-derived signals where the
+     * newest version should replace older variants instead of accumulating indefinitely.
+     */
+    public Optional<MemoryEntry> upsertBySource(MemoryEntry.Category category, String content,
+                                                List<String> tags, String source,
+                                                boolean global, Path projectPath) {
+        Objects.requireNonNull(category, "category");
+        Objects.requireNonNull(content, "content");
+        Objects.requireNonNull(tags, "tags");
+        Objects.requireNonNull(source, "source");
+        accessLock.lock();
+        fileLock.lock();
+        try {
+            String fileName = targetFileName(global, projectPath);
+            var existing = entries.stream()
+                    .filter(entry -> fileName.equals(entryFiles.get(entry.id())))
+                    .filter(entry -> entry.category() == category)
+                    .filter(entry -> Objects.equals(entry.source(), source))
+                    .findFirst();
+
+            Instant now = Instant.now();
+            MemoryEntry entry;
+            if (existing.isPresent()) {
+                var prior = existing.get();
+                var unsigned = new MemoryEntry(
+                        prior.id(),
+                        category,
+                        content,
+                        tags,
+                        now,
+                        source,
+                        null,
+                        prior.accessCount(),
+                        prior.lastAccessedAt());
+                String hmac = signer.sign(unsigned.signablePayload());
+                entry = new MemoryEntry(
+                        prior.id(),
+                        category,
+                        content,
+                        tags,
+                        now,
+                        source,
+                        hmac,
+                        prior.accessCount(),
+                        prior.lastAccessedAt());
+                int index = entries.indexOf(prior);
+                if (index >= 0) {
+                    entries.set(index, entry);
+                } else {
+                    entries.add(entry);
+                }
+                entryFiles.put(entry.id(), fileName);
+                rewriteEntriesForFile(fileName);
+                log.debug("Upserted memory by source: category={}, source={}, file={}", category, source, fileName);
+                return Optional.of(entry);
+            }
+
+            String id = UUID.randomUUID().toString();
+            var unsigned = new MemoryEntry(id, category, content, tags, now, source, null, 0, null);
+            String hmac = signer.sign(unsigned.signablePayload());
+            entry = new MemoryEntry(id, category, content, tags, now, source, hmac, 0, null);
+            Files.writeString(memoryDir.resolve(fileName), mapper.writeValueAsString(entry) + "\n",
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            entries.add(entry);
+            entryFiles.put(entry.id(), fileName);
+            log.debug("Inserted memory by source: category={}, source={}, file={}", category, source, fileName);
+            return Optional.of(entry);
+        } catch (IOException e) {
+            log.error("Failed to upsert memory by source: {}", e.getMessage());
+            return Optional.empty();
+        } finally {
+            fileLock.unlock();
+            accessLock.unlock();
+        }
+    }
+
+    /**
      * Retrieves memories matching the given category filter and/or tag filter.
      *
      * @param category optional category filter (null = all categories)
@@ -597,6 +675,23 @@ public final class AutoMemoryStore {
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
             Files.move(tmpFile, file, StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            log.error("Failed to rewrite memory file {}: {}", file, e.getMessage());
+        }
+    }
+
+    private void rewriteEntriesForFile(String fileName) {
+        Path file = memoryDir.resolve(fileName);
+        try {
+            var lines = new ArrayList<String>();
+            for (var entry : entries) {
+                if (fileName.equals(entryFiles.get(entry.id()))) {
+                    lines.add(mapper.writeValueAsString(entry));
+                }
+            }
+            Path tmpFile = file.resolveSibling(file.getFileName() + ".tmp");
+            Files.write(tmpFile, lines, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.move(tmpFile, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
             log.error("Failed to rewrite memory file {}: {}", file, e.getMessage());
         }
