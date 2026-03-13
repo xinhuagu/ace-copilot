@@ -214,6 +214,35 @@ class AutoMemoryStoreTest {
     }
 
     @Test
+    void upsertBySourceReplacesExistingMaintenanceSignal() throws IOException {
+        store.upsertBySource(
+                MemoryEntry.Category.FAILURE_SIGNAL,
+                "Tool 'bash' error rate rose from 10% to 30%",
+                List.of("trend", "bash"),
+                "trend:bash.errorRate:rising",
+                false,
+                projectPath);
+
+        store.upsertBySource(
+                MemoryEntry.Category.FAILURE_SIGNAL,
+                "Tool 'bash' error rate rose from 10% to 45%",
+                List.of("trend", "bash"),
+                "trend:bash.errorRate:rising",
+                false,
+                projectPath);
+
+        assertThat(store.query(MemoryEntry.Category.FAILURE_SIGNAL, List.of("trend"), 10))
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.content()).contains("45%"));
+
+        var freshStore = new AutoMemoryStore(tempDir);
+        freshStore.load(projectPath);
+        assertThat(freshStore.query(MemoryEntry.Category.FAILURE_SIGNAL, List.of("trend"), 10))
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.content()).contains("45%"));
+    }
+
+    @Test
     void formatForPromptIncludesSelfLearningCategories() {
         store.add(MemoryEntry.Category.ERROR_RECOVERY, "Fixed by clearing cache",
                 List.of("cache"), "test", false, projectPath);

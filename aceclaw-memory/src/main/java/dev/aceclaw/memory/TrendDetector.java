@@ -288,7 +288,7 @@ public final class TrendDetector {
             if (category == null) {
                 continue;
             }
-            memoryStore.addIfAbsent(
+            memoryStore.upsertBySource(
                     category,
                     trend.description(),
                     tagsFor(trend),
