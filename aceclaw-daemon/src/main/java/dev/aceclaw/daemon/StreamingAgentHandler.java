@@ -216,7 +216,7 @@ public final class StreamingAgentHandler {
         var eventHandler = new StreamingNotificationHandler(cancelContext, objectMapper);
 
         // Wrap tools with permission checking and hooks for this request
-        var permissionAwareRegistry = createPermissionAwareRegistry(cancelContext, sessionId);
+        var permissionAwareRegistry = createPermissionAwareRegistry(cancelContext, sessionId, eventHandler);
 
         // Get or create a session-scoped metrics collector so tool stats accumulate across turns
         var metricsCollector = sessionMetrics.computeIfAbsent(sessionId, _ -> new ToolMetricsCollector());
@@ -242,6 +242,9 @@ public final class StreamingAgentHandler {
 
         var promptAssembly = assembleSystemPromptForRequest(sessionId, session, prompt);
         var effectiveCompactor = createRequestCompactor(sessionId, promptAssembly.prompt());
+        var requestToolNames = permissionAwareRegistry.all().stream()
+                .map(Tool::name)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
         // Create a temporary agent loop with the permission-aware registry, compaction and metrics
         var agentConfig = AgentLoopConfig.builder()
@@ -256,18 +259,6 @@ public final class StreamingAgentHandler {
                 getLlmClient(), permissionAwareRegistry,
                 getModelForSession(sessionId), promptAssembly.prompt(),
                 maxTokens, thinkingBudget, contextWindowTokens, effectiveCompactor, agentConfig);
-
-        // Wire stream event handler to SkillTool for sub-agent event forwarding
-        // and session ID to DeferCheckTool
-        for (var tool : toolRegistry.all()) {
-            if (tool instanceof SkillTool st) {
-                st.setCurrentHandler(eventHandler);
-                st.setCurrentSessionId(sessionId);
-            }
-            if (tool instanceof dev.aceclaw.daemon.deferred.DeferCheckTool dct) {
-                dct.setCurrentSessionId(sessionId);
-            }
-        }
 
         // Acquire per-session turn lock (coordinates with DeferredActionScheduler)
         var turnLock = sessionTurnLocks.computeIfAbsent(sessionId, _ -> new ReentrantLock());
@@ -296,7 +287,8 @@ public final class StreamingAgentHandler {
                     log.info("Complex task detected (score={}, signals={}), generating plan",
                             complexityScore.score(), complexityScore.signals());
                     var planResult = executePlannedPrompt(prompt, session, sessionId, cancelContext,
-                            eventHandler, permissionAwareLoop, cancellationToken, metricsCollector, watchdog);
+                            eventHandler, permissionAwareLoop, cancellationToken,
+                            metricsCollector, watchdog, requestToolNames);
                     sendBudgetExhaustedNotificationIfNeeded(watchdog, cancelContext, sessionId, cancellationToken);
                     return planResult;
                 }
@@ -310,7 +302,7 @@ public final class StreamingAgentHandler {
             sendBudgetExhaustedNotificationIfNeeded(watchdog, cancelContext, sessionId, cancellationToken);
 
             return buildTurnResult(adaptive.turn(), session, sessionId, prompt, cancellationToken, metricsCollector,
-                    adaptive);
+                    adaptive, requestToolNames);
 
         } catch (dev.aceclaw.core.llm.LlmException e) {
             // Translate LLM errors to user-friendly messages
@@ -328,16 +320,6 @@ public final class StreamingAgentHandler {
             cancelContext.stopMonitor();
             turnLock.unlock();
 
-            // Clear handler and session references to avoid stale state between requests
-            for (var tool : toolRegistry.all()) {
-                if (tool instanceof SkillTool st) {
-                    st.setCurrentHandler(null);
-                    st.setCurrentSessionId(null);
-                }
-                if (tool instanceof dev.aceclaw.daemon.deferred.DeferCheckTool dct) {
-                    dct.setCurrentSessionId(null);
-                }
-            }
         }
     }
 
@@ -349,7 +331,8 @@ public final class StreamingAgentHandler {
             String prompt, AgentSession session, String sessionId,
             StreamContext cancelContext, StreamEventHandler eventHandler,
             StreamingAgentLoop permissionAwareLoop, CancellationToken cancellationToken,
-            ToolMetricsCollector metricsCollector, WatchdogTimer watchdog) throws Exception {
+            ToolMetricsCollector metricsCollector, WatchdogTimer watchdog,
+            Set<String> requestToolNames) throws Exception {
 
         // 1. Generate plan
         var planner = new LLMTaskPlanner(getLlmClient(), getModelForSession(sessionId));
@@ -366,7 +349,7 @@ public final class StreamingAgentHandler {
                     permissionAwareLoop, prompt, conversationHistory, eventHandler, cancellationToken);
             sendCancelledNotificationIfNeeded(cancellationToken, cancelContext, sessionId);
             return buildTurnResult(adaptive.turn(), session, sessionId, prompt, cancellationToken, metricsCollector,
-                    adaptive);
+                    adaptive, requestToolNames);
         }
 
         log.info("Plan generated: {} steps for goal: {}", plan.steps().size(),
@@ -555,7 +538,8 @@ public final class StreamingAgentHandler {
                                     String sessionId, String prompt,
                                     CancellationToken cancellationToken,
                                     ToolMetricsCollector metricsCollector,
-                                    AdaptiveTurnResult adaptive) {
+                                    AdaptiveTurnResult adaptive,
+                                    Set<String> requestToolNames) {
         // Handle compaction
         if (turn.wasCompacted()) {
             handleCompactionResult(session, turn.compactionResult());
@@ -593,7 +577,7 @@ public final class StreamingAgentHandler {
                     }
                     if (dynamicSkillGenerator != null) {
                         dynamicSkillGenerator.maybeGenerate(
-                                sessionIdRef, projectPathRef, turnRef, historyRef, insights);
+                                sessionIdRef, projectPathRef, turnRef, historyRef, insights, requestToolNames);
                     }
                 } catch (Exception e) {
                     log.warn("Self-improvement analysis failed: {}", e.getMessage());
@@ -1122,9 +1106,11 @@ public final class StreamingAgentHandler {
      * Creates a ToolRegistry where each tool is wrapped with permission checking and hooks.
      * Tools that need user approval will use the StreamContext to ask the client.
      */
-    private ToolRegistry createPermissionAwareRegistry(CancelAwareStreamContext context, String sessionId) {
+    private ToolRegistry createPermissionAwareRegistry(
+            CancelAwareStreamContext context, String sessionId, StreamEventHandler eventHandler) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(sessionId, "sessionId");
+        Objects.requireNonNull(eventHandler, "eventHandler");
         var registry = new ToolRegistry();
         var antiPatternGate = AntiPatternPreExecutionGate.fromStores(
                 memoryStore,
@@ -1144,7 +1130,7 @@ public final class StreamingAgentHandler {
         var sessionReadFileTool = new ReadFileTool(sessionProject, sessionWriteFileTool.readFiles());
         for (var tool : toolRegistry.all()) {
             Tool effectiveTool = materializeSessionScopedTool(
-                    tool, sessionProject, sessionReadFileTool, sessionWriteFileTool);
+                    tool, sessionProject, sessionReadFileTool, sessionWriteFileTool, sessionId, eventHandler);
             registry.register(new PermissionAwareTool(
                     effectiveTool, permissionManager, context, objectMapper,
                     hookExecutor, sessionId, cwd, antiPatternGate,
@@ -1159,11 +1145,15 @@ public final class StreamingAgentHandler {
             Tool original,
             Path sessionProject,
             ReadFileTool sessionReadFileTool,
-            WriteFileTool sessionWriteFileTool) {
+            WriteFileTool sessionWriteFileTool,
+            String sessionId,
+            StreamEventHandler eventHandler) {
         Objects.requireNonNull(original, "original");
         Objects.requireNonNull(sessionProject, "sessionProject");
         Objects.requireNonNull(sessionReadFileTool, "sessionReadFileTool");
         Objects.requireNonNull(sessionWriteFileTool, "sessionWriteFileTool");
+        Objects.requireNonNull(sessionId, "sessionId");
+        Objects.requireNonNull(eventHandler, "eventHandler");
         return switch (original.name()) {
             case "read_file" -> sessionReadFileTool;
             case "write_file" -> sessionWriteFileTool;
@@ -1176,6 +1166,10 @@ public final class StreamingAgentHandler {
             case "memory" -> memoryStore != null ? new MemoryTool(memoryStore, sessionProject) : original;
             case "applescript" -> new AppleScriptTool(sessionProject);
             case "screen_capture" -> new ScreenCaptureTool(sessionProject);
+            case "skill" -> original instanceof SkillTool st ? st.forRequest(sessionId, eventHandler) : original;
+            case "defer_check" -> original instanceof dev.aceclaw.daemon.deferred.DeferCheckTool dct
+                    ? dct.forSession(sessionId)
+                    : original;
             default -> original;
         };
     }

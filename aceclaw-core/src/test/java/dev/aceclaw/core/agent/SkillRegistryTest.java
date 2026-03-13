@@ -183,6 +183,66 @@ class SkillRegistryTest {
     }
 
     @Test
+    void runtimeRegistrationIsCappedAtThreePerSession() {
+        var registry = SkillRegistry.empty();
+        for (int i = 1; i <= 3; i++) {
+            boolean added = registry.registerRuntime("session-a", new SkillConfig(
+                    "runtime-" + i,
+                    "Runtime " + i,
+                    null,
+                    SkillConfig.ExecutionContext.INLINE,
+                    null,
+                    List.of("read_file"),
+                    4,
+                    true,
+                    false,
+                    "Body " + i,
+                    tempDir.resolve(".aceclaw/runtime-skills/runtime-" + i)));
+            assertThat(added).isTrue();
+        }
+
+        boolean fourth = registry.registerRuntime("session-a", new SkillConfig(
+                "runtime-4",
+                "Runtime 4",
+                null,
+                SkillConfig.ExecutionContext.INLINE,
+                null,
+                List.of("read_file"),
+                4,
+                true,
+                false,
+                "Body 4",
+                tempDir.resolve(".aceclaw/runtime-skills/runtime-4")));
+
+        assertThat(fourth).isFalse();
+        assertThat(registry.runtimeSkills("session-a")).hasSize(3);
+    }
+
+    @Test
+    void runtimeSkillOverridesDiskSkillInSessionDescriptions() throws IOException {
+        createSkill(tempDir, "review", "Disk review skill", "Disk body");
+        var registry = SkillRegistry.load(tempDir);
+        registry.registerRuntime("session-a", new SkillConfig(
+                "review",
+                "Runtime review skill",
+                null,
+                SkillConfig.ExecutionContext.INLINE,
+                null,
+                List.of("read_file"),
+                4,
+                true,
+                false,
+                "Runtime body",
+                tempDir.resolve(".aceclaw/runtime-skills/review")));
+
+        assertThat(registry.get("session-a", "review")).get()
+                .extracting(SkillConfig::description)
+                .isEqualTo("Runtime review skill");
+        assertThat(registry.formatDescriptions("session-a")).contains("Runtime review skill");
+        assertThat(registry.formatDescriptions("session-a")).doesNotContain("Disk review skill");
+    }
+
+    @Test
     void missingSkillMdSkipped() throws IOException {
         // Directory exists but has no SKILL.md
         Files.createDirectories(tempDir.resolve(".aceclaw/skills/empty-skill"));

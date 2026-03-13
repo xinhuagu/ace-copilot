@@ -15,6 +15,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -53,7 +54,8 @@ class DynamicSkillGeneratorTest {
                 workDir,
                 repeatedSequenceTurn("read_file", "grep", "edit_file"),
                 sessionHistory("Please inspect the config files."),
-                repeatedSequenceInsight());
+                repeatedSequenceInsight(),
+                Set.of("read_file", "grep", "edit_file", "skill"));
 
         assertThat(generated).isPresent();
         assertThat(skillRegistry.names("session-1")).contains("review-file-workflow");
@@ -79,7 +81,8 @@ class DynamicSkillGeneratorTest {
                 workDir,
                 repeatedSequenceTurn("read_file", "bash", "edit_file"),
                 sessionHistory("Please inspect the config files."),
-                repeatedSequenceInsight());
+                repeatedSequenceInsight(),
+                Set.of("read_file", "bash", "edit_file"));
 
         assertThat(generated).isEmpty();
         assertThat(mockLlm.capturedSendRequests()).isEmpty();
@@ -102,7 +105,8 @@ class DynamicSkillGeneratorTest {
                     workDir,
                     repeatedSequenceTurn("tool-" + i, "read_file", "edit_file"),
                     sessionHistory("Handle workflow " + i),
-                    repeatedSequenceInsight());
+                    repeatedSequenceInsight(),
+                    Set.of("tool-" + i, "read_file", "edit_file"));
             assertThat(generated).isPresent();
         }
 
@@ -120,10 +124,85 @@ class DynamicSkillGeneratorTest {
                 workDir,
                 repeatedSequenceTurn("glob", "grep", "read_file"),
                 sessionHistory("Handle workflow 4"),
-                repeatedSequenceInsight());
+                repeatedSequenceInsight(),
+                Set.of("glob", "grep", "read_file"));
 
         assertThat(fourth).isEmpty();
         assertThat(skillRegistry.runtimeSkills("session-1")).hasSize(3);
+    }
+
+    @Test
+    void rejectsGeneratedDraftThatMentionsBashInBody() {
+        mockLlm.enqueueSendMessageResponse(MockLlmClient.sendMessageTextResponse("""
+                {
+                  "name": "bad-workflow",
+                  "description": "Contains bash",
+                  "argument_hint": "",
+                  "body": "Run bash to inspect the repo."
+                }
+                """));
+
+        var generated = generator.maybeGenerate(
+                "session-1",
+                workDir,
+                repeatedSequenceTurn("read_file", "grep", "edit_file"),
+                sessionHistory("Inspect files"),
+                repeatedSequenceInsight(),
+                Set.of("read_file", "grep", "edit_file"));
+
+        assertThat(generated).isPresent();
+        assertThat(generated.orElseThrow().body()).doesNotContain("bash");
+    }
+
+    @Test
+    void skipsGenerationWhenObservedToolIsNotAllowedInSession() {
+        var generated = generator.maybeGenerate(
+                "session-1",
+                workDir,
+                repeatedSequenceTurn("read_file", "grep", "edit_file"),
+                sessionHistory("Inspect files"),
+                repeatedSequenceInsight(),
+                Set.of("read_file", "edit_file"));
+
+        assertThat(generated).isEmpty();
+    }
+
+    @Test
+    void doesNotRegenerateAfterSessionHasBeenPersisted() throws Exception {
+        mockLlm.enqueueSendMessageResponse(MockLlmClient.sendMessageTextResponse("""
+                {
+                  "name": "workflow-one",
+                  "description": "Generated workflow",
+                  "argument_hint": "",
+                  "body": "# Workflow\\n\\nUse the repeated sequence."
+                }
+                """));
+        assertThat(generator.maybeGenerate(
+                "session-1",
+                workDir,
+                repeatedSequenceTurn("read_file", "grep", "edit_file"),
+                sessionHistory("Inspect files"),
+                repeatedSequenceInsight(),
+                Set.of("read_file", "grep", "edit_file"))).isPresent();
+
+        assertThat(generator.persistDrafts("session-1", workDir)).isEqualTo(1);
+
+        mockLlm.enqueueSendMessageResponse(MockLlmClient.sendMessageTextResponse("""
+                {
+                  "name": "workflow-two",
+                  "description": "Generated workflow",
+                  "argument_hint": "",
+                  "body": "# Workflow\\n\\nUse the repeated sequence."
+                }
+                """));
+        assertThat(generator.maybeGenerate(
+                "session-1",
+                workDir,
+                repeatedSequenceTurn("read_file", "grep", "edit_file"),
+                sessionHistory("Inspect files again"),
+                repeatedSequenceInsight(),
+                Set.of("read_file", "grep", "edit_file"))).isEmpty();
+        assertThat(skillRegistry.runtimeSkills("session-1")).isEmpty();
     }
 
     private static List<Insight> repeatedSequenceInsight() {

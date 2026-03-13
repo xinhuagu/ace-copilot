@@ -28,6 +28,7 @@ public final class SkillRegistry {
 
     private static final String SKILLS_DIR = ".aceclaw/skills";
     private static final String SKILL_FILE = "SKILL.md";
+    private static final int MAX_RUNTIME_SKILLS_PER_SESSION = 3;
 
     private final Map<String, SkillConfig> registry;
     private final ConcurrentHashMap<String, Map<String, SkillConfig>> runtimeRegistry =
@@ -161,7 +162,7 @@ public final class SkillRegistry {
         if (sessionId != null && !sessionId.isBlank()) {
             var runtime = runtimeRegistry.get(sessionId);
             if (runtime != null && !runtime.isEmpty()) {
-                runtime.forEach(combined::putIfAbsent);
+                runtime.forEach(combined::put);
             }
         }
         return List.copyOf(combined.values());
@@ -209,7 +210,13 @@ public final class SkillRegistry {
             throw new IllegalArgumentException("sessionId must not be blank");
         }
         var sessionSkills = runtimeRegistry.computeIfAbsent(sessionId, ignored -> new ConcurrentHashMap<>());
-        return sessionSkills.putIfAbsent(skill.name(), skill) == null;
+        synchronized (sessionSkills) {
+            if (!sessionSkills.containsKey(skill.name())
+                    && sessionSkills.size() >= MAX_RUNTIME_SKILLS_PER_SESSION) {
+                return false;
+            }
+            return sessionSkills.putIfAbsent(skill.name(), skill) == null;
+        }
     }
 
     /**

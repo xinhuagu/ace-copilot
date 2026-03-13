@@ -49,6 +49,7 @@ public final class DynamicSkillGenerator {
     private static final Pattern CODE_FENCE = Pattern.compile(
             "```(?:json)?\\s*\\n?(\\{.*?})\\s*```",
             Pattern.DOTALL);
+    private static final Pattern BASH_MENTION = Pattern.compile("(?i)\\bbash\\b");
     private static final Set<String> DISALLOWED_RUNTIME_TOOLS = Set.of("bash", "skill", "task", "task_output");
 
     private final LlmClient llmClient;
@@ -56,6 +57,7 @@ public final class DynamicSkillGenerator {
     private final SkillRegistry skillRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ConcurrentHashMap<String, SessionRuntimeState> sessionStates = new ConcurrentHashMap<>();
+    private final Set<String> closedSessions = ConcurrentHashMap.newKeySet();
 
     public DynamicSkillGenerator(LlmClient llmClient,
                                  Function<String, String> modelResolver,
@@ -69,12 +71,18 @@ public final class DynamicSkillGenerator {
                                                          Path projectPath,
                                                          Turn turn,
                                                          List<AgentSession.ConversationMessage> sessionHistory,
-                                                         List<Insight> insights) {
+                                                         List<Insight> insights,
+                                                         Set<String> sessionToolNames) {
         Objects.requireNonNull(sessionId, "sessionId");
         Objects.requireNonNull(projectPath, "projectPath");
         Objects.requireNonNull(turn, "turn");
         Objects.requireNonNull(sessionHistory, "sessionHistory");
         Objects.requireNonNull(insights, "insights");
+        Objects.requireNonNull(sessionToolNames, "sessionToolNames");
+
+        if (closedSessions.contains(sessionId)) {
+            return java.util.Optional.empty();
+        }
 
         if (!hasRepeatedSequenceInsight(insights)) {
             return java.util.Optional.empty();
@@ -85,7 +93,7 @@ public final class DynamicSkillGenerator {
             return java.util.Optional.empty();
         }
 
-        var allowedTools = filterAllowedTools(toolSequence);
+        var allowedTools = filterAllowedTools(toolSequence, sessionToolNames);
         if (allowedTools.isEmpty()) {
             return java.util.Optional.empty();
         }
@@ -93,6 +101,11 @@ public final class DynamicSkillGenerator {
         String sequenceSignature = signatureOf(allowedTools);
         var state = sessionStates.computeIfAbsent(sessionId, ignored -> new SessionRuntimeState());
         synchronized (state) {
+            if (closedSessions.contains(sessionId)) {
+                sessionStates.remove(sessionId, state);
+                skillRegistry.clearRuntime(sessionId);
+                return java.util.Optional.empty();
+            }
             if (state.skillsByName.size() >= MAX_RUNTIME_SKILLS_PER_SESSION) {
                 return java.util.Optional.empty();
             }
@@ -130,6 +143,7 @@ public final class DynamicSkillGenerator {
         Objects.requireNonNull(sessionId, "sessionId");
         Objects.requireNonNull(projectPath, "projectPath");
 
+        closedSessions.add(sessionId);
         var state = sessionStates.remove(sessionId);
         if (state == null) {
             skillRegistry.clearRuntime(sessionId);
@@ -257,6 +271,9 @@ public final class DynamicSkillGenerator {
             if (description == null || body == null) {
                 throw new LlmException("Runtime skill response missing description/body");
             }
+            if (BASH_MENTION.matcher(body).find()) {
+                throw new LlmException("Runtime skill response contains disallowed bash content");
+            }
             return new RuntimeSkillDraft(
                     name != null ? name : "runtime-workflow",
                     description,
@@ -291,11 +308,14 @@ public final class DynamicSkillGenerator {
         return new RuntimeSkillDraft(name, description, null, body.toString());
     }
 
-    private static List<String> filterAllowedTools(List<String> toolSequence) {
+    private static List<String> filterAllowedTools(List<String> toolSequence, Set<String> sessionToolNames) {
         var allowed = new LinkedHashSet<String>();
         for (var tool : toolSequence) {
             if (tool == null || tool.isBlank()) {
                 continue;
+            }
+            if (!sessionToolNames.contains(tool)) {
+                return List.of();
             }
             if (DISALLOWED_RUNTIME_TOOLS.contains(tool)) {
                 return List.of();
