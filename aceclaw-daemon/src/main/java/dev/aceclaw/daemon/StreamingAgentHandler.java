@@ -92,6 +92,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
 
 /**
  * Handles {@code agent.prompt} JSON-RPC requests with streaming support.
@@ -141,6 +142,8 @@ public final class StreamingAgentHandler {
     private final ConcurrentHashMap<String, ProgressDetector> sessionProgressDetectors =
             new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, List<String>> sessionInjectedCandidateIds =
+            new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CompletableFuture<Void>> sessionPostProcessing =
             new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Path, SkillOutcomeTracker> projectSkillTrackers =
             new ConcurrentHashMap<>();
@@ -215,7 +218,7 @@ public final class StreamingAgentHandler {
         var eventHandler = new StreamingNotificationHandler(cancelContext, objectMapper);
 
         // Wrap tools with permission checking and hooks for this request
-        var permissionAwareRegistry = createPermissionAwareRegistry(cancelContext, sessionId);
+        var permissionAwareRegistry = createPermissionAwareRegistry(cancelContext, sessionId, eventHandler);
 
         // Get or create a session-scoped metrics collector so tool stats accumulate across turns
         var metricsCollector = sessionMetrics.computeIfAbsent(sessionId, _ -> new ToolMetricsCollector());
@@ -241,6 +244,9 @@ public final class StreamingAgentHandler {
 
         var promptAssembly = assembleSystemPromptForRequest(sessionId, session, prompt);
         var effectiveCompactor = createRequestCompactor(sessionId, promptAssembly.prompt());
+        var requestToolNames = permissionAwareRegistry.all().stream()
+                .map(Tool::name)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
         // Create a temporary agent loop with the permission-aware registry, compaction and metrics
         var agentConfig = AgentLoopConfig.builder()
@@ -256,17 +262,6 @@ public final class StreamingAgentHandler {
                 getModelForSession(sessionId), promptAssembly.prompt(),
                 maxTokens, thinkingBudget, contextWindowTokens, effectiveCompactor, agentConfig);
 
-        // Wire stream event handler to SkillTool for sub-agent event forwarding
-        // and session ID to DeferCheckTool
-        for (var tool : toolRegistry.all()) {
-            if (tool instanceof SkillTool st) {
-                st.setCurrentHandler(eventHandler);
-            }
-            if (tool instanceof dev.aceclaw.daemon.deferred.DeferCheckTool dct) {
-                dct.setCurrentSessionId(sessionId);
-            }
-        }
-
         // Acquire per-session turn lock (coordinates with DeferredActionScheduler)
         var turnLock = sessionTurnLocks.computeIfAbsent(sessionId, _ -> new ReentrantLock());
         turnLock.lock();
@@ -278,7 +273,7 @@ public final class StreamingAgentHandler {
             if (planCheckpointStore != null) {
                 var resumeResult = tryResumeFromCheckpoint(
                         sessionId, session, cancelContext, eventHandler,
-                        permissionAwareLoop, cancellationToken, metricsCollector, watchdog);
+                        permissionAwareLoop, cancellationToken, metricsCollector, watchdog, requestToolNames);
                 if (resumeResult != null) {
                     sendBudgetExhaustedNotificationIfNeeded(watchdog, cancelContext, sessionId, cancellationToken);
                     return resumeResult;
@@ -294,7 +289,8 @@ public final class StreamingAgentHandler {
                     log.info("Complex task detected (score={}, signals={}), generating plan",
                             complexityScore.score(), complexityScore.signals());
                     var planResult = executePlannedPrompt(prompt, session, sessionId, cancelContext,
-                            eventHandler, permissionAwareLoop, cancellationToken, metricsCollector, watchdog);
+                            eventHandler, permissionAwareLoop, cancellationToken,
+                            metricsCollector, watchdog, requestToolNames);
                     sendBudgetExhaustedNotificationIfNeeded(watchdog, cancelContext, sessionId, cancellationToken);
                     return planResult;
                 }
@@ -308,7 +304,7 @@ public final class StreamingAgentHandler {
             sendBudgetExhaustedNotificationIfNeeded(watchdog, cancelContext, sessionId, cancellationToken);
 
             return buildTurnResult(adaptive.turn(), session, sessionId, prompt, cancellationToken, metricsCollector,
-                    adaptive);
+                    adaptive, requestToolNames);
 
         } catch (dev.aceclaw.core.llm.LlmException e) {
             // Translate LLM errors to user-friendly messages
@@ -326,15 +322,6 @@ public final class StreamingAgentHandler {
             cancelContext.stopMonitor();
             turnLock.unlock();
 
-            // Clear handler and session references to avoid stale state between requests
-            for (var tool : toolRegistry.all()) {
-                if (tool instanceof SkillTool st) {
-                    st.setCurrentHandler(null);
-                }
-                if (tool instanceof dev.aceclaw.daemon.deferred.DeferCheckTool dct) {
-                    dct.setCurrentSessionId(null);
-                }
-            }
         }
     }
 
@@ -346,7 +333,8 @@ public final class StreamingAgentHandler {
             String prompt, AgentSession session, String sessionId,
             StreamContext cancelContext, StreamEventHandler eventHandler,
             StreamingAgentLoop permissionAwareLoop, CancellationToken cancellationToken,
-            ToolMetricsCollector metricsCollector, WatchdogTimer watchdog) throws Exception {
+            ToolMetricsCollector metricsCollector, WatchdogTimer watchdog,
+            Set<String> requestToolNames) throws Exception {
 
         // 1. Generate plan
         var planner = new LLMTaskPlanner(getLlmClient(), getModelForSession(sessionId));
@@ -363,7 +351,7 @@ public final class StreamingAgentHandler {
                     permissionAwareLoop, prompt, conversationHistory, eventHandler, cancellationToken);
             sendCancelledNotificationIfNeeded(cancellationToken, cancelContext, sessionId);
             return buildTurnResult(adaptive.turn(), session, sessionId, prompt, cancellationToken, metricsCollector,
-                    adaptive);
+                    adaptive, requestToolNames);
         }
 
         log.info("Plan generated: {} steps for goal: {}", plan.steps().size(),
@@ -513,6 +501,13 @@ public final class StreamingAgentHandler {
         }
 
         var plannedStopReason = planResult.success() ? StopReason.END_TURN : StopReason.ERROR;
+        schedulePostRequestLearning(
+                sessionId,
+                session.projectPath(),
+                syntheticTurn(planResult, plannedStopReason),
+                List.copyOf(session.messages()),
+                metricsCollector != null ? metricsCollector.allMetrics() : Map.of(),
+                requestToolNames);
         recordInjectedCandidateOutcomes(
                 sessionId, planResult.success(), cancellationToken.isCancelled(), plannedStopReason);
 
@@ -552,7 +547,8 @@ public final class StreamingAgentHandler {
                                     String sessionId, String prompt,
                                     CancellationToken cancellationToken,
                                     ToolMetricsCollector metricsCollector,
-                                    AdaptiveTurnResult adaptive) {
+                                    AdaptiveTurnResult adaptive,
+                                    Set<String> requestToolNames) {
         // Handle compaction
         if (turn.wasCompacted()) {
             handleCompactionResult(session, turn.compactionResult());
@@ -570,29 +566,13 @@ public final class StreamingAgentHandler {
             logTurnToJournal(prompt, turn);
         }
 
-        // Self-improvement
-        if (selfImprovementEngine != null) {
-            final var turnRef = turn;
-            final var historyRef = List.copyOf(session.messages());
-            final var sessionIdRef = sessionId;
-            final var projectPathRef = session.projectPath();
-            // Take an immutable snapshot of metrics before handing off to the virtual thread
-            final var metricsSnapshot = metricsCollector != null
-                    ? metricsCollector.allMetrics() : Map.<String, dev.aceclaw.core.agent.ToolMetrics>of();
-            var shortId = sessionId.length() > 8 ? sessionId.substring(0, 8) : sessionId;
-            Thread.ofVirtual().name("self-improve-" + shortId).start(() -> {
-                try {
-                    var insights = selfImprovementEngine.analyze(turnRef, historyRef, metricsSnapshot);
-                    if (!insights.isEmpty()) {
-                        int persisted = selfImprovementEngine.persist(insights, sessionIdRef, projectPathRef);
-                        log.debug("Self-improvement: {} insights analyzed, {} persisted (session={})",
-                                insights.size(), persisted, sessionIdRef);
-                    }
-                } catch (Exception e) {
-                    log.warn("Self-improvement analysis failed: {}", e.getMessage());
-                }
-            });
-        }
+        schedulePostRequestLearning(
+                sessionId,
+                session.projectPath(),
+                turn,
+                List.copyOf(session.messages()),
+                metricsCollector != null ? metricsCollector.allMetrics() : Map.of(),
+                requestToolNames);
 
         recordInjectedCandidateOutcomes(
                 sessionId, turn.finalStopReason() != StopReason.ERROR, cancellationToken.isCancelled(),
@@ -640,6 +620,72 @@ public final class StreamingAgentHandler {
                 cancellationToken.isCancelled(), turn.wasCompacted());
 
         return result;
+    }
+
+    private void schedulePostRequestLearning(String sessionId,
+                                             Path projectPath,
+                                             dev.aceclaw.core.agent.Turn turn,
+                                             List<AgentSession.ConversationMessage> sessionHistory,
+                                             Map<String, ToolMetrics> metricsSnapshot,
+                                             Set<String> requestToolNames) {
+        if ((selfImprovementEngine == null && dynamicSkillGenerator == null)
+                || turn == null || turn.newMessages().isEmpty()) {
+            return;
+        }
+
+        var historyRef = List.copyOf(sessionHistory);
+        var metricsRef = metricsSnapshot == null ? Map.<String, ToolMetrics>of() : Map.copyOf(metricsSnapshot);
+        var toolNamesRef = requestToolNames == null ? Set.<String>of() : Set.copyOf(requestToolNames);
+
+        sessionPostProcessing.compute(sessionId, (ignored, previous) -> {
+            var base = previous == null
+                    ? CompletableFuture.<Void>completedFuture(null)
+                    : previous.exceptionally(error -> null);
+            var next = base.thenRunAsync(
+                    () -> runPostRequestLearning(sessionId, projectPath, turn, historyRef, metricsRef, toolNamesRef),
+                    command -> Thread.ofVirtual().name("post-learn-" + shortenSessionId(sessionId)).start(command));
+            next.whenComplete((unused, error) -> sessionPostProcessing.remove(sessionId, next));
+            return next;
+        });
+    }
+
+    private void runPostRequestLearning(String sessionId,
+                                        Path projectPath,
+                                        dev.aceclaw.core.agent.Turn turn,
+                                        List<AgentSession.ConversationMessage> sessionHistory,
+                                        Map<String, ToolMetrics> metricsSnapshot,
+                                        Set<String> requestToolNames) {
+        var insights = List.<dev.aceclaw.memory.Insight>of();
+        if (selfImprovementEngine != null) {
+            try {
+                insights = selfImprovementEngine.analyze(turn, sessionHistory, metricsSnapshot);
+                if (!insights.isEmpty()) {
+                    int persisted = selfImprovementEngine.persist(insights, sessionId, projectPath);
+                    log.debug("Self-improvement: {} insights analyzed, {} persisted (session={})",
+                            insights.size(), persisted, sessionId);
+                }
+            } catch (Exception e) {
+                log.warn("Self-improvement analysis failed: {}", e.getMessage());
+            }
+        }
+        if (dynamicSkillGenerator != null) {
+            try {
+                dynamicSkillGenerator.maybeGenerate(
+                        sessionId, projectPath, turn, sessionHistory, insights, requestToolNames);
+            } catch (Exception e) {
+                log.warn("Dynamic runtime skill generation failed: {}", e.getMessage());
+            }
+        }
+    }
+
+    private dev.aceclaw.core.agent.Turn syntheticTurn(PlanExecutionResult planResult, StopReason stopReason) {
+        int totalInput = planResult.stepResults().stream().mapToInt(StepResult::inputTokens).sum();
+        int totalOutput = planResult.stepResults().stream().mapToInt(StepResult::outputTokens).sum();
+        return new dev.aceclaw.core.agent.Turn(planResult.messages(), stopReason, new dev.aceclaw.core.llm.Usage(totalInput, totalOutput));
+    }
+
+    private static String shortenSessionId(String sessionId) {
+        return sessionId.length() > 8 ? sessionId.substring(0, 8) : sessionId;
     }
 
     private void recordPromptSkillCorrections(String sessionId, Path projectPath, String prompt) {
@@ -1115,9 +1161,11 @@ public final class StreamingAgentHandler {
      * Creates a ToolRegistry where each tool is wrapped with permission checking and hooks.
      * Tools that need user approval will use the StreamContext to ask the client.
      */
-    private ToolRegistry createPermissionAwareRegistry(CancelAwareStreamContext context, String sessionId) {
+    private ToolRegistry createPermissionAwareRegistry(
+            CancelAwareStreamContext context, String sessionId, StreamEventHandler eventHandler) {
         Objects.requireNonNull(context, "context");
         Objects.requireNonNull(sessionId, "sessionId");
+        Objects.requireNonNull(eventHandler, "eventHandler");
         var registry = new ToolRegistry();
         var antiPatternGate = AntiPatternPreExecutionGate.fromStores(
                 memoryStore,
@@ -1137,7 +1185,7 @@ public final class StreamingAgentHandler {
         var sessionReadFileTool = new ReadFileTool(sessionProject, sessionWriteFileTool.readFiles());
         for (var tool : toolRegistry.all()) {
             Tool effectiveTool = materializeSessionScopedTool(
-                    tool, sessionProject, sessionReadFileTool, sessionWriteFileTool);
+                    tool, sessionProject, sessionReadFileTool, sessionWriteFileTool, sessionId, eventHandler);
             registry.register(new PermissionAwareTool(
                     effectiveTool, permissionManager, context, objectMapper,
                     hookExecutor, sessionId, cwd, antiPatternGate,
@@ -1152,11 +1200,15 @@ public final class StreamingAgentHandler {
             Tool original,
             Path sessionProject,
             ReadFileTool sessionReadFileTool,
-            WriteFileTool sessionWriteFileTool) {
+            WriteFileTool sessionWriteFileTool,
+            String sessionId,
+            StreamEventHandler eventHandler) {
         Objects.requireNonNull(original, "original");
         Objects.requireNonNull(sessionProject, "sessionProject");
         Objects.requireNonNull(sessionReadFileTool, "sessionReadFileTool");
         Objects.requireNonNull(sessionWriteFileTool, "sessionWriteFileTool");
+        Objects.requireNonNull(sessionId, "sessionId");
+        Objects.requireNonNull(eventHandler, "eventHandler");
         return switch (original.name()) {
             case "read_file" -> sessionReadFileTool;
             case "write_file" -> sessionWriteFileTool;
@@ -1169,6 +1221,10 @@ public final class StreamingAgentHandler {
             case "memory" -> memoryStore != null ? new MemoryTool(memoryStore, sessionProject) : original;
             case "applescript" -> new AppleScriptTool(sessionProject);
             case "screen_capture" -> new ScreenCaptureTool(sessionProject);
+            case "skill" -> original instanceof SkillTool st ? st.forRequest(sessionId, eventHandler) : original;
+            case "defer_check" -> original instanceof dev.aceclaw.daemon.deferred.DeferCheckTool dct
+                    ? dct.forSession(sessionId)
+                    : original;
             default -> original;
         };
     }
@@ -1199,7 +1255,7 @@ public final class StreamingAgentHandler {
     private SystemPromptBudget systemPromptBudget = SystemPromptBudget.DEFAULT;
     private Set<String> registeredToolNames = Set.of();
     private boolean hasBraveApiKey;
-    private String skillDescriptions = "";
+    private Function<String, String> skillDescriptionsProvider = ignored -> "";
     private int contextWindowTokens;
     private SelfImprovementEngine selfImprovementEngine;
     private HookExecutor hookExecutor;
@@ -1220,6 +1276,7 @@ public final class StreamingAgentHandler {
     private PlanCheckpointStore planCheckpointStore;
     private SkillMemoryFeedback skillMemoryFeedback;
     private SkillRefinementEngine skillRefinementEngine;
+    private DynamicSkillGenerator dynamicSkillGenerator;
 
     /**
      * Sets the LLM configuration for permission-aware agent loop creation.
@@ -1291,13 +1348,18 @@ public final class StreamingAgentHandler {
                                          SystemPromptBudget systemPromptBudget,
                                          Set<String> registeredToolNames,
                                          boolean hasBraveApiKey,
-                                         String skillDescriptions) {
+                                         Function<String, String> skillDescriptionsProvider) {
         this.markdownStore = markdownStore;
         this.provider = provider;
         this.systemPromptBudget = systemPromptBudget != null ? systemPromptBudget : SystemPromptBudget.DEFAULT;
         this.registeredToolNames = registeredToolNames != null ? Set.copyOf(registeredToolNames) : Set.of();
         this.hasBraveApiKey = hasBraveApiKey;
-        this.skillDescriptions = skillDescriptions != null ? skillDescriptions : "";
+        this.skillDescriptionsProvider = skillDescriptionsProvider != null
+                ? sessionId -> {
+                    var descriptions = skillDescriptionsProvider.apply(sessionId);
+                    return descriptions != null ? descriptions : "";
+                }
+                : ignored -> "";
     }
 
     /**
@@ -1305,6 +1367,10 @@ public final class StreamingAgentHandler {
      */
     public void setSelfImprovementEngine(SelfImprovementEngine selfImprovementEngine) {
         this.selfImprovementEngine = selfImprovementEngine;
+    }
+
+    public void setDynamicSkillGenerator(DynamicSkillGenerator dynamicSkillGenerator) {
+        this.dynamicSkillGenerator = dynamicSkillGenerator;
     }
 
     /**
@@ -1471,10 +1537,33 @@ public final class StreamingAgentHandler {
      */
     public void clearSessionMetrics(String sessionId) {
         java.util.Objects.requireNonNull(sessionId, "sessionId");
+        awaitSessionPostProcessing(sessionId);
         sessionMetrics.remove(sessionId);
         sessionInjectedCandidateIds.remove(sessionId);
         sessionDoomLoops.remove(sessionId);
         sessionProgressDetectors.remove(sessionId);
+        sessionPostProcessing.remove(sessionId);
+    }
+
+    public void awaitSessionPostProcessing(String sessionId) {
+        Objects.requireNonNull(sessionId, "sessionId");
+        var future = sessionPostProcessing.get(sessionId);
+        if (future == null) {
+            return;
+        }
+        try {
+            future.get(30, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted while waiting for post-request learning for {}", sessionId);
+        } catch (TimeoutException e) {
+            log.warn("Timed out waiting for post-request learning for {}", sessionId);
+        } catch (ExecutionException e) {
+            var cause = e.getCause();
+            log.warn("Post-request learning failed for {}: {}",
+                    sessionId,
+                    cause != null ? cause.getMessage() : e.getMessage());
+        }
     }
 
     /**
@@ -1565,7 +1654,7 @@ public final class StreamingAgentHandler {
                 hasBraveApiKey,
                 candidateStore,
                 config,
-                skillDescriptions,
+                skillDescriptionsProvider.apply(sessionId),
                 prompt,
                 activePaths);
         if (assembly.injectedCandidateIds().isEmpty()) {
@@ -1895,7 +1984,8 @@ public final class StreamingAgentHandler {
             String sessionId, AgentSession session,
             StreamContext cancelContext, StreamEventHandler eventHandler,
             StreamingAgentLoop permissionAwareLoop, CancellationToken cancellationToken,
-            ToolMetricsCollector metricsCollector, WatchdogTimer watchdog) throws Exception {
+            ToolMetricsCollector metricsCollector, WatchdogTimer watchdog,
+            Set<String> requestToolNames) throws Exception {
 
         var resumeRouter = new ResumeRouter(planCheckpointStore);
         var routeDecision = resumeRouter.route(sessionId, session.projectPath());
@@ -1926,7 +2016,8 @@ public final class StreamingAgentHandler {
 
         if (userAccepted && cp.hasRemainingSteps()) {
             return executeResumedPlan(cp, session, sessionId, cancelContext,
-                    eventHandler, permissionAwareLoop, cancellationToken, metricsCollector, watchdog);
+                    eventHandler, permissionAwareLoop, cancellationToken, metricsCollector, watchdog,
+                    requestToolNames);
         }
 
         // User declined or no remaining steps
@@ -1987,7 +2078,8 @@ public final class StreamingAgentHandler {
             PlanCheckpoint cp, AgentSession session, String sessionId,
             StreamContext cancelContext, StreamEventHandler eventHandler,
             StreamingAgentLoop permissionAwareLoop, CancellationToken cancellationToken,
-            ToolMetricsCollector metricsCollector, WatchdogTimer watchdog) throws Exception {
+            ToolMetricsCollector metricsCollector, WatchdogTimer watchdog,
+            Set<String> requestToolNames) throws Exception {
 
         // 1. Mark old checkpoint as RESUMED
         planCheckpointStore.markResumed(cp.planId());
@@ -2178,6 +2270,13 @@ public final class StreamingAgentHandler {
         }
 
         var plannedStopReason = planResult.success() ? StopReason.END_TURN : StopReason.ERROR;
+        schedulePostRequestLearning(
+                sessionId,
+                session.projectPath(),
+                syntheticTurn(planResult, plannedStopReason),
+                List.copyOf(session.messages()),
+                metricsCollector != null ? metricsCollector.allMetrics() : Map.of(),
+                requestToolNames);
         recordInjectedCandidateOutcomes(
                 sessionId, planResult.success(), cancellationToken.isCancelled(), plannedStopReason);
 

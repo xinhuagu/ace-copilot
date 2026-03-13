@@ -20,12 +20,15 @@ public final class DeferCheckTool implements Tool {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
     private volatile DeferredActionScheduler scheduler;
-
-    /** Session ID is injected per-request by the handler. */
     private volatile String currentSessionId;
 
     public DeferCheckTool(DeferredActionScheduler scheduler) {
+        this(scheduler, null);
+    }
+
+    private DeferCheckTool(DeferredActionScheduler scheduler, String currentSessionId) {
         this.scheduler = scheduler;
+        this.currentSessionId = currentSessionId;
     }
 
     /**
@@ -36,7 +39,14 @@ public final class DeferCheckTool implements Tool {
     }
 
     /**
-     * Sets the current session ID (called by the handler before each request).
+     * Creates a request-bound tool instance so concurrent sessions do not share mutable context.
+     */
+    public DeferCheckTool forSession(String sessionId) {
+        return new DeferCheckTool(scheduler, sessionId);
+    }
+
+    /**
+     * Backward-compatible mutator used by tests; request code should prefer {@link #forSession}.
      */
     public void setCurrentSessionId(String sessionId) {
         this.currentSessionId = sessionId;

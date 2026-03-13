@@ -35,8 +35,9 @@ public final class SkillTool implements Tool, CancellationAware {
     private final SkillRegistry skillRegistry;
     private final SkillContentResolver contentResolver;
     private final SubAgentRunner subAgentRunner;
-    private volatile StreamEventHandler currentHandler;
     private volatile CancellationToken cancellationToken;
+    private volatile StreamEventHandler currentHandler;
+    private volatile String currentSessionId;
 
     /**
      * Creates a skill tool.
@@ -47,9 +48,17 @@ public final class SkillTool implements Tool, CancellationAware {
      */
     public SkillTool(SkillRegistry skillRegistry, SkillContentResolver contentResolver,
                      SubAgentRunner subAgentRunner) {
+        this(skillRegistry, contentResolver, subAgentRunner, null, null);
+    }
+
+    private SkillTool(SkillRegistry skillRegistry, SkillContentResolver contentResolver,
+                      SubAgentRunner subAgentRunner, StreamEventHandler currentHandler,
+                      String currentSessionId) {
         this.skillRegistry = skillRegistry;
         this.contentResolver = contentResolver;
         this.subAgentRunner = subAgentRunner;
+        this.currentHandler = currentHandler;
+        this.currentSessionId = currentSessionId;
     }
 
     @Override
@@ -58,13 +67,24 @@ public final class SkillTool implements Tool, CancellationAware {
     }
 
     /**
-     * Sets the current stream event handler for forwarding skill stream events.
-     * Called per-request by the daemon handler before running the agent loop.
-     *
-     * @param handler the handler to forward sub-agent events to, or null for silent execution
+     * Creates a request-bound tool instance so concurrent sessions do not share mutable context.
+     */
+    public SkillTool forRequest(String sessionId, StreamEventHandler handler) {
+        return new SkillTool(skillRegistry, contentResolver, subAgentRunner, handler, sessionId);
+    }
+
+    /**
+     * Backward-compatible mutator used by tests; request code should prefer {@link #forRequest}.
      */
     public void setCurrentHandler(StreamEventHandler handler) {
         this.currentHandler = handler;
+    }
+
+    /**
+     * Backward-compatible mutator used by tests; request code should prefer {@link #forRequest}.
+     */
+    public void setCurrentSessionId(String sessionId) {
+        this.currentSessionId = sessionId;
     }
 
     @Override
@@ -79,7 +99,7 @@ public final class SkillTool implements Tool, CancellationAware {
 
     @Override
     public JsonNode inputSchema() {
-        var names = skillRegistry.names();
+        var names = skillRegistry.names(currentSessionId);
 
         var builder = SchemaBuilder.object()
                 .requiredProperty("name", names.isEmpty()
@@ -104,11 +124,11 @@ public final class SkillTool implements Tool, CancellationAware {
         String skillName = input.get("name").asText();
         String arguments = input.has("arguments") ? input.get("arguments").asText() : "";
 
-        var configOpt = skillRegistry.get(skillName);
+        var configOpt = skillRegistry.get(currentSessionId, skillName);
         if (configOpt.isEmpty()) {
             return new ToolResult(
                     "Unknown skill: " + skillName +
-                    ". Available skills: " + String.join(", ", skillRegistry.names()), true);
+                    ". Available skills: " + String.join(", ", skillRegistry.names(currentSessionId)), true);
         }
 
         var config = configOpt.get();
