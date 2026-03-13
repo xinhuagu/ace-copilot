@@ -131,7 +131,7 @@ public final class DynamicSkillGenerator {
             if (state.suppressedSignatures.contains(sequenceSignature)) {
                 return java.util.Optional.empty();
             }
-            var conflictingSkill = conflictingDurableSkill(allowedTools);
+            var conflictingSkill = conflictingDurableSkill(sequenceSignature, allowedTools);
             if (conflictingSkill.isPresent()) {
                 state.suppressedSignatures.add(sequenceSignature);
                 if (learningExplanationRecorder != null) {
@@ -500,12 +500,33 @@ public final class DynamicSkillGenerator {
         return List.copyOf(allowed);
     }
 
-    private java.util.Optional<SkillConfig> conflictingDurableSkill(List<String> allowedTools) {
+    private java.util.Optional<SkillConfig> conflictingDurableSkill(String sequenceSignature, List<String> allowedTools) {
         return skillRegistry.all().stream()
                 .filter(skill -> skill.context() == SkillConfig.ExecutionContext.FORK)
                 .filter(skill -> !skill.disableModelInvocation() || skill.userInvocable())
-                .filter(skill -> skill.allowedTools().equals(allowedTools))
+                .filter(skill -> allowedTools.equals(skill.allowedTools()))
+                .filter(skill -> hasMatchingWorkflowSignature(skill, sequenceSignature))
                 .findFirst();
+    }
+
+    private boolean hasMatchingWorkflowSignature(SkillConfig skill, String sequenceSignature) {
+        try {
+            Path skillFile = skill.directory().resolve("SKILL.md");
+            if (!Files.isRegularFile(skillFile)) {
+                return false;
+            }
+            var content = Files.readString(skillFile);
+            return content.lines()
+                    .map(String::trim)
+                    .filter(line -> line.startsWith("source-tool-sequence:"))
+                    .map(line -> line.substring("source-tool-sequence:".length()).trim())
+                    .map(DynamicSkillGenerator::unquote)
+                    .map(signature -> signature.replace(" ", ""))
+                    .anyMatch(sequenceSignature::equals);
+        } catch (IOException e) {
+            log.debug("Failed to inspect durable skill metadata for {}: {}", skill.name(), e.getMessage());
+            return false;
+        }
     }
 
     private void pruneExpiredLocked(String sessionId,
@@ -706,6 +727,17 @@ public final class DynamicSkillGenerator {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String unquote(String value) {
+        if (value == null) {
+            return "";
+        }
+        var trimmed = value.trim();
+        if (trimmed.length() >= 2 && trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+            return trimmed.substring(1, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 
     private static final class SessionRuntimeState {

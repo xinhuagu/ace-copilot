@@ -243,15 +243,14 @@ public final class SkillRegistry {
         if (sessionId.isBlank() || skillName.isBlank()) {
             return false;
         }
-        var runtime = runtimeRegistry.get(sessionId);
-        if (runtime == null) {
-            return false;
-        }
-        boolean removed = runtime.remove(skillName) != null;
-        if (runtime.isEmpty()) {
-            runtimeRegistry.remove(sessionId, runtime);
-        }
-        return removed;
+        var removed = new java.util.concurrent.atomic.AtomicBoolean(false);
+        runtimeRegistry.computeIfPresent(sessionId, (ignored, runtime) -> {
+            synchronized (runtime) {
+                removed.set(runtime.remove(skillName) != null);
+                return runtime.isEmpty() ? null : runtime;
+            }
+        });
+        return removed.get();
     }
 
     /**

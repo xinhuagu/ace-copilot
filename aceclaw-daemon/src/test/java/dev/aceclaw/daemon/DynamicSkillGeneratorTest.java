@@ -304,7 +304,10 @@ class DynamicSkillGeneratorTest {
 
     @Test
     void suppressesRuntimeGenerationWhenDurableSkillAlreadyCoversWorkflow() throws Exception {
-        createDurableSkill("existing-review", List.of("read_file", "grep", "edit_file"));
+        createDurableSkill(
+                "existing-review",
+                List.of("read_file", "grep", "edit_file"),
+                "read_file -> grep -> edit_file");
         skillRegistry = SkillRegistry.load(workDir);
         generator = new DynamicSkillGenerator(mockLlm, ignored -> "mock-model", skillRegistry, clock);
 
@@ -436,7 +439,7 @@ class DynamicSkillGeneratorTest {
         assertThat(skillRegistry.runtimeSkills("session-1")).isEmpty();
     }
 
-    private void createDurableSkill(String name, List<String> allowedTools) throws Exception {
+    private void createDurableSkill(String name, List<String> allowedTools, String sourceSequence) throws Exception {
         Path skillDir = workDir.resolve(".aceclaw/skills").resolve(name);
         Files.createDirectories(skillDir);
         Files.writeString(skillDir.resolve("SKILL.md"), """
@@ -446,6 +449,7 @@ class DynamicSkillGeneratorTest {
                 context: "FORK"
                 allowed-tools: [%s]
                 disable-model-invocation: false
+                source-tool-sequence: "%s"
                 ---
 
                 # Durable workflow
@@ -453,7 +457,8 @@ class DynamicSkillGeneratorTest {
                 Use the existing durable workflow.
                 """.formatted(
                 name,
-                allowedTools.stream().map(tool -> "\"" + tool + "\"").reduce((a, b) -> a + ", " + b).orElse("")));
+                allowedTools.stream().map(tool -> "\"" + tool + "\"").reduce((a, b) -> a + ", " + b).orElse(""),
+                sourceSequence));
     }
 
     private static final class MutableClock extends Clock {

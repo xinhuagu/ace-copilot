@@ -91,6 +91,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
@@ -144,6 +145,8 @@ public final class StreamingAgentHandler {
     private final ConcurrentHashMap<String, List<String>> sessionInjectedCandidateIds =
             new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CompletableFuture<Void>> sessionPostProcessing =
+            new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicBoolean> sessionRuntimePruneScheduled =
             new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Path, SkillOutcomeTracker> projectSkillTrackers =
             new ConcurrentHashMap<>();
@@ -510,6 +513,12 @@ public final class StreamingAgentHandler {
                 requestToolNames);
         recordInjectedCandidateOutcomes(
                 sessionId, planResult.success(), cancellationToken.isCancelled(), plannedStopReason);
+        recordSkillOutcomes(
+                sessionId,
+                session.projectPath(),
+                syntheticTurn(planResult, plannedStopReason),
+                cancellationToken,
+                null);
 
         // 6. Build result
         var result = objectMapper.createObjectNode();
@@ -1588,6 +1597,7 @@ public final class StreamingAgentHandler {
         sessionDoomLoops.remove(sessionId);
         sessionProgressDetectors.remove(sessionId);
         sessionPostProcessing.remove(sessionId);
+        sessionRuntimePruneScheduled.remove(sessionId);
     }
 
     public void awaitSessionPostProcessing(String sessionId) {
@@ -1682,7 +1692,7 @@ public final class StreamingAgentHandler {
             return new SystemPromptLoader.RequestAssembly(getSystemPrompt(sessionId), List.of(), List.of(), List.of());
         }
         if (dynamicSkillGenerator != null) {
-            dynamicSkillGenerator.pruneExpired(sessionId, session.projectPath());
+            scheduleRuntimeSkillPrune(sessionId, session.projectPath());
         }
         var activePaths = inferActiveFilePaths(prompt, session.messages(), session.projectPath());
         var config = new CandidatePromptAssembler.Config(
@@ -1711,6 +1721,22 @@ public final class StreamingAgentHandler {
             sessionInjectedCandidateIds.put(sessionId, assembly.injectedCandidateIds());
         }
         return assembly;
+    }
+
+    private void scheduleRuntimeSkillPrune(String sessionId, Path projectPath) {
+        var scheduled = sessionRuntimePruneScheduled.computeIfAbsent(sessionId, ignored -> new AtomicBoolean(false));
+        if (!scheduled.compareAndSet(false, true)) {
+            return;
+        }
+        Thread.ofVirtual().name("runtime-prune-" + shortenSessionId(sessionId)).start(() -> {
+            try {
+                dynamicSkillGenerator.pruneExpired(sessionId, projectPath);
+            } catch (Exception e) {
+                log.warn("Runtime skill prune failed for {}: {}", sessionId, e.getMessage());
+            } finally {
+                scheduled.set(false);
+            }
+        });
     }
 
     private MessageCompactor createRequestCompactor(String sessionId, String requestSystemPrompt) {
@@ -2327,6 +2353,12 @@ public final class StreamingAgentHandler {
                 requestToolNames);
         recordInjectedCandidateOutcomes(
                 sessionId, planResult.success(), cancellationToken.isCancelled(), plannedStopReason);
+        recordSkillOutcomes(
+                sessionId,
+                session.projectPath(),
+                syntheticTurn(planResult, plannedStopReason),
+                cancellationToken,
+                null);
 
         var result = objectMapper.createObjectNode();
         result.put("sessionId", sessionId);
