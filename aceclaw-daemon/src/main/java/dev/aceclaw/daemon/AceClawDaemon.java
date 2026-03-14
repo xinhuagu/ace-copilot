@@ -1522,6 +1522,8 @@ public final class AceClawDaemon {
             var action = LearningSignalReview.Action.valueOf(actionText.toUpperCase(Locale.ROOT));
             String summary = "Human review marked " + targetType + " '" + targetId + "' as "
                     + action.name().toLowerCase(Locale.ROOT).replace('_', '-') + ".";
+            learningExplanationRecorder.recordHumanReview(projectPath, targetType, targetId, action, note, reviewer, sessionId);
+            learningValidationRecorder.recordHumanReview(projectPath, targetType, targetId, action, note, reviewer, sessionId);
             learningSignalReviewStore.append(projectPath, new LearningSignalReview(
                     Instant.now(),
                     targetType,
@@ -1532,8 +1534,6 @@ public final class AceClawDaemon {
                     reviewer,
                     sessionId,
                     List.of("human-review", action.name().toLowerCase(Locale.ROOT), targetType)));
-            learningExplanationRecorder.recordHumanReview(projectPath, targetType, targetId, action, note, reviewer, sessionId);
-            learningValidationRecorder.recordHumanReview(projectPath, targetType, targetId, action, note, reviewer, sessionId);
 
             var result = objectMapper.createObjectNode();
             result.put("applied", true);
