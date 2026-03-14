@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -291,11 +292,34 @@ public final class DaemonConnection implements AutoCloseable {
 
     // -- internal --------------------------------------------------------
 
+    /** Write timeout to prevent indefinite blocking under backpressure. */
+    private static final long WRITE_TIMEOUT_MS = 30_000;
+
     /**
      * Writes a line to the socket without locking (caller must hold writeLock).
+     *
+     * <p>Uses a write-all loop to handle short writes that occur when the channel
+     * is in non-blocking mode (e.g. during {@link #readLine(long)} timeout reads).
+     * Without this loop, a concurrent write from another thread (permission response,
+     * cancel notification) can silently truncate the JSON-RPC message, corrupting
+     * the stream.
      */
     private void writeRaw(String line) throws IOException {
-        var data = (line + "\n").getBytes(StandardCharsets.UTF_8);
-        channel.write(ByteBuffer.wrap(data));
+        var buf = ByteBuffer.wrap((line + "\n").getBytes(StandardCharsets.UTF_8));
+        long deadline = System.currentTimeMillis() + WRITE_TIMEOUT_MS;
+        long backoffNanos = 1_000_000L; // 1ms initial backoff
+        while (buf.hasRemaining()) {
+            int written = channel.write(buf);
+            if (written == 0) {
+                if (System.currentTimeMillis() >= deadline) {
+                    throw new IOException("Write timed out after " + WRITE_TIMEOUT_MS
+                            + "ms, " + buf.remaining() + " bytes remaining");
+                }
+                LockSupport.parkNanos(backoffNanos);
+                backoffNanos = Math.min(backoffNanos * 2, 64_000_000L); // cap at 64ms
+            } else {
+                backoffNanos = 1_000_000L; // reset on progress
+            }
+        }
     }
 }
