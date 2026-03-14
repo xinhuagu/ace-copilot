@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Persistent JSONL store for human review of learned signals.
@@ -24,19 +25,25 @@ public final class LearningSignalReviewStore {
     private static final String REVIEWS_FILE = ".aceclaw/metrics/learning-signal-reviews.jsonl";
 
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+    private final ReentrantLock writeLock = new ReentrantLock();
 
     public void append(Path projectRoot, LearningSignalReview review) throws IOException {
         Objects.requireNonNull(projectRoot, "projectRoot");
         Objects.requireNonNull(review, "review");
         Path file = reviewsFile(projectRoot);
         Files.createDirectories(file.getParent());
-        try (var channel = FileChannel.open(file,
-                StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
-             var ignored = channel.lock()) {
-            var buffer = StandardCharsets.UTF_8.encode(mapper.writeValueAsString(review) + "\n");
-            while (buffer.hasRemaining()) {
-                channel.write(buffer);
+        writeLock.lock();
+        try {
+            try (var channel = FileChannel.open(file,
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+                 var ignored = channel.lock()) {
+                var buffer = StandardCharsets.UTF_8.encode(mapper.writeValueAsString(review) + "\n");
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer);
+                }
             }
+        } finally {
+            writeLock.unlock();
         }
     }
 
@@ -74,6 +81,10 @@ public final class LearningSignalReviewStore {
             latest.putIfAbsent(review.targetKey(), review);
         }
         return Map.copyOf(latest);
+    }
+
+    public Map<String, LearningSignalReview> latestByTarget(Path projectRoot) {
+        return latestByTarget(projectRoot, Integer.MAX_VALUE);
     }
 
     Path reviewsFile(Path projectRoot) {

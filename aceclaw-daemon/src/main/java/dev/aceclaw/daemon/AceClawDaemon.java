@@ -69,6 +69,8 @@ import java.util.Map;
  * </ul>
  */
 public final class AceClawDaemon {
+    private static final String HUMAN_REVIEW_APPLIED_ACTION = "human_review_applied";
+    private static final int REVIEW_COUNT_WINDOW = 200;
 
     private static final Logger log = LoggerFactory.getLogger(AceClawDaemon.class);
 
@@ -1326,7 +1328,7 @@ public final class AceClawDaemon {
             var recentValidations = objectMapper.createArrayNode();
             var recentReviews = objectMapper.createArrayNode();
             var maintenanceRuns = objectMapper.createArrayNode();
-            var latestReviews = learningSignalReviewStore.latestByTarget(projectPath, 200);
+            var latestReviews = learningSignalReviewStore.latestByTarget(projectPath);
 
             for (var explanation : learningExplanationStore.recent(projectPath, 100)) {
                 explanationCounts.put(
@@ -1368,9 +1370,12 @@ public final class AceClawDaemon {
                 recentValidations.add(node);
             }
 
-            for (var review : learningSignalReviewStore.recent(projectPath, limit)) {
+            for (var review : learningSignalReviewStore.recent(projectPath, REVIEW_COUNT_WINDOW)) {
                 var key = review.action().name().toLowerCase(Locale.ROOT);
                 reviewCounts.put(key, reviewCounts.path(key).asInt(0) + 1);
+            }
+            for (var review : learningSignalReviewStore.recent(projectPath, limit)) {
+                var key = review.action().name().toLowerCase(Locale.ROOT);
                 var node = objectMapper.createObjectNode();
                 node.put("timestamp", review.timestamp().toString());
                 node.put("targetType", review.targetType());
@@ -1466,9 +1471,12 @@ public final class AceClawDaemon {
 
             var result = objectMapper.createObjectNode();
             var signals = objectMapper.createArrayNode();
-            var latestReviews = learningSignalReviewStore.latestByTarget(projectPath, 200);
+            var latestReviews = learningSignalReviewStore.latestByTarget(projectPath);
             var seen = new java.util.LinkedHashSet<String>();
             for (var explanation : learningExplanationStore.recent(projectPath, 200)) {
+                if (HUMAN_REVIEW_APPLIED_ACTION.equals(explanation.actionType())) {
+                    continue;
+                }
                 if (explanation.targetType().isBlank() || explanation.targetId().isBlank()) {
                     continue;
                 }
@@ -2135,7 +2143,7 @@ public final class AceClawDaemon {
     private static boolean isOperatorFacingAction(String actionType) {
         return switch (actionType) {
             case "runtime_skill_created", "runtime_skill_persisted", "skill_refinement",
-                    "human_review_applied",
+                    HUMAN_REVIEW_APPLIED_ACTION,
                     "skill_draft_created", "candidate_transition" -> true;
             default -> false;
         };

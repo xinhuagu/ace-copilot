@@ -159,6 +159,26 @@ class TerminalReplTest {
     }
 
     @Test
+    void renderLearningSignals_keepsFullTargetIdentifierCopyable() throws Exception {
+        var mapper = new ObjectMapper();
+        var signals = mapper.createArrayNode();
+        var signal = mapper.createObjectNode();
+        signal.put("targetType", "runtime_skill");
+        signal.put("targetId", "retry-flow-with-very-long-identifier");
+        signal.put("summary", "Retry flow learned from repeated successful repair sequence.");
+        signal.put("reviewAction", "pin");
+        signals.add(signal);
+
+        invokePrivate(repl, "renderLearningSignals",
+                new Class<?>[]{PrintWriter.class, com.fasterxml.jackson.databind.JsonNode.class},
+                out, signals);
+
+        String output = outputBuffer.toString();
+        assertThat(output).contains("runtime_skill:retry-flow-with-very-long-identifier");
+        assertThat(output).contains("[pin]");
+    }
+
+    @Test
     void tasks_showsNoTasks() {
         boolean shouldExit = repl.handleSlashCommand(out, "/tasks", null);
         assertThat(shouldExit).isFalse();

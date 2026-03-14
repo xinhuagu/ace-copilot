@@ -2682,8 +2682,19 @@ public final class TerminalRepl {
             handleLearningReviewsCommand(out);
             return;
         }
+        if (trimmedArg.equalsIgnoreCase("review")) {
+            out.println(WARNING + "Usage: /learning review <action> <targetType> <targetId> [note]" + RESET);
+            out.flush();
+            return;
+        }
         if (!trimmedArg.isBlank() && trimmedArg.regionMatches(true, 0, "review ", 0, "review ".length())) {
             handleLearningReviewApplyCommand(out, trimmedArg.substring("review ".length()).trim());
+            return;
+        }
+        if (!trimmedArg.isBlank()) {
+            out.println(WARNING + "Usage: /learning | /learning signals | /learning reviews | "
+                    + "/learning review <action> <targetType> <targetId> [note]" + RESET);
+            out.flush();
             return;
         }
         try {
@@ -2851,12 +2862,13 @@ public final class TerminalRepl {
             return;
         }
         for (JsonNode signal : signals) {
-            String left = signal.path("targetType").asText("") + ":" + signal.path("targetId").asText("");
+            String left = sanitizeTerminalText(
+                    signal.path("targetType").asText("") + ":" + signal.path("targetId").asText(""));
             String review = signal.path("reviewAction").asText("");
             String suffix = review.isBlank() ? "" : " [" + review + "]";
             out.printf("  %s%s%s %s%s%n",
                     INFO,
-                    fitWidth(sanitizeTerminalText(left), 32),
+                    left,
                     RESET,
                     fitWidth(sanitizeTerminalText(signal.path("summary").asText("")), 72),
                     sanitizeTerminalText(suffix));
