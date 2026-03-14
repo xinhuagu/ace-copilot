@@ -60,6 +60,9 @@ class TerminalReplTest {
         assertThat(output).contains("/model");
         assertThat(output).contains("/tools");
         assertThat(output).contains("/learning");
+        assertThat(output).contains("/learning signals");
+        assertThat(output).contains("/learning reviews");
+        assertThat(output).contains("/learning review <action> <type> <id> [note]");
         assertThat(output).contains("/project");
         assertThat(output).contains("/skills");
         assertThat(output).contains("/tasks");
@@ -132,6 +135,47 @@ class TerminalReplTest {
         boolean shouldExit = repl.handleSlashCommand(out, "/learning", null);
         assertThat(shouldExit).isFalse();
         assertThat(outputBuffer.toString()).contains("Not connected to daemon");
+    }
+
+    @Test
+    void learningSignalsWithNoClient_showsNotConnectedWhenNullClient() {
+        boolean shouldExit = repl.handleSlashCommand(out, "/learning signals", null);
+        assertThat(shouldExit).isFalse();
+        assertThat(outputBuffer.toString()).contains("Not connected to daemon");
+    }
+
+    @Test
+    void learningReviewsWithNoClient_showsNotConnectedWhenNullClient() {
+        boolean shouldExit = repl.handleSlashCommand(out, "/learning reviews", null);
+        assertThat(shouldExit).isFalse();
+        assertThat(outputBuffer.toString()).contains("Not connected to daemon");
+    }
+
+    @Test
+    void learningReviewApplyWithNoClient_showsNotConnectedWhenNullClient() {
+        boolean shouldExit = repl.handleSlashCommand(out, "/learning review suppress trend foo too-noisy", null);
+        assertThat(shouldExit).isFalse();
+        assertThat(outputBuffer.toString()).contains("Not connected to daemon");
+    }
+
+    @Test
+    void renderLearningSignals_keepsFullTargetIdentifierCopyable() throws Exception {
+        var mapper = new ObjectMapper();
+        var signals = mapper.createArrayNode();
+        var signal = mapper.createObjectNode();
+        signal.put("targetType", "runtime_skill");
+        signal.put("targetId", "retry-flow-with-very-long-identifier");
+        signal.put("summary", "Retry flow learned from repeated successful repair sequence.");
+        signal.put("reviewAction", "pin");
+        signals.add(signal);
+
+        invokePrivate(repl, "renderLearningSignals",
+                new Class<?>[]{PrintWriter.class, com.fasterxml.jackson.databind.JsonNode.class},
+                out, signals);
+
+        String output = outputBuffer.toString();
+        assertThat(output).contains("runtime_skill:retry-flow-with-very-long-identifier");
+        assertThat(output).contains("[pin]");
     }
 
     @Test
