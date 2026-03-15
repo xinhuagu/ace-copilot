@@ -26,7 +26,7 @@ AceClaw is a persistent JVM daemon built for workflows that run for hours, not s
 
 That is the spirit of AceClaw, and it drives four key differentiators:
 
-1. **Plan → Execute → Replan** — Unlike Claude Code and OpenClaw which use a flat ReAct loop (think → act → observe, one step at a time), AceClaw generates an **explicit task plan** before execution, runs it step by step with per-step budgets, and **adaptively replans** when steps fail. Plans are streamed to the user in real time, checkpointed to disk for crash recovery, and resumable across sessions. This gives AceClaw a structural advantage in long-running tasks — the agent has a visible roadmap instead of hoping the model stays on track turn by turn.
+1. **Plan → Execute → Replan** — Most agent harnesses use a flat ReAct loop (think → act → observe, one step at a time). AceClaw generates an **explicit task plan** before execution, runs it step by step with per-step budgets, and **adaptively replans** when steps fail. Plans are streamed to the user in real time, checkpointed to disk for crash recovery, and resumable across sessions. This gives AceClaw a structural advantage in long-running tasks — the agent has a visible roadmap instead of hoping the model stays on track turn by turn.
 2. **Self-Learning** — Zero-cost heuristic detectors, session retrospectives, historical indexing, cross-session pattern mining, and trend detection turn agent behavior into durable learning signals. The agent evolves its own strategies without extra LLM calls in the hot path.
 3. **Security** — UDS-only communication, sealed 4-level permissions, HMAC-signed memory
 4. **Long-Term Memory** — 8-tier hierarchy, hybrid search, automated consolidation
@@ -41,7 +41,7 @@ That is the spirit of AceClaw, and it drives four key differentiators:
 ## Plan → Execute → Replan
 <sub>Supported by research: <a href="https://doi.org/10.1145/3706598.3714875">Plan-Then-Execute (CHI 2025)</a></sub>
 
-Most AI coding agents (Claude Code, OpenClaw, Codex CLI) run a flat **ReAct loop** — the model decides what to do one step at a time, with no upfront plan and no structured recovery. This works for short tasks but breaks down on long-running work: the model drifts, loses context, and cannot recover gracefully from failures.
+Most AI coding agents rely on a flat **ReAct loop** — the model reasons and acts one step at a time. While effective for short tasks, this approach offers no explicit plan visibility, no structured failure recovery, and no crash-safe checkpointing for long-running work.
 
 AceClaw takes a fundamentally different approach: it **layers an explicit planning pipeline on top of ReAct**. Each individual step is still executed by the same ReAct loop (reason → act → observe), which remains the best mechanism for single-step tool use. The difference is that AceClaw wraps those steps in a higher-order plan that provides direction, budget control, and structured recovery — something a flat ReAct loop cannot do on its own.
 
