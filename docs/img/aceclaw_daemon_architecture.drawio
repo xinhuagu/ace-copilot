@@ -1,0 +1,300 @@
+<mxGraphModel>
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+
+    <!-- Title -->
+    <mxCell id="title" value="AceClaw — Self-Learning Daemon Architecture" style="text;fontSize=16;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#1a1a2e;" vertex="1" parent="1">
+      <mxGeometry x="40" y="8" width="720" height="28" as="geometry"/>
+    </mxCell>
+
+    <!-- ==================== LEFT COLUMN: Plan → Execute → Replan ==================== -->
+    <mxCell id="plan-header" value="Plan → Execute → Replan" style="text;fontSize=12;fontStyle=1;align=center;fillColor=none;strokeColor=none;fontColor=#b71c1c;" vertex="1" parent="1">
+      <mxGeometry x="40" y="42" width="340" height="20" as="geometry"/>
+    </mxCell>
+
+    <!-- User Task -->
+    <mxCell id="user-task" value="User Task" style="rounded=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=10;fontStyle=1;align=center;whiteSpace=wrap;arcSize=40;" vertex="1" parent="1">
+      <mxGeometry x="155" y="68" width="100" height="30" as="geometry"/>
+    </mxCell>
+
+    <!-- Arrow down -->
+    <mxCell id="e-task-complex" style="endArrow=classic;strokeColor=#e65100;strokeWidth=1.5;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="user-task" target="complexity">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Complexity Estimator -->
+    <mxCell id="complexity" value="ComplexityEstimator&#xa;Scores task complexity" style="rounded=1;fillColor=#fce4ec;strokeColor=#c62828;fontSize=9;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="125" y="108" width="160" height="36" as="geometry"/>
+    </mxCell>
+
+    <!-- Threshold decision -->
+    <mxCell id="threshold" value="Above&#xa;threshold?" style="rhombus;fillColor=#ffebee;strokeColor=#c62828;fontSize=8;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="168" y="155" width="74" height="42" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-complex-thresh" style="endArrow=classic;strokeColor=#c62828;strokeWidth=1.5;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="complexity" target="threshold">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Yes → Plan Generation -->
+    <mxCell id="plan-gen" value="LLMTaskPlanner&#xa;Structured JSON plan&#xa;with ordered steps" style="rounded=1;fillColor=#ffcdd2;strokeColor=#b71c1c;fontSize=9;fontStyle=1;align=center;whiteSpace=wrap;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="40" y="215" width="155" height="45" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-thresh-plan" style="endArrow=classic;strokeColor=#b71c1c;strokeWidth=1.5;exitX=0;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="threshold" target="plan-gen">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="yes-label" value="Yes" style="text;fontSize=8;fillColor=none;strokeColor=none;fontColor=#b71c1c;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="130" y="193" width="28" height="14" as="geometry"/>
+    </mxCell>
+
+    <!-- No → Direct ReAct -->
+    <mxCell id="direct-react" value="Direct ReAct&#xa;(single-step)" style="rounded=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=9;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="260" y="215" width="110" height="35" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-thresh-react" style="endArrow=classic;strokeColor=#1565c0;strokeWidth=1.5;exitX=1;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="threshold" target="direct-react">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="no-label" value="No" style="text;fontSize=8;fillColor=none;strokeColor=none;fontColor=#1565c0;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="262" y="193" width="22" height="14" as="geometry"/>
+    </mxCell>
+
+    <!-- Stream to User -->
+    <mxCell id="stream-plan" value="📡 stream.plan_created&#xa;User sees plan" style="rounded=0;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=8;align=center;whiteSpace=wrap;dashed=1;dashPattern=3 3;" vertex="1" parent="1">
+      <mxGeometry x="40" y="272" width="155" height="28" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-plan-stream" style="endArrow=classic;strokeColor=#7b1fa2;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;dashed=1;" edge="1" parent="1" source="plan-gen" target="stream-plan">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Sequential Execution -->
+    <mxCell id="seq-exec" value="SequentialPlanExecutor&#xa;Per-step + wall-clock budgets" style="rounded=1;fillColor=#ffcdd2;strokeColor=#b71c1c;fontSize=9;fontStyle=1;align=center;whiteSpace=wrap;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="40" y="312" width="155" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-stream-exec" style="endArrow=classic;strokeColor=#b71c1c;strokeWidth=1.5;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="stream-plan" target="seq-exec">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- ReAct Loop (center) — used by executor -->
+    <mxCell id="react-loop" value="StreamingAgentLoop&#xa;(ReAct Engine)&#xa;reason → act → observe" style="rounded=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=9;fontStyle=1;align=center;whiteSpace=wrap;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="225" y="310" width="145" height="44" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-exec-react" style="endArrow=classic;strokeColor=#1565c0;strokeWidth=2;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="seq-exec" target="react-loop">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="exec-react-label" value="each step" style="text;fontSize=7;fillColor=none;strokeColor=none;fontColor=#1565c0;" vertex="1" parent="1">
+      <mxGeometry x="195" y="316" width="42" height="12" as="geometry"/>
+    </mxCell>
+
+    <!-- Direct ReAct also uses the loop -->
+    <mxCell id="e-direct-react-loop" style="endArrow=classic;strokeColor=#1565c0;strokeWidth=1;exitX=0.5;exitY=1;entryX=1;entryY=0;dashed=1;" edge="1" parent="1" source="direct-react" target="react-loop">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Step failed? -->
+    <mxCell id="step-fail" value="Step&#xa;fails?" style="rhombus;fillColor=#ffebee;strokeColor=#c62828;fontSize=8;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="82" y="368" width="62" height="38" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-exec-fail" style="endArrow=classic;strokeColor=#c62828;strokeWidth=1.5;exitX=0.25;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="seq-exec" target="step-fail">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Adaptive Replanner -->
+    <mxCell id="replanner" value="AdaptiveReplanner&#xa;LLM regenerates remaining&#xa;steps or escalates" style="rounded=1;fillColor=#ff8a80;strokeColor=#b71c1c;fontSize=9;fontStyle=1;align=center;whiteSpace=wrap;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="40" y="420" width="155" height="44" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-fail-replan" style="endArrow=classic;strokeColor=#b71c1c;strokeWidth=1.5;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="step-fail" target="replanner">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="fail-yes-label" value="Yes" style="text;fontSize=7;fillColor=none;strokeColor=none;fontColor=#b71c1c;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="115" y="399" width="22" height="12" as="geometry"/>
+    </mxCell>
+
+    <!-- Replan loops back to executor -->
+    <mxCell id="e-replan-exec" style="endArrow=classic;strokeColor=#b71c1c;strokeWidth=1.5;exitX=0;exitY=0.5;entryX=0;entryY=0.75;curved=1;" edge="1" parent="1" source="replanner" target="seq-exec">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="22" y="442"/>
+          <mxPoint x="22" y="342"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="replan-label" value="revised&#xa;plan" style="text;fontSize=7;fillColor=none;strokeColor=none;fontColor=#b71c1c;" vertex="1" parent="1">
+      <mxGeometry x="2" y="384" width="32" height="18" as="geometry"/>
+    </mxCell>
+
+    <!-- Checkpoint -->
+    <mxCell id="checkpoint" value="PlanCheckpoint&#xa;FilePlanCheckpointStore&#xa;Crash-safe, resumable" style="rounded=1;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=8;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="225" y="378" width="145" height="38" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-exec-checkpoint" style="endArrow=classic;strokeColor=#f57f17;strokeWidth=1;exitX=0.75;exitY=1;entryX=0.5;entryY=0;dashed=1;" edge="1" parent="1" source="seq-exec" target="checkpoint">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="checkpoint-label" value="persist" style="text;fontSize=7;fillColor=none;strokeColor=none;fontColor=#f57f17;" vertex="1" parent="1">
+      <mxGeometry x="218" y="362" width="30" height="12" as="geometry"/>
+    </mxCell>
+
+    <!-- ResumeRouter -->
+    <mxCell id="resume" value="ResumeRouter&#xa;Detects &amp; resumes&#xa;incomplete plans" style="rounded=1;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=8;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="225" y="428" width="145" height="36" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-checkpoint-resume" style="endArrow=classic;strokeColor=#f57f17;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="checkpoint" target="resume">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Done (from "No" on step-fail) -->
+    <mxCell id="done" value="✅ Done" style="rounded=1;fillColor=#c8e6c9;strokeColor=#2e7d32;fontSize=9;fontStyle=1;align=center;whiteSpace=wrap;arcSize=40;" vertex="1" parent="1">
+      <mxGeometry x="160" y="480" width="70" height="26" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-fail-done" style="endArrow=classic;strokeColor=#2e7d32;strokeWidth=1;exitX=1;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="step-fail" target="done">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="done-no-label" value="No (all done)" style="text;fontSize=7;fillColor=none;strokeColor=none;fontColor=#2e7d32;" vertex="1" parent="1">
+      <mxGeometry x="148" y="465" width="52" height="12" as="geometry"/>
+    </mxCell>
+
+    <!-- ==================== RIGHT COLUMN: Daemon Architecture ==================== -->
+    <mxCell id="daemon-header" value="Daemon Architecture" style="text;fontSize=12;fontStyle=1;align=center;fillColor=none;strokeColor=none;fontColor=#0d47a1;" vertex="1" parent="1">
+      <mxGeometry x="420" y="42" width="340" height="20" as="geometry"/>
+    </mxCell>
+
+    <!-- CLI Client -->
+    <mxCell id="cli" value="aceclaw-cli&#xa;Thin JSON-RPC client" style="rounded=1;fillColor=#e8eaf6;strokeColor=#283593;fontSize=9;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="430" y="68" width="130" height="32" as="geometry"/>
+    </mxCell>
+
+    <!-- UDS -->
+    <mxCell id="uds" value="Unix Domain Socket&#xa;(zero network surface)" style="rounded=0;fillColor=#ede7f6;strokeColor=#4527a0;fontSize=8;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="442" y="112" width="106" height="28" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-cli-uds" style="endArrow=classic;endFill=1;startArrow=classic;startFill=1;strokeColor=#4527a0;strokeWidth=1.5;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="cli" target="uds">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Daemon Box -->
+    <mxCell id="daemon-box" value="" style="rounded=1;fillColor=none;strokeColor=#0d47a1;strokeWidth=2;dashed=1;dashPattern=5 3;" vertex="1" parent="1">
+      <mxGeometry x="420" y="150" width="350" height="365" as="geometry"/>
+    </mxCell>
+    <mxCell id="daemon-title" value="aceclaw-daemon (JVM, persistent)" style="text;fontSize=10;fontStyle=1;align=left;fillColor=none;strokeColor=none;fontColor=#0d47a1;" vertex="1" parent="1">
+      <mxGeometry x="430" y="154" width="220" height="16" as="geometry"/>
+    </mxCell>
+
+    <!-- JSON-RPC Handler -->
+    <mxCell id="jsonrpc" value="StreamingAgentHandler&#xa;JSON-RPC + Notifications" style="rounded=1;fillColor=#e3f2fd;strokeColor=#1565c0;fontSize=9;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="440" y="176" width="150" height="32" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-uds-jsonrpc" style="endArrow=classic;strokeColor=#1565c0;strokeWidth=1.5;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="uds" target="jsonrpc">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- System Prompt Loader -->
+    <mxCell id="sysprompt" value="SystemPromptLoader&#xa;base + env + git + 8 tiers" style="rounded=1;fillColor=#e8f5e9;strokeColor=#2e7d32;fontSize=8;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="610" y="176" width="145" height="32" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-jsonrpc-sys" style="endArrow=classic;strokeColor=#2e7d32;strokeWidth=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="jsonrpc" target="sysprompt">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Tool Registry -->
+    <mxCell id="tools" value="ToolRegistry&#xa;Sealed 4-level permissions&#xa;READ | WRITE | EXECUTE | DANGEROUS" style="rounded=1;fillColor=#fce4ec;strokeColor=#c62828;fontSize=8;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="610" y="220" width="145" height="42" as="geometry"/>
+    </mxCell>
+
+    <!-- LLM Provider -->
+    <mxCell id="llm" value="LLM Provider&#xa;Anthropic / OpenAI / Copilot" style="rounded=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=8;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="440" y="220" width="150" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-jsonrpc-llm" style="endArrow=classic;strokeColor=#7b1fa2;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="jsonrpc" target="llm">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Context Compaction -->
+    <mxCell id="compaction" value="ContextCompactor&#xa;Automatic pruning" style="rounded=1;fillColor=#fff3e0;strokeColor=#e65100;fontSize=8;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="440" y="262" width="150" height="28" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-llm-compact" style="endArrow=classic;strokeColor=#e65100;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="llm" target="compaction">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Sub-Agents -->
+    <mxCell id="subagents" value="Sub-Agents&#xa;explore | plan | general | bash&#xa;Filtered tool registries" style="rounded=1;fillColor=#e0f2f1;strokeColor=#00695c;fontSize=8;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="610" y="272" width="145" height="38" as="geometry"/>
+    </mxCell>
+
+    <!-- Self-Learning Engine -->
+    <mxCell id="learn-header" value="Self-Learning Engine" style="text;fontSize=10;fontStyle=1;align=center;fillColor=none;strokeColor=none;fontColor=#e65100;" vertex="1" parent="1">
+      <mxGeometry x="430" y="300" width="150" height="14" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="detectors" value="Detectors (zero-cost heuristic)&#xa;ErrorPattern | ToolUsage | Correction&#xa;Stall | Backtracking | Workflow" style="rounded=1;fillColor=#fbe9e7;strokeColor=#bf360c;fontSize=7;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="430" y="318" width="175" height="38" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="retrospective" value="SessionRetrospective&#xa;Cross-session pattern mining" style="rounded=1;fillColor=#fbe9e7;strokeColor=#bf360c;fontSize=7;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="430" y="364" width="175" height="28" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-detect-retro" style="endArrow=classic;strokeColor=#bf360c;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="detectors" target="retrospective">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="consolidation" value="MemoryConsolidator&#xa;Dedup, merge, prune" style="rounded=1;fillColor=#fbe9e7;strokeColor=#bf360c;fontSize=7;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="430" y="400" width="175" height="28" as="geometry"/>
+    </mxCell>
+    <mxCell id="e-retro-consol" style="endArrow=classic;strokeColor=#bf360c;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="retrospective" target="consolidation">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- 8-Tier Memory -->
+    <mxCell id="memory-header" value="8-Tier Memory" style="text;fontSize=10;fontStyle=1;align=center;fillColor=none;strokeColor=none;fontColor=#f57f17;" vertex="1" parent="1">
+      <mxGeometry x="628" y="318" width="130" height="14" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="mem-tiers" value="T1 Soul&#xa;T2 Policy&#xa;T3 Workspace&#xa;T4 User&#xa;T5 Local&#xa;T6 Auto-Memory (JSONL+HMAC)&#xa;T7 Markdown Memory&#xa;T8 Journal" style="rounded=1;fillColor=#fff9c4;strokeColor=#f57f17;fontSize=7;align=left;whiteSpace=wrap;spacingLeft=6;spacingTop=2;" vertex="1" parent="1">
+      <mxGeometry x="618" y="336" width="140" height="92" as="geometry"/>
+    </mxCell>
+
+    <!-- Arrow from consolidation to memory -->
+    <mxCell id="e-consol-mem" style="endArrow=classic;strokeColor=#f57f17;strokeWidth=1;exitX=1;exitY=0.5;entryX=0;entryY=0.7;" edge="1" parent="1" source="consolidation" target="mem-tiers">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Arrow from memory back to sysprompt (feedback loop) -->
+    <mxCell id="e-mem-sys" style="endArrow=classic;strokeColor=#2e7d32;strokeWidth=1.5;exitX=1;exitY=0;entryX=1;entryY=1;curved=1;dashed=1;" edge="1" parent="1" source="mem-tiers" target="sysprompt">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="775" y="300"/>
+          <mxPoint x="775" y="220"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="feedback-label" value="injected next session" style="text;fontSize=7;fillColor=none;strokeColor=none;fontColor=#2e7d32;fontStyle=2;rotation=-90;" vertex="1" parent="1">
+      <mxGeometry x="762" y="248" width="30" height="70" as="geometry"/>
+    </mxCell>
+
+    <!-- MCP Servers -->
+    <mxCell id="mcp" value="MCP Servers&#xa;drawio | context7 | sux-cobol" style="rounded=1;fillColor=#e0f2f1;strokeColor=#00695c;fontSize=8;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="618" y="440" width="140" height="28" as="geometry"/>
+    </mxCell>
+
+    <!-- Cron / Deferred -->
+    <mxCell id="cron" value="Cron + DeferredActionStore&#xa;Recurring jobs, heartbeats" style="rounded=1;fillColor=#e0f2f1;strokeColor=#00695c;fontSize=8;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="430" y="440" width="175" height="28" as="geometry"/>
+    </mxCell>
+
+    <!-- ==================== BOTTOM: Key Advantage callout ==================== -->
+    <mxCell id="advantage-box" value="" style="rounded=1;fillColor=#ffebee;strokeColor=#c62828;strokeWidth=2;" vertex="1" parent="1">
+      <mxGeometry x="40" y="520" width="730" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="advantage-text" value="🔑 Key Advantage: ReAct is the single-step engine. Plan → Execute → Replan is the multi-step orchestrator.&#xa;Claude Code &amp; OpenClaw use flat ReAct only. AceClaw layers explicit planning on top — visibility, structured recovery, crash safety, budget control." style="text;fontSize=9;fontStyle=0;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#b71c1c;whiteSpace=wrap;" vertex="1" parent="1">
+      <mxGeometry x="50" y="524" width="710" height="42" as="geometry"/>
+    </mxCell>
+
+    <!-- Legend -->
+    <mxCell id="legend-box" value="" style="rounded=1;fillColor=#fafafa;strokeColor=#bdbdbd;" vertex="1" parent="1">
+      <mxGeometry x="40" y="580" width="730" height="18" as="geometry"/>
+    </mxCell>
+    <mxCell id="legend-text" value="Legend:  🔴 Plan/Replan pipeline  |  🔵 ReAct engine  |  🟠 Self-learning  |  🟡 Memory &amp; checkpoints  |  🟣 LLM/streaming  |  🟢 Daemon infra" style="text;fontSize=8;align=center;fillColor=none;strokeColor=none;fontColor=#424242;" vertex="1" parent="1">
+      <mxGeometry x="40" y="580" width="730" height="18" as="geometry"/>
+    </mxCell>
+
+  </root>
+</mxGraphModel>
