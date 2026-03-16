@@ -2473,6 +2473,7 @@ public final class TerminalRepl {
                 out.println(INFO + "  /help" + RESET + "     Show this help message");
                 out.println(INFO + "  /clear" + RESET + "    Clear the screen");
                 out.println(INFO + "  /compact" + RESET + "  Trigger context compaction");
+                out.println(INFO + "  /context" + RESET + "  Inspect context composition (/context list | /context detail <key>)");
                 out.println(INFO + "  /model" + RESET + "    Show current model (or /model <name> to switch)");
                 out.println(INFO + "  /tools" + RESET + "    List available tools");
                 out.println(INFO + "  /status" + RESET + "   Show session status");
@@ -2503,6 +2504,8 @@ public final class TerminalRepl {
                 sendRpcNotification("session.compact");
             }
 
+            case "/context" -> handleContextCommand(out, arg);
+
             case "/model" -> handleModelCommand(out, arg);
 
             case "/tools" -> handleToolsCommand(out);
@@ -2528,6 +2531,9 @@ public final class TerminalRepl {
                         formatTokenCount(contextMonitor.peakContextTokens()),
                         contextMonitor.recentTrend().label(),
                         contextMonitor.sampleCount());
+                out.printf("  %sPruning:%s     pruned=%d | summarized=%d%n", MUTED, RESET,
+                        contextMonitor.prunedCount(),
+                        contextMonitor.summarizedCount());
                 if (contextMonitor.compactionCount() > 0) {
                     out.printf("  %sCompaction:%s  #%d %s %s -> %s%n", MUTED, RESET,
                             contextMonitor.compactionCount(),
@@ -2579,6 +2585,154 @@ public final class TerminalRepl {
             }
         }
         return false;
+    }
+
+    private void handleContextCommand(PrintWriter out, String arg) {
+        if (client == null) {
+            out.println(WARNING + "Not connected to daemon." + RESET);
+            out.flush();
+            return;
+        }
+
+        String mode = "list";
+        String detailKey = "";
+        if (arg != null && !arg.isBlank()) {
+            String[] parts = arg.split("\\s+", 2);
+            mode = parts[0].toLowerCase(java.util.Locale.ROOT);
+            if ("detail".equals(mode)) {
+                detailKey = parts.length > 1 ? parts[1].trim() : "";
+                if (detailKey.isBlank()) {
+                    out.println(WARNING + "Usage: /context detail <key>" + RESET);
+                    out.flush();
+                    return;
+                }
+            } else if (!"list".equals(mode)) {
+                out.println(WARNING + "Usage: /context list | /context detail <key>" + RESET);
+                out.flush();
+                return;
+            }
+        }
+
+        try {
+            var params = client.objectMapper().createObjectNode();
+            params.put("sessionId", sessionId);
+            if (!detailKey.isBlank()) {
+                params.put("detailKey", detailKey);
+            }
+            JsonNode root = client.sendRequest("context.inspect", params);
+            out.println();
+            if ("detail".equals(mode)) {
+                renderContextDetail(out, root, detailKey);
+            } else {
+                renderContextList(out, root);
+            }
+            out.flush();
+        } catch (Exception e) {
+            out.println(WARNING + "Failed to inspect context: "
+                    + sanitizeTerminalText(e.getMessage()) + RESET);
+            out.flush();
+        }
+    }
+
+    private void renderContextList(PrintWriter out, JsonNode root) {
+        out.println(BOLD + "Context Overview" + RESET);
+        out.printf("  %sSystem prompt:%s %s chars (~%s tokens)%n",
+                MUTED, RESET,
+                formatTokenCount(root.path("totalChars").asLong(0)),
+                formatTokenCount(root.path("estimatedTokens").asLong(0)));
+        out.printf("  %sBudget:%s        %s chars max | per-section %s%n",
+                MUTED, RESET,
+                formatTokenCount(root.path("budget").path("maxTotalChars").asLong(0)),
+                formatTokenCount(root.path("budget").path("maxPerTierChars").asLong(0)));
+        if (root.has("systemPromptSharePct")) {
+            out.printf("  %sWindow share:%s  %.1f%%%n",
+                    MUTED, RESET, root.path("systemPromptSharePct").asDouble(0.0));
+        }
+        out.printf("  %sLive context:%s %s / %s (%d%%) | pressure=%s%n",
+                MUTED, RESET,
+                formatTokenCount(effectiveContextTokens()),
+                formatTokenCount(sessionInfo.contextWindowTokens()),
+                sessionInfo.contextWindowTokens() > 0
+                        ? effectiveContextTokens() * 100 / sessionInfo.contextWindowTokens() : 0,
+                contextMonitor.pressureLevel().label());
+        out.printf("  %sCompaction:%s    count=%d | pruned=%d | summarized=%d%n",
+                MUTED, RESET,
+                contextMonitor.compactionCount(),
+                contextMonitor.prunedCount(),
+                contextMonitor.summarizedCount());
+        if (contextMonitor.compactionCount() > 0) {
+            out.printf("  %sLast compact:%s  %s %s -> %s%n",
+                    MUTED, RESET,
+                    contextMonitor.lastCompactionPhase(),
+                    formatTokenCount(contextMonitor.lastCompactionOriginalTokens()),
+                    formatTokenCount(contextMonitor.lastCompactionCompactedTokens()));
+        }
+
+        JsonNode activePaths = root.path("activeFilePaths");
+        if (activePaths.isArray() && !activePaths.isEmpty()) {
+            out.printf("  %sActive paths:%s  %s%n",
+                    MUTED, RESET, joinArrayValues(activePaths, 3));
+        }
+
+        JsonNode truncated = root.path("truncatedSectionKeys");
+        if (truncated.isArray() && !truncated.isEmpty()) {
+            out.printf("  %sTruncated:%s    %s%n",
+                    MUTED, RESET, joinArrayValues(truncated, 6));
+        }
+
+        out.println();
+        out.println(BOLD + "Sections" + RESET);
+        for (JsonNode section : root.path("sections")) {
+            String key = section.path("key").asText("unknown");
+            long original = section.path("originalChars").asLong(0);
+            long finalChars = section.path("finalChars").asLong(0);
+            boolean truncatedSection = section.path("truncated").asBoolean(false);
+            boolean protectedSection = section.path("protected").asBoolean(false);
+            StringBuilder flags = new StringBuilder();
+            if (truncatedSection) flags.append("truncated");
+            if (protectedSection) {
+                if (!flags.isEmpty()) flags.append(", ");
+                flags.append("protected");
+            }
+            out.printf("  %s%-24s%s %6s -> %-6s p=%d%s%n",
+                    INFO, fitWidth(key, 24), RESET,
+                    formatTokenCount(original),
+                    formatTokenCount(finalChars),
+                    section.path("priority").asInt(0),
+                    flags.isEmpty() ? "" : MUTED + " [" + flags + "]" + RESET);
+        }
+        out.println();
+        out.println(MUTED + "Use /context detail <key> for full section content." + RESET);
+    }
+
+    private void renderContextDetail(PrintWriter out, JsonNode root, String detailKey) {
+        JsonNode detail = root.path("detail");
+        if (detail.isMissingNode() || detail.isNull()) {
+            out.println(WARNING + "Context section not found: " + detailKey + RESET);
+            return;
+        }
+
+        out.println(BOLD + "Context Detail" + RESET);
+        out.printf("  %sKey:%s          %s%n", MUTED, RESET, detail.path("key").asText(""));
+        out.printf("  %sPriority:%s     %d%n", MUTED, RESET, detail.path("priority").asInt(0));
+        out.printf("  %sSize:%s         %s -> %s%n", MUTED, RESET,
+                formatTokenCount(detail.path("originalChars").asLong(0)),
+                formatTokenCount(detail.path("finalChars").asLong(0)));
+        out.printf("  %sProtected:%s    %s%n", MUTED, RESET, detail.path("protected").asBoolean(false));
+        out.printf("  %sTruncated:%s    %s%n", MUTED, RESET, detail.path("truncated").asBoolean(false));
+        out.println();
+        out.println(detail.path("content").asText(""));
+    }
+
+    private static String joinArrayValues(JsonNode values, int limit) {
+        var rendered = new ArrayList<String>();
+        for (int i = 0; i < values.size() && i < limit; i++) {
+            rendered.add(values.get(i).asText());
+        }
+        if (values.size() > limit) {
+            rendered.add("+" + (values.size() - limit) + " more");
+        }
+        return String.join(", ", rendered);
     }
 
     private void handleContinueCommand(PrintWriter out, LineReader reader, String arg) {

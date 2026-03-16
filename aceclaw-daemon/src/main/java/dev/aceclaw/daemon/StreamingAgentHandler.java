@@ -1723,6 +1723,50 @@ public final class StreamingAgentHandler {
         return assembly;
     }
 
+    public SystemPromptLoader.ContextInspection inspectContext(String sessionId, String queryHint) {
+        Objects.requireNonNull(sessionId, "sessionId");
+        var session = sessionManager.getSession(sessionId);
+        if (session == null) {
+            throw new IllegalArgumentException("Session not found: " + sessionId);
+        }
+        if (!session.isActive()) {
+            throw new IllegalArgumentException("Session is not active: " + sessionId);
+        }
+        if (session.projectPath() == null) {
+            return new SystemPromptLoader.ContextInspection(
+                    getSystemPrompt(sessionId),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    getSystemPrompt(sessionId).length(),
+                    ContextEstimator.estimateTokens(getSystemPrompt(sessionId)),
+                    systemPromptBudget);
+        }
+        String effectiveQuery = queryHint != null ? queryHint : "";
+        var activePaths = inferActiveFilePaths(effectiveQuery, session.messages(), session.projectPath());
+        var config = new CandidatePromptAssembler.Config(
+                candidateInjectionEnabled,
+                candidateInjectionMaxCount,
+                candidateInjectionMaxTokens,
+                Set.of());
+        return SystemPromptLoader.inspectRequest(
+                session.projectPath(),
+                memoryStore,
+                dailyJournal,
+                markdownStore,
+                getModelForSession(sessionId),
+                provider,
+                systemPromptBudget,
+                registeredToolNames,
+                hasBraveApiKey,
+                candidateStore,
+                config,
+                skillDescriptionsProvider.apply(sessionId),
+                effectiveQuery,
+                activePaths);
+    }
+
     private void scheduleRuntimeSkillPrune(String sessionId, Path projectPath) {
         var scheduled = sessionRuntimePruneScheduled.computeIfAbsent(sessionId, ignored -> new AtomicBoolean(false));
         if (!scheduled.compareAndSet(false, true)) {

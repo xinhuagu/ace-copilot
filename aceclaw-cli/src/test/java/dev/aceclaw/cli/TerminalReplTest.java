@@ -59,6 +59,7 @@ class TerminalReplTest {
         assertThat(output).contains("/exit");
         assertThat(output).contains("/model");
         assertThat(output).contains("/tools");
+        assertThat(output).contains("/context");
         assertThat(output).contains("/learning");
         assertThat(output).contains("/learning signals");
         assertThat(output).contains("/learning reviews");
@@ -130,7 +131,15 @@ class TerminalReplTest {
         assertThat(output).contains("/tmp/project");
         assertThat(output).contains("Pressure:");
         assertThat(output).contains("Peak:");
+        assertThat(output).contains("Pruning:");
         assertThat(output).contains("trend=");
+    }
+
+    @Test
+    void contextWithNoClient_showsNotConnectedWhenNullClient() {
+        boolean shouldExit = repl.handleSlashCommand(out, "/context list", null);
+        assertThat(shouldExit).isFalse();
+        assertThat(outputBuffer.toString()).contains("Not connected to daemon");
     }
 
     @Test
@@ -179,6 +188,90 @@ class TerminalReplTest {
         String output = outputBuffer.toString();
         assertThat(output).contains("runtime_skill:retry-flow-with-very-long-identifier");
         assertThat(output).contains("[pin]");
+    }
+
+    @Test
+    void renderContextList_showsPromptSectionsAndCompactionSummary() throws Exception {
+        var mapper = new ObjectMapper();
+        var root = mapper.createObjectNode();
+        root.put("totalChars", 24000);
+        root.put("estimatedTokens", 6000);
+        root.put("systemPromptSharePct", 12.0);
+        var budget = mapper.createObjectNode();
+        budget.put("maxTotalChars", 28000);
+        budget.put("maxPerTierChars", 8000);
+        root.set("budget", budget);
+        var activePaths = mapper.createArrayNode();
+        activePaths.add("src/main/App.java");
+        activePaths.add("src/test/AppTest.java");
+        root.set("activeFilePaths", activePaths);
+        var truncated = mapper.createArrayNode();
+        truncated.add("skills");
+        root.set("truncatedSectionKeys", truncated);
+        var sections = mapper.createArrayNode();
+        sections.add(mapper.createObjectNode()
+                .put("key", "base")
+                .put("priority", 95)
+                .put("protected", true)
+                .put("originalChars", 12000)
+                .put("finalChars", 12000)
+                .put("included", true)
+                .put("truncated", false));
+        sections.add(mapper.createObjectNode()
+                .put("key", "skills")
+                .put("priority", 58)
+                .put("protected", false)
+                .put("originalChars", 10000)
+                .put("finalChars", 4000)
+                .put("included", true)
+                .put("truncated", true));
+        root.set("sections", sections);
+
+        var monitor = (ContextMonitor) getPrivateField(repl, "contextMonitor");
+        monitor.recordStreamingUsage(175_000);
+        monitor.recordCompaction(175_000, 80_000, "SUMMARIZED");
+
+        invokePrivate(repl, "renderContextList",
+                new Class<?>[]{PrintWriter.class, com.fasterxml.jackson.databind.JsonNode.class},
+                out, root);
+
+        String output = outputBuffer.toString();
+        assertThat(output).contains("Context Overview");
+        assertThat(output).contains("System prompt:");
+        assertThat(output).contains("Window share:");
+        assertThat(output).contains("Active paths:");
+        assertThat(output).contains("Truncated:");
+        assertThat(output).contains("Last compact:");
+        assertThat(output).contains("base");
+        assertThat(output).contains("skills");
+        assertThat(output).contains("truncated");
+        assertThat(output).contains("protected");
+        assertThat(output).contains("Use /context detail <key>");
+    }
+
+    @Test
+    void renderContextDetail_showsSectionContent() throws Exception {
+        var mapper = new ObjectMapper();
+        var root = mapper.createObjectNode();
+        var detail = mapper.createObjectNode();
+        detail.put("key", "rules");
+        detail.put("priority", 88);
+        detail.put("protected", false);
+        detail.put("originalChars", 1200);
+        detail.put("finalChars", 900);
+        detail.put("truncated", true);
+        detail.put("content", "Prefer AssertJ assertions.");
+        root.set("detail", detail);
+
+        invokePrivate(repl, "renderContextDetail",
+                new Class<?>[]{PrintWriter.class, com.fasterxml.jackson.databind.JsonNode.class, String.class},
+                out, root, "rules");
+
+        String output = outputBuffer.toString();
+        assertThat(output).contains("Context Detail");
+        assertThat(output).contains("rules");
+        assertThat(output).contains("Prefer AssertJ assertions.");
+        assertThat(output).contains("true");
     }
 
     @Test

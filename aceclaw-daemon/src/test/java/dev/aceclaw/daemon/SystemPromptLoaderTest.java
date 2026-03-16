@@ -276,6 +276,61 @@ class SystemPromptLoaderTest {
     }
 
     @Test
+    void inspectRequestReturnsSectionMetadataForOperatorSurface() throws IOException {
+        var rulesDir = workDir.resolve(".aceclaw/rules");
+        Files.createDirectories(rulesDir);
+        Files.writeString(rulesDir.resolve("java-rule.md"), """
+                ---
+                paths:
+                  - "**/*.java"
+                ---
+
+                Prefer AssertJ assertions.
+                """);
+
+        Files.writeString(workDir.resolve("ACECLAW.md"), "Prefer small focused patches.");
+
+        String longSkills = "# Available Skills\n\n" + "skill-line\n".repeat(10_000);
+        var inspection = SystemPromptLoader.inspectRequest(
+                workDir,
+                null,
+                null,
+                null,
+                "test-model",
+                "test-provider",
+                new SystemPromptBudget(8_000, 28_000),
+                Set.of("bash"),
+                false,
+                null,
+                CandidatePromptAssembler.Config.disabled(),
+                longSkills,
+                "update src/main/App.java tests",
+                List.of("src/main/App.java"));
+
+        assertThat(inspection.prompt().length()).isEqualTo(inspection.totalChars());
+        assertThat(inspection.estimatedTokens()).isPositive();
+        assertThat(inspection.activeFilePaths()).containsExactly("src/main/App.java");
+        assertThat(inspection.sections()).extracting(SystemPromptLoader.ContextSection::key)
+                .contains("base", "rules", "skills");
+        assertThat(inspection.sections())
+                .filteredOn(section -> section.key().equals("rules"))
+                .singleElement()
+                .satisfies(section -> {
+                    assertThat(section.included()).isTrue();
+                    assertThat(section.content()).contains("Prefer AssertJ assertions");
+                    assertThat(section.finalChars()).isLessThanOrEqualTo(section.originalChars());
+                });
+        assertThat(inspection.sections())
+                .filteredOn(section -> section.key().equals("skills"))
+                .singleElement()
+                .satisfies(section -> {
+                    assertThat(section.truncated()).isTrue();
+                    assertThat(section.finalChars()).isLessThan(section.originalChars());
+                });
+        assertThat(inspection.truncatedSectionKeys()).contains("skills");
+    }
+
+    @Test
     void assembleRequestRejectsNullRequiredArguments() {
         assertThrows(NullPointerException.class, () -> SystemPromptLoader.assembleRequest(
                 null, null, null, null, null, null, SystemPromptBudget.DEFAULT,

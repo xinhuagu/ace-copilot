@@ -43,6 +43,10 @@ public final class ContextMonitor {
     private long totalOutputTokens;
     /** Number of compaction events observed in the session. */
     private int compactionCount;
+    /** Number of compaction events that stopped after phase 1 pruning. */
+    private int prunedCount;
+    /** Number of compaction events that reached summarization. */
+    private int summarizedCount;
     /** Most recent compaction pre-compaction token estimate. */
     private long lastCompactionOriginalTokens;
     /** Most recent compaction post-compaction token estimate. */
@@ -141,10 +145,16 @@ public final class ContextMonitor {
     public synchronized void recordCompaction(long originalTokens, long compactedTokens, String phase) {
         long normalizedOriginal = Math.max(0L, originalTokens);
         long normalizedCompacted = Math.max(0L, compactedTokens);
+        String normalizedPhase = normalizeCompactionPhase(phase);
         this.compactionCount++;
+        if ("PRUNED".equals(normalizedPhase)) {
+            this.prunedCount++;
+        } else if ("SUMMARIZED".equals(normalizedPhase)) {
+            this.summarizedCount++;
+        }
         this.lastCompactionOriginalTokens = normalizedOriginal;
         this.lastCompactionCompactedTokens = normalizedCompacted;
-        this.lastCompactionPhase = normalizeCompactionPhase(phase);
+        this.lastCompactionPhase = normalizedPhase;
         this.lastCompactionAt = Instant.now();
         this.lastRealInputTokens = normalizedCompacted;
         this.peakContextTokens = Math.max(peakContextTokens, Math.max(normalizedOriginal, normalizedCompacted));
@@ -195,6 +205,14 @@ public final class ContextMonitor {
 
     public synchronized int compactionCount() {
         return compactionCount;
+    }
+
+    public synchronized int prunedCount() {
+        return prunedCount;
+    }
+
+    public synchronized int summarizedCount() {
+        return summarizedCount;
     }
 
     public synchronized long lastCompactionOriginalTokens() {

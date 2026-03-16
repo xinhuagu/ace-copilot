@@ -42,17 +42,26 @@ public final class ContextAssemblyPlan {
 
         var sb = new StringBuilder();
         var truncatedKeys = new ArrayList<String>();
+        var sectionResults = new ArrayList<SectionResult>();
         for (var state : working) {
-            if (state.content() == null || state.content().isBlank()) {
-                truncatedKeys.add(state.section().key());
-                continue;
-            }
-            if (state.truncated()) {
+            boolean included = state.content() != null && !state.content().isBlank();
+            if (!included || state.truncated()) {
                 truncatedKeys.add(state.section().key());
             }
-            sb.append(state.content());
+            if (included) {
+                sb.append(state.content());
+            }
+            sectionResults.add(new SectionResult(
+                    state.section().key(),
+                    state.section().priority(),
+                    state.section().protectedSection(),
+                    state.originalChars(),
+                    included ? state.content().length() : 0,
+                    included,
+                    state.truncated(),
+                    included ? state.content() : ""));
         }
-        return new Result(sb.toString(), List.copyOf(truncatedKeys));
+        return new Result(sb.toString(), List.copyOf(truncatedKeys), List.copyOf(sectionResults));
     }
 
     private static void enforceTotalBudget(List<SectionState> working, int maxTotalChars, boolean includeProtected) {
@@ -100,20 +109,39 @@ public final class ContextAssemblyPlan {
         }
     }
 
-    public record Result(String prompt, List<String> truncatedSectionKeys) {
+    public record Result(String prompt, List<String> truncatedSectionKeys, List<SectionResult> sections) {
         public Result {
             Objects.requireNonNull(prompt, "prompt");
             truncatedSectionKeys = truncatedSectionKeys != null ? List.copyOf(truncatedSectionKeys) : List.of();
+            sections = sections != null ? List.copyOf(sections) : List.of();
+        }
+    }
+
+    public record SectionResult(
+            String key,
+            int priority,
+            boolean protectedSection,
+            int originalChars,
+            int finalChars,
+            boolean included,
+            boolean truncated,
+            String content
+    ) {
+        public SectionResult {
+            Objects.requireNonNull(key, "key");
+            content = content != null ? content : "";
         }
     }
 
     private static final class SectionState {
         private final Section section;
+        private final int originalChars;
         private String content;
         private boolean truncated;
 
         private SectionState(Section section, String content, boolean truncated) {
             this.section = section;
+            this.originalChars = content != null ? content.length() : 0;
             this.content = content;
             this.truncated = truncated;
         }
@@ -141,6 +169,10 @@ public final class ContextAssemblyPlan {
         private void clear() {
             this.content = null;
             this.truncated = true;
+        }
+
+        private int originalChars() {
+            return originalChars;
         }
     }
 }

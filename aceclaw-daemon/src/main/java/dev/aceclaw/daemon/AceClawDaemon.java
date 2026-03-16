@@ -798,6 +798,7 @@ public final class AceClawDaemon {
         // Register model.list and model.switch via shared helper
         ModelRpcHelper.registerModelList(router, objectMapper, agentHandlerRef, llmClientRef, providerNameRef);
         ModelRpcHelper.registerModelSwitch(router, objectMapper, agentHandlerRef, llmClientRef);
+        ContextRpcHelper.registerContextInspect(router, objectMapper, agentHandlerRef, contextWindow);
 
         // Runtime controls: candidate injection kill-switch and manual rollback.
         final var candidateStoreForRpc = candidateStoreRef;
