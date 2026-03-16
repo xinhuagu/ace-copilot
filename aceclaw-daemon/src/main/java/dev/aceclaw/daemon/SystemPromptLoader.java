@@ -7,6 +7,7 @@ import dev.aceclaw.memory.DailyJournal;
 import dev.aceclaw.memory.MarkdownMemoryStore;
 import dev.aceclaw.memory.MemoryTierLoader;
 import dev.aceclaw.memory.RuleEngine;
+import dev.aceclaw.core.agent.ContextEstimator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -208,6 +209,38 @@ public final class SystemPromptLoader {
             String skillDescriptions,
             String queryHint,
             List<String> activeFilePaths) {
+        return inspectRequest(
+                projectPath,
+                memoryStore,
+                journal,
+                markdownStore,
+                model,
+                provider,
+                budget,
+                registeredToolNames,
+                hasBraveApiKey,
+                candidateStore,
+                candidateConfig,
+                skillDescriptions,
+                queryHint,
+                activeFilePaths).asRequestAssembly();
+    }
+
+    public static ContextInspection inspectRequest(
+            Path projectPath,
+            AutoMemoryStore memoryStore,
+            DailyJournal journal,
+            MarkdownMemoryStore markdownStore,
+            String model,
+            String provider,
+            SystemPromptBudget budget,
+            Set<String> registeredToolNames,
+            boolean hasBraveApiKey,
+            CandidateStore candidateStore,
+            CandidatePromptAssembler.Config candidateConfig,
+            String skillDescriptions,
+            String queryHint,
+            List<String> activeFilePaths) {
         Objects.requireNonNull(projectPath, "projectPath");
         Objects.requireNonNull(budget, "budget");
         var tierResult = MemoryTierLoader.loadAll(
@@ -263,9 +296,26 @@ public final class SystemPromptLoader {
         if (result.truncatedSectionKeys().contains("candidates")) {
             injectedCandidateIds = List.of();
         }
-        return new RequestAssembly(result.prompt(), injectedCandidateIds,
+        var sections = result.sections().stream()
+                .map(section -> new ContextSection(
+                        section.key(),
+                        section.priority(),
+                        section.protectedSection(),
+                        section.originalChars(),
+                        section.finalChars(),
+                        section.included(),
+                        section.truncated(),
+                        section.content()))
+                .toList();
+        return new ContextInspection(
+                result.prompt(),
+                injectedCandidateIds,
                 activeFilePaths != null ? List.copyOf(activeFilePaths) : List.of(),
-                result.truncatedSectionKeys());
+                result.truncatedSectionKeys(),
+                sections,
+                result.prompt().length(),
+                ContextEstimator.estimateTokens(result.prompt()),
+                budget);
     }
 
     public static String load(Path projectPath, AutoMemoryStore memoryStore,
@@ -364,6 +414,46 @@ public final class SystemPromptLoader {
             injectedCandidateIds = injectedCandidateIds != null ? List.copyOf(injectedCandidateIds) : List.of();
             activeFilePaths = activeFilePaths != null ? List.copyOf(activeFilePaths) : List.of();
             truncatedSectionKeys = truncatedSectionKeys != null ? List.copyOf(truncatedSectionKeys) : List.of();
+        }
+    }
+
+    public record ContextInspection(
+            String prompt,
+            List<String> injectedCandidateIds,
+            List<String> activeFilePaths,
+            List<String> truncatedSectionKeys,
+            List<ContextSection> sections,
+            int totalChars,
+            int estimatedTokens,
+            SystemPromptBudget budget
+    ) {
+        public ContextInspection {
+            prompt = prompt != null ? prompt : "";
+            injectedCandidateIds = injectedCandidateIds != null ? List.copyOf(injectedCandidateIds) : List.of();
+            activeFilePaths = activeFilePaths != null ? List.copyOf(activeFilePaths) : List.of();
+            truncatedSectionKeys = truncatedSectionKeys != null ? List.copyOf(truncatedSectionKeys) : List.of();
+            sections = sections != null ? List.copyOf(sections) : List.of();
+            budget = budget != null ? budget : SystemPromptBudget.DEFAULT;
+        }
+
+        public RequestAssembly asRequestAssembly() {
+            return new RequestAssembly(prompt, injectedCandidateIds, activeFilePaths, truncatedSectionKeys);
+        }
+    }
+
+    public record ContextSection(
+            String key,
+            int priority,
+            boolean protectedSection,
+            int originalChars,
+            int finalChars,
+            boolean included,
+            boolean truncated,
+            String content
+    ) {
+        public ContextSection {
+            key = key != null ? key : "unknown";
+            content = content != null ? content : "";
         }
     }
 
