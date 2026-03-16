@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.regex.Pattern;
 
 /**
  * Single source of truth for context window usage tracking.
@@ -23,6 +24,9 @@ public final class ContextMonitor {
 
     private static final Logger log = LoggerFactory.getLogger(ContextMonitor.class);
     private static final int MAX_HISTORY_SAMPLES = 32;
+    private static final int MAX_COMPACTION_PHASE_LENGTH = 100;
+    private static final Pattern CONTROL_CHARS = Pattern.compile("[\\p{Cntrl}&&[^\\r\\n\\t]]");
+    private static final Pattern WHITESPACE_RUN = Pattern.compile("\\s+");
 
     private final int contextWindowTokens;
     private final ArrayDeque<Long> recentSamples = new ArrayDeque<>(MAX_HISTORY_SAMPLES);
@@ -140,7 +144,7 @@ public final class ContextMonitor {
         this.compactionCount++;
         this.lastCompactionOriginalTokens = normalizedOriginal;
         this.lastCompactionCompactedTokens = normalizedCompacted;
-        this.lastCompactionPhase = phase == null || phase.isBlank() ? "UNKNOWN" : phase;
+        this.lastCompactionPhase = normalizeCompactionPhase(phase);
         this.lastCompactionAt = Instant.now();
         this.lastRealInputTokens = normalizedCompacted;
         this.peakContextTokens = Math.max(peakContextTokens, Math.max(normalizedOriginal, normalizedCompacted));
@@ -244,6 +248,74 @@ public final class ContextMonitor {
             recentSamples.removeFirst();
         }
         recentSamples.addLast(normalized);
+    }
+
+    private static String normalizeCompactionPhase(String phase) {
+        if (phase == null) return "UNKNOWN";
+
+        String normalized = phase;
+        normalized = stripAnsiEscapeSequences(normalized);
+        normalized = normalized
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .replace('\t', ' ');
+        normalized = CONTROL_CHARS.matcher(normalized).replaceAll("");
+        normalized = WHITESPACE_RUN.matcher(normalized).replaceAll(" ").trim();
+        if (normalized.isEmpty()) {
+            return "UNKNOWN";
+        }
+        if (normalized.length() > MAX_COMPACTION_PHASE_LENGTH) {
+            normalized = normalized.substring(0, MAX_COMPACTION_PHASE_LENGTH).trim();
+        }
+        return normalized.isEmpty() ? "UNKNOWN" : normalized;
+    }
+
+    private static String stripAnsiEscapeSequences(String value) {
+        var sb = new StringBuilder(value.length());
+        int i = 0;
+        while (i < value.length()) {
+            char ch = value.charAt(i);
+            if (ch != '\u001B') {
+                sb.append(ch);
+                i++;
+                continue;
+            }
+
+            if (i + 1 >= value.length()) {
+                i++;
+                continue;
+            }
+
+            char next = value.charAt(i + 1);
+            if (next == '[') {
+                i += 2;
+                while (i < value.length()) {
+                    char seq = value.charAt(i++);
+                    if (seq >= '@' && seq <= '~') {
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            if (next == ']') {
+                i += 2;
+                while (i < value.length()) {
+                    char seq = value.charAt(i++);
+                    if (seq == '\u0007') {
+                        break;
+                    }
+                    if (seq == '\u001B' && i < value.length() && value.charAt(i) == '\\') {
+                        i++;
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            i += 2;
+        }
+        return sb.toString();
     }
 
     public enum Trend {

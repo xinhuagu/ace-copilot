@@ -50,4 +50,29 @@ class ContextMonitorTest {
         assertThat(monitor.lastCompactionPhase()).isEqualTo("SUMMARIZED");
         assertThat(monitor.pressureLevel()).isEqualTo(ContextMonitor.PressureLevel.NORMAL);
     }
+
+    @Test
+    void recordCompactionSanitizesUnsafePhaseText() {
+        var monitor = new ContextMonitor(200_000);
+
+        monitor.recordCompaction(
+                120_000,
+                40_000,
+                "\u001B[31mSUMMARIZED\u001B[0m\nnext\tstep\u0007 " + "x".repeat(140));
+
+        assertThat(monitor.lastCompactionPhase()).startsWith("SUMMARIZED next step ");
+        assertThat(monitor.lastCompactionPhase()).doesNotContain("\u001B");
+        assertThat(monitor.lastCompactionPhase()).doesNotContain("\n");
+        assertThat(monitor.lastCompactionPhase()).doesNotContain("\t");
+        assertThat(monitor.lastCompactionPhase().length()).isLessThanOrEqualTo(100);
+    }
+
+    @Test
+    void recordCompactionFallsBackToUnknownWhenPhaseBecomesEmpty() {
+        var monitor = new ContextMonitor(200_000);
+
+        monitor.recordCompaction(100_000, 50_000, "\u001B[31m\u001B[0m \n\t");
+
+        assertThat(monitor.lastCompactionPhase()).isEqualTo("UNKNOWN");
+    }
 }
