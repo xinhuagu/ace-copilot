@@ -289,11 +289,18 @@ class SystemPromptLoaderTest {
                 """);
 
         Files.writeString(workDir.resolve("ACECLAW.md"), "Prefer small focused patches.");
+        Path aceclawHome = tempDir.resolve(".aceclaw-home");
+        Files.createDirectories(aceclawHome);
+        var store = new AutoMemoryStore(aceclawHome);
+        store.load(workDir);
+        store.add(MemoryEntry.Category.PATTERN,
+                "AppService should keep request-local validation logic close to renderContextList.",
+                List.of("java"), "test", false, workDir);
 
         String longSkills = "# Available Skills\n\n" + "skill-line\n".repeat(10_000);
         var inspection = SystemPromptLoader.inspectRequest(
                 workDir,
-                null,
+                store,
                 null,
                 null,
                 "test-model",
@@ -304,19 +311,42 @@ class SystemPromptLoaderTest {
                 null,
                 CandidatePromptAssembler.Config.disabled(),
                 longSkills,
-                "update src/main/App.java tests",
+                "update AppService in src/main/App.java tests",
                 List.of("src/main/App.java"));
 
         assertThat(inspection.prompt().length()).isEqualTo(inspection.totalChars());
         assertThat(inspection.estimatedTokens()).isPositive();
+        assertThat(inspection.requestFocus().querySummary()).contains("update AppService in src/main/App.java tests");
         assertThat(inspection.activeFilePaths()).containsExactly("src/main/App.java");
+        assertThat(inspection.requestFocus().activeFilePaths()).containsExactly("src/main/App.java");
+        assertThat(inspection.requestFocus().planSignals()).contains("code change requested", "verification requested");
         assertThat(inspection.sections()).extracting(SystemPromptLoader.ContextSection::key)
-                .contains("base", "rules", "skills");
+                .contains("base", "task-focus", "rules", "skills");
+        assertThat(inspection.sections())
+                .filteredOn(section -> section.key().equals("task-focus"))
+                .singleElement()
+                .satisfies(section -> {
+                    assertThat(section.scopeType()).isEqualTo("task-local");
+                    assertThat(section.inclusionReason()).contains("Current request focus");
+                    assertThat(section.evidence()).anyMatch(item -> item.contains("files="));
+                    assertThat(section.content()).contains("Task Focus");
+                });
+        assertThat(inspection.sections())
+                .filteredOn(section -> section.key().equals("memory:Auto-Memory"))
+                .singleElement()
+                .satisfies(section -> {
+                    assertThat(section.scopeType()).isEqualTo("task-local");
+                    assertThat(section.priority()).isGreaterThan(60);
+                    assertThat(section.inclusionReason()).contains("referenced active request symbols");
+                    assertThat(section.evidence()).anyMatch(item -> item.contains("symbols=AppService"));
+                });
         assertThat(inspection.sections())
                 .filteredOn(section -> section.key().equals("rules"))
                 .singleElement()
                 .satisfies(section -> {
                     assertThat(section.sourceType()).isEqualTo("rules");
+                    assertThat(section.scopeType()).isEqualTo("task-local");
+                    assertThat(section.inclusionReason()).contains("matched the files");
                     assertThat(section.included()).isTrue();
                     assertThat(section.content()).contains("Prefer AssertJ assertions");
                     assertThat(section.finalChars()).isLessThanOrEqualTo(section.originalChars());
@@ -327,6 +357,7 @@ class SystemPromptLoaderTest {
                 .singleElement()
                 .satisfies(section -> {
                     assertThat(section.sourceType()).isEqualTo("skills");
+                    assertThat(section.scopeType()).isEqualTo("always-on");
                     assertThat(section.originalChars()).isGreaterThan(8_000);
                     assertThat(section.truncated()).isTrue();
                     assertThat(section.finalChars()).isLessThan(section.originalChars());
