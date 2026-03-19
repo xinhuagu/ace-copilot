@@ -94,6 +94,7 @@ public final class KeychainCredentialReader {
      * @return true if write succeeded
      */
     public static boolean writeToKeychain(String newAccessToken, String newRefreshToken, long newExpiresAt) {
+        Objects.requireNonNull(newAccessToken, "newAccessToken");
         if (!isMacOS()) {
             return false;
         }
@@ -121,7 +122,8 @@ public final class KeychainCredentialReader {
 
             String updatedJson = mapper.writeValueAsString(rootObj);
 
-            // Write back using execFileSync equivalent to avoid shell injection
+            // ProcessBuilder passes arguments directly to execve (no shell interpolation),
+            // preventing command injection via token values containing $() or backticks.
             ProcessBuilder pb = new ProcessBuilder(
                     "security", "add-generic-password", "-U",
                     "-s", KEYCHAIN_SERVICE,
@@ -129,13 +131,17 @@ public final class KeychainCredentialReader {
                     "-w", updatedJson);
             pb.redirectErrorStream(true);
             Process proc = pb.start();
-            boolean finished = proc.waitFor(5, TimeUnit.SECONDS);
-            if (finished && proc.exitValue() == 0) {
-                log.info("Wrote refreshed credentials to Claude CLI Keychain");
-                return true;
+            try {
+                boolean finished = proc.waitFor(5, TimeUnit.SECONDS);
+                if (finished && proc.exitValue() == 0) {
+                    log.info("Wrote refreshed credentials to Claude CLI Keychain");
+                    return true;
+                }
+                log.warn("Failed to write credentials to Keychain: exit={}", finished ? proc.exitValue() : "timeout");
+                return false;
+            } finally {
+                destroyProcess(proc);
             }
-            log.warn("Failed to write credentials to Keychain: exit={}", finished ? proc.exitValue() : "timeout");
-            return false;
         } catch (Exception e) {
             log.warn("Failed to write credentials to Keychain: {}", e.getMessage());
             return false;
@@ -151,6 +157,7 @@ public final class KeychainCredentialReader {
      * @return true if write succeeded
      */
     public static boolean writeToFile(String newAccessToken, String newRefreshToken, long newExpiresAt) {
+        Objects.requireNonNull(newAccessToken, "newAccessToken");
         if (!Files.isRegularFile(CREDENTIALS_FILE)) {
             return false;
         }
@@ -168,9 +175,15 @@ public final class KeychainCredentialReader {
             }
             oauthObj.put("expiresAt", newExpiresAt);
 
-            // Atomic write via temp file
+            // Atomic write via temp file with restrictive permissions
             Path tmp = CREDENTIALS_FILE.resolveSibling(CREDENTIALS_FILE.getFileName() + ".tmp");
             Files.writeString(tmp, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(rootObj));
+            try {
+                Files.setPosixFilePermissions(tmp,
+                        java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+            } catch (UnsupportedOperationException ignored) {
+                // Non-POSIX filesystem (e.g., Windows)
+            }
             Files.move(tmp, CREDENTIALS_FILE,
                     java.nio.file.StandardCopyOption.REPLACE_EXISTING,
                     java.nio.file.StandardCopyOption.ATOMIC_MOVE);
@@ -201,7 +214,7 @@ public final class KeychainCredentialReader {
             String json = Files.readString(path);
             return parseClaudeOauthJson(json);
         } catch (Exception e) {
-            log.debug("Could not read credentials from {}: {}", path, e.getMessage());
+            log.warn("Could not read credentials from {}: {}", path, e.getMessage());
             return null;
         }
     }
@@ -213,18 +226,21 @@ public final class KeychainCredentialReader {
                     "-s", KEYCHAIN_SERVICE, "-w");
             pb.redirectErrorStream(true);
             Process proc = pb.start();
+            try {
+                String output;
+                try (var reader = new BufferedReader(
+                        new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
+                    output = reader.lines().reduce("", (a, b) -> a + b);
+                }
 
-            String output;
-            try (var reader = new BufferedReader(
-                    new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
-                output = reader.lines().reduce("", (a, b) -> a + b);
+                boolean finished = proc.waitFor(5, TimeUnit.SECONDS);
+                if (finished && proc.exitValue() == 0 && !output.isBlank()) {
+                    return output.trim();
+                }
+                return null;
+            } finally {
+                destroyProcess(proc);
             }
-
-            boolean finished = proc.waitFor(5, TimeUnit.SECONDS);
-            if (finished && proc.exitValue() == 0 && !output.isBlank()) {
-                return output.trim();
-            }
-            return null;
         } catch (Exception e) {
             log.debug("Could not read from macOS Keychain: {}", e.getMessage());
             return null;
@@ -252,8 +268,22 @@ public final class KeychainCredentialReader {
                     (refreshToken != null && !refreshToken.isBlank()) ? refreshToken : null,
                     expiresAt);
         } catch (Exception e) {
-            log.debug("Failed to parse Claude OAuth JSON: {}", e.getMessage());
+            log.warn("Failed to parse Claude OAuth JSON: {}", e.getMessage());
             return null;
+        }
+    }
+
+    /** Ensures a subprocess is terminated and reaped. */
+    private static void destroyProcess(Process proc) {
+        if (proc == null || !proc.isAlive()) return;
+        proc.destroy();
+        try {
+            if (!proc.waitFor(2, TimeUnit.SECONDS)) {
+                proc.destroyForcibly().waitFor(1, TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException e) {
+            proc.destroyForcibly();
+            Thread.currentThread().interrupt();
         }
     }
 
