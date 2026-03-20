@@ -65,28 +65,11 @@ public final class BenchmarkScorecardCli {
             }
         }
 
-        // Parse runtime metrics if available
-        if (runtimeMetricsPath != null) {
-            Path runtimePath = Path.of(runtimeMetricsPath);
-            if (Files.isRegularFile(runtimePath)) {
-                try {
-                    JsonNode runtime = mapper.readTree(runtimePath.toFile());
-                    JsonNode metrics = runtime.path("metrics");
-                    extractMetric(metrics, "first_try_success_rate", replayDeltas, sampleSizes);
-                    // Map to delta name expected by scorecard
-                    Double ftsr = replayDeltas.remove("first_try_success_rate");
-                    Integer ftsrSize = sampleSizes.remove("first_try_success_rate");
-                    if (ftsr != null) {
-                        replayDeltas.put("first_try_success_rate_delta", ftsr);
-                        sampleSizes.put("first_try_success_rate_delta",
-                                ftsrSize != null ? ftsrSize : 0);
-                    }
-                } catch (Exception e) {
-                    System.err.println("Warning: failed to parse runtime metrics: " + e.getMessage());
-                    // Non-fatal — scorecard can evaluate without runtime metrics
-                }
-            }
-        }
+        // Note: first_try_success_rate_delta and retry_count_per_task_delta require
+        // true A/B replay data (off vs on), not runtime absolute values. They stay
+        // pending_instrumentation until replay cases track per-case retry counts.
+        // Runtime metrics (runtime-latest.json) provide absolute rates which cannot
+        // be substituted for deltas without misrepresenting the scorecard contract.
 
         // Evaluate scorecard
         var scorecard = BenchmarkScorecard.evaluate(replayDeltas, sampleSizes, lifecycleRates);
@@ -136,4 +119,5 @@ public final class BenchmarkScorecardCli {
         values.put(name, valueNode.asDouble());
         sizes.put(name, m.path("sample_size").asInt(0));
     }
+
 }
