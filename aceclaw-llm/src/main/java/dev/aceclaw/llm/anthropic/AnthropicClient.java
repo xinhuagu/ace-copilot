@@ -71,6 +71,9 @@ public final class AnthropicClient implements LlmClient {
     private final boolean context1m;
     private final List<String> extraBetas;
 
+    /** Pluggable credential reader for testability. */
+    private final java.util.function.Supplier<KeychainCredentialReader.Credential> credentialSupplier;
+
     /**
      * Creates a client with a standard API key using default settings.
      *
@@ -114,6 +117,16 @@ public final class AnthropicClient implements LlmClient {
      */
     public AnthropicClient(String accessToken, String refreshToken, String baseUrl,
                            Duration requestTimeout, boolean context1m, List<String> extraBetas) {
+        this(accessToken, refreshToken, baseUrl, requestTimeout, context1m, extraBetas,
+                KeychainCredentialReader::read);
+    }
+
+    /**
+     * Package-private constructor for testing with a pluggable credential supplier.
+     */
+    AnthropicClient(String accessToken, String refreshToken, String baseUrl,
+                    Duration requestTimeout, boolean context1m, List<String> extraBetas,
+                    java.util.function.Supplier<KeychainCredentialReader.Credential> credentialSupplier) {
         if (accessToken == null || accessToken.isBlank()) {
             throw new IllegalArgumentException("API key / access token must not be null or blank");
         }
@@ -124,6 +137,7 @@ public final class AnthropicClient implements LlmClient {
         this.requestTimeout = requestTimeout;
         this.context1m = context1m;
         this.extraBetas = extraBetas != null ? List.copyOf(extraBetas) : List.of();
+        this.credentialSupplier = credentialSupplier != null ? credentialSupplier : KeychainCredentialReader::read;
 
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
@@ -161,13 +175,28 @@ public final class AnthropicClient implements LlmClient {
                 String responseBody = httpResponse.body();
 
                 // Retry once with refreshed token on 401
-                if (statusCode == 401 && isOAuth && refreshToken != null) {
-                    log.info("OAuth token expired, attempting refresh...");
-                    if (refreshAccessToken()) {
-                        httpRequest = buildRequest(requestBody, model);
-                        httpResponse = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-                        statusCode = httpResponse.statusCode();
-                        responseBody = httpResponse.body();
+                if (statusCode == 401 && isOAuth) {
+                    var recovery = recoverCredentials();
+                    switch (recovery) {
+                        case ACCESS_TOKEN_UPDATED -> {
+                            // Keychain had a fresh token — retry with it directly
+                            log.info("Access token updated from credential store, retrying...");
+                            httpRequest = buildRequest(requestBody, model);
+                            httpResponse = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+                            statusCode = httpResponse.statusCode();
+                            responseBody = httpResponse.body();
+                        }
+                        case REFRESH_AVAILABLE -> {
+                            log.info("OAuth token expired, attempting refresh...");
+                            if (refreshAccessToken()) {
+                                httpRequest = buildRequest(requestBody, model);
+                                httpResponse = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+                                statusCode = httpResponse.statusCode();
+                                responseBody = httpResponse.body();
+                            }
+                        }
+                        case NO_RECOVERY -> log.warn("OAuth token expired (401) but no recovery available; "
+                                + "restart daemon or re-run /login to refresh credentials");
                     }
                 }
 
@@ -210,12 +239,25 @@ public final class AnthropicClient implements LlmClient {
                 int statusCode = httpResponse.statusCode();
 
                 // Retry once with refreshed token on 401
-                if (statusCode == 401 && isOAuth && refreshToken != null) {
-                    log.info("OAuth token expired, attempting refresh...");
-                    if (refreshAccessToken()) {
-                        httpRequest = buildRequest(requestBody, model);
-                        httpResponse = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines());
-                        statusCode = httpResponse.statusCode();
+                if (statusCode == 401 && isOAuth) {
+                    var recovery = recoverCredentials();
+                    switch (recovery) {
+                        case ACCESS_TOKEN_UPDATED -> {
+                            log.info("Access token updated from credential store, retrying...");
+                            httpRequest = buildRequest(requestBody, model);
+                            httpResponse = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines());
+                            statusCode = httpResponse.statusCode();
+                        }
+                        case REFRESH_AVAILABLE -> {
+                            log.info("OAuth token expired, attempting refresh...");
+                            if (refreshAccessToken()) {
+                                httpRequest = buildRequest(requestBody, model);
+                                httpResponse = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines());
+                                statusCode = httpResponse.statusCode();
+                            }
+                        }
+                        case NO_RECOVERY -> log.warn("OAuth token expired (401) but no recovery available; "
+                                + "restart daemon or re-run /login to refresh credentials");
                     }
                 }
 
@@ -400,6 +442,66 @@ public final class AnthropicClient implements LlmClient {
             return false;
         }
     }
+
+    /**
+     * Ensures a refresh token is available, re-reading from Keychain/file if needed.
+     * This handles the case where the daemon started without a refresh token
+     * (e.g., config.json has apiKey but no refreshToken, and Keychain wasn't read).
+     *
+     * @return true if a refresh token is available
+     */
+    /**
+     * Result of credential recovery attempt on 401.
+     */
+    enum CredentialRecovery {
+        /** New access token loaded — retry request immediately without full refresh. */
+        ACCESS_TOKEN_UPDATED,
+        /** Refresh token available — proceed with OAuth token refresh flow. */
+        REFRESH_AVAILABLE,
+        /** No recovery possible — no fresh credentials found. */
+        NO_RECOVERY
+    }
+
+    /**
+     * Attempts to recover credentials from Keychain/file after a 401.
+     * Always checks the credential store for fresher tokens.
+     */
+    synchronized CredentialRecovery recoverCredentials() {
+        String previousAccessToken = this.accessToken;
+        try {
+            var cred = credentialSupplier.get();
+            if (cred != null) {
+                // Pick up fresher access token independently of refresh token availability
+                if (cred.accessToken() != null && !cred.isExpired()) {
+                    this.accessToken = cred.accessToken();
+                    log.debug("Updated access token from credential store");
+                }
+                // Pick up refresh token if available
+                if (cred.refreshToken() != null) {
+                    this.refreshToken = cred.refreshToken();
+                    log.info("Loaded refresh token from credential store on 401 recovery");
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to read credentials on 401 recovery: {}", e.getMessage());
+        }
+
+        // If access token changed, we can retry immediately without full refresh
+        if (!previousAccessToken.equals(this.accessToken)) {
+            return CredentialRecovery.ACCESS_TOKEN_UPDATED;
+        }
+        // Otherwise, if we have a refresh token, we can do a full OAuth refresh
+        if (this.refreshToken != null) {
+            return CredentialRecovery.REFRESH_AVAILABLE;
+        }
+        return CredentialRecovery.NO_RECOVERY;
+    }
+
+    /** Package-private: current access token for testing. */
+    String accessTokenForTest() { return accessToken; }
+
+    /** Package-private: current refresh token for testing. */
+    String refreshTokenForTest() { return refreshToken; }
 
     /**
      * Writes refreshed credentials back to the original source (Keychain or file).
