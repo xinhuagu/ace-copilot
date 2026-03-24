@@ -120,25 +120,32 @@ public final class LlmClientFactory {
             "x-github-api-version", "2025-04-01"
     );
 
-    /** Models known to work on GitHub Copilot. If the configured model is not in this set, fall back to default. */
-    private static final java.util.Set<String> COPILOT_KNOWN_MODELS = java.util.Set.of(
-            "claude-sonnet-4.5", "claude-sonnet-4", "claude-opus-4", "claude-haiku-3.5",
-            "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
-            "gpt-5.2-codex", "o4-mini", "o3-mini"
+    /**
+     * Translates Anthropic direct-API model names (hyphen version: claude-opus-4-6)
+     * to Copilot model names (dot version: claude-opus-4.6).
+     * Models already in Copilot format pass through unchanged.
+     */
+    private static final Map<String, String> ANTHROPIC_TO_COPILOT_MODEL = Map.of(
+            "claude-opus-4-6", "claude-opus-4.6",
+            "claude-sonnet-4-6", "claude-sonnet-4.6",
+            "claude-sonnet-4-5-20250929", "claude-sonnet-4.5",
+            "claude-sonnet-4-5-20250514", "claude-sonnet-4.5",
+            "claude-opus-4-5-20250918", "claude-opus-4.5",
+            "claude-haiku-4-5-20251001", "claude-haiku-4.5"
     );
 
     private static LlmClient createCopilotClient(String githubToken, String baseUrl, String model) {
         var tokenProvider = new CopilotTokenProvider(githubToken);
         String resolvedBaseUrl = baseUrl != null ? baseUrl : DEFAULT_BASE_URLS.get("copilot");
         String defaultModel = DEFAULT_MODELS.getOrDefault("copilot", "claude-sonnet-4.5");
+
+        // Translate Anthropic model names to Copilot format
         String resolvedModel;
-        if (model != null && COPILOT_KNOWN_MODELS.contains(model)) {
-            resolvedModel = model;
+        if (model != null && ANTHROPIC_TO_COPILOT_MODEL.containsKey(model)) {
+            resolvedModel = ANTHROPIC_TO_COPILOT_MODEL.get(model);
+            log.info("Translated Anthropic model '{}' to Copilot model '{}'", model, resolvedModel);
         } else {
-            resolvedModel = defaultModel;
-            if (model != null) {
-                log.warn("Model '{}' is not supported on Copilot, using default '{}'", model, defaultModel);
-            }
+            resolvedModel = model != null ? model : defaultModel;
         }
 
         // Always create both clients so runtime model switching works.
