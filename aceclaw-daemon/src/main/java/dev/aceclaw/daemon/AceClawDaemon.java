@@ -429,8 +429,10 @@ public final class AceClawDaemon {
         // 8. Streaming agent handler
         var agentHandler = new StreamingAgentHandler(
                 sessionManager, agentLoop, toolRegistry, permissionManager, objectMapper);
-        // Use the actual model from the client (factory may have fallen back to a provider default)
-        agentHandler.setLlmConfig(llmClient, llmClient.defaultModel(), systemPrompt);
+        // Use config model for anthropic (user's choice), client's resolved model for other providers
+        // (factory may translate or fall back, e.g. copilot ignores anthropic model names)
+        String effectiveModel = "anthropic".equals(config.provider()) ? model : llmClient.defaultModel();
+        agentHandler.setLlmConfig(llmClient, effectiveModel, systemPrompt);
         agentHandler.setTokenConfig(config.maxTokens(), config.thinkingBudget(), config.maxTurns(), contextWindow);
         agentHandler.setContextAssemblyConfig(
                 markdownStore,
@@ -803,8 +805,7 @@ public final class AceClawDaemon {
         });
 
         // Expose model name, provider info, and health monitor to status endpoint
-        // Use the actual model from the client (factory may have fallen back to a default)
-        router.setModelName(llmClient.defaultModel());
+        router.setModelName(effectiveModel);
         router.setProviderInfo(config.provider(), contextWindow);
         router.setHealthMonitor(healthMonitor);
 
