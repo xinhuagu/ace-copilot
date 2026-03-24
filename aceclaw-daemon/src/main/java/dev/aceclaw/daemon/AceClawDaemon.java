@@ -429,7 +429,8 @@ public final class AceClawDaemon {
         // 8. Streaming agent handler
         var agentHandler = new StreamingAgentHandler(
                 sessionManager, agentLoop, toolRegistry, permissionManager, objectMapper);
-        agentHandler.setLlmConfig(llmClient, model, systemPrompt);
+        // Use the actual model from the client (factory may have fallen back to a provider default)
+        agentHandler.setLlmConfig(llmClient, llmClient.defaultModel(), systemPrompt);
         agentHandler.setTokenConfig(config.maxTokens(), config.thinkingBudget(), config.maxTurns(), contextWindow);
         agentHandler.setContextAssemblyConfig(
                 markdownStore,

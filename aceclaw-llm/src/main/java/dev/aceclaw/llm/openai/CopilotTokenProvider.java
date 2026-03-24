@@ -234,6 +234,40 @@ public final class CopilotTokenProvider implements Supplier<String> {
 
             log.info("Copilot token exchanged: endpoint={}, expiresAt={}", resolvedEndpoint, expiresAt);
 
+            // Query available models for diagnostics
+            try {
+                // Try multiple model list endpoints
+                for (String modelsPath : List.of("/models", "/v1/models", "/chat/completions/models")) {
+                    var modelsReq = java.net.http.HttpRequest.newBuilder()
+                            .uri(java.net.URI.create(resolvedEndpoint + modelsPath))
+                            .timeout(EXCHANGE_TIMEOUT)
+                            .header("Authorization", "Bearer " + token)
+                            .header("openai-intent", "conversation-panel")
+                            .header("editor-version", "vscode/1.95.0")
+                            .header("editor-plugin-version", "copilot-chat/0.26.7")
+                            .header("Copilot-Integration-Id", "vscode-chat")
+                            .GET()
+                            .build();
+                    var modelsResp = httpClient.send(modelsReq, java.net.http.HttpResponse.BodyHandlers.ofString());
+                    log.info("Copilot {} → {} body={}", modelsPath, modelsResp.statusCode(),
+                            modelsResp.body().length() > 500
+                                    ? modelsResp.body().substring(0, 500) + "..."
+                                    : modelsResp.body());
+                    if (modelsResp.statusCode() == 200) {
+                        var modelsRoot = objectMapper.readTree(modelsResp.body());
+                        var ids = new java.util.ArrayList<String>();
+                        for (var m : modelsRoot.path("data")) {
+                            ids.add(m.path("id").asText());
+                        }
+                        java.util.Collections.sort(ids);
+                        log.info("Copilot available models: {}", ids);
+                        break;
+                    }
+                }
+            } catch (Exception modelsEx) {
+                log.debug("Could not query Copilot models: {}", modelsEx.getMessage());
+            }
+
         } catch (RuntimeException e) {
             throw e;
         } catch (InterruptedException e) {
