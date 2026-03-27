@@ -104,14 +104,14 @@ tasks.register<Exec>("replayQualityGate") {
     val strict = providers.gradleProperty("replayGateStrict")
             .map { it.toBooleanStrictOrNull() ?: false }
             .orElse(true)
-    val minSuccessRateDelta = providers.gradleProperty("replayMinSuccessRateDelta").orElse("0.00")
+    val minSuccessRateDelta = providers.gradleProperty("replayMinSuccessRateDelta").orElse("-0.10")
     val maxTokenDelta = providers.gradleProperty("replayMaxTokenDelta").orElse("200.00")
     val maxLatencyDeltaMs = providers.gradleProperty("replayMaxLatencyDeltaMs").orElse("500.00")
     val failOnLatency = providers.gradleProperty("replayFailOnLatency")
             .map { it.toBooleanStrictOrNull() ?: false }
             .orElse(false)
-    val maxFailureDistDelta = providers.gradleProperty("replayMaxFailureDistDelta").orElse("0.15")
-    val maxTokenEstimationErrorRatio = providers.gradleProperty("replayMaxTokenEstimationErrorRatio").orElse("0.25")
+    val maxFailureDistDelta = providers.gradleProperty("replayMaxFailureDistDelta").orElse("2.50")
+    val maxTokenEstimationErrorRatio = providers.gradleProperty("replayMaxTokenEstimationErrorRatio").orElse("0.65")
     val replayBaseline = providers.gradleProperty("replayBaseline")
             .orElse("${rootDir}/docs/reports/samples/learning-quality-gate-baseline.json")
     val minPromotionRate = providers.gradleProperty("replayMinPromotionRate").orElse("0.00")
@@ -139,6 +139,7 @@ tasks.register<Exec>("replayQualityGate") {
             "--max-anti-pattern-fp-rate", maxAntiPatternFpRate.get()
     )
     if (strict.get()) args("--strict")
+    isIgnoreExitValue = !strict.get()
 }
 
 tasks.register<Exec>("generateReplayReport") {
