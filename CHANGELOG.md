@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.2] - 2026-03-28
+
+### Bug Fixes
+
+- AutoReleaseControllerTest uses fixed clock to prevent rolling window expiry (#364)
 ## [0.2.1] - 2026-03-28
 
 ### Bug Fixes
