@@ -1,5 +1,76 @@
 # Changelog
 
+## [0.2.1] - 2026-03-28
+
+### Bug Fixes
+
+- Add canaryDwellHours env var + update operations runbook defaults (#297)
+- Race condition in RuntimeMetricsExporter + StatisticalTest input validation (#300)
+- KeychainCredentialReader tests + null guards + warn logging (#301)
+- Synchronize InjectionAuditLog.appendRecord to prevent JSONL corruption (#304)
+- Close 3 metrics wiring gaps in StreamingAgentHandler (#307)
+- Review findings from PRs 312-315 (#316)
+- Address Greptile review findings from PRs 313-315 (#317)
+- 401 token refresh silently skipped when refreshToken is null (#325)
+- Use actual per-category count from prompts file for significance (#310)
+- Move per-category sample_size computation into replay report (#310) (#328)
+- Lifecycle metrics report no_data when no transitions exist (#329)
+- Copilot ignores unsupported global model and falls back to default
+- Banner shows actual model from client, not raw config value
+- Change Copilot default model from gpt-5.2-codex to claude-sonnet-4.5
+- Agent handler uses resolved model from client, not raw config
+- Translate Anthropic model names to Copilot format automatically
+- Copilot ignores Anthropic global model, uses own default
+- Anthropic uses config model (opus), other providers use client default
+- Context1m config now sets 1M context window in capabilities (#335)
+- Wrap permission modal descriptions (#342)
+- Resolve symlinks in update.sh, tui.sh, restart.sh (#360)
+
+### Documentation
+
+- Add Plan-Execute-Replan as key differentiator in README
+- Clarify that ReAct remains the single-step execution foundation
+- Upgrade architecture diagram with Plan/Execute/Replan pipeline
+- Restore clean architecture diagram, keep detailed version separate
+- Add Plan/Execute/Replan row to original architecture diagram
+- Regenerate architecture diagram PNG with white background and Plan/Replan row
+- Add CHI 2025 citation link to Plan → Execute → Replan section
+- Trim README — remove redundant Architecture, Security Details, Security Roadmap, and Roadmap sections
+- Soften competitor comparisons in README — state structural facts without naming names
+- Remove Inspired-by line; add competitor links to Plan/Replan section
+- Close context engineering documentation-implementation gaps (#280)
+- Codify benchmark-driven rollout policy (#290) (#305)
+- Align learning_hit_rate definition to Java implementation (#308)
+- Document both Anthropic auth modes — API key and OAuth
+- Update Copilot model list, name format, and default behavior (#334)
+- Define session/workspace/global memory ownership model (#348)
+
+### Features
+
+- Adopt OpenClaw Anthropic connection strategy (#283)
+- Harden auto-release guardrails (#289) (#296)
+- Add StatisticalTest utility and RuntimeMetricsExporter (#285) (#298)
+- Replay A/B fairness + benchmark pack validation (#287) (#299)
+- Add InjectionAuditLog for per-turn learning attribution (#286) (#302)
+- Add BenchmarkScorecard for self-learning CI gate (#288) (#303)
+- Wire RuntimeMetricsExporter + InjectionAuditLog into production path (#284) (#306)
+- Enforce fresh replay artifacts in preMergeCheck (#311) (#312)
+- Unify replay taxonomy to canonical benchmark categories (#310) (#313)
+- Wire BenchmarkScorecard into CI via Gradle task (#309) (#314)
+- Baseline collector auto-reads runtime-latest.json (#308) (#315)
+- Derive version from gradle.properties at build time (#318)
+- Align coverage rules across script, Gradle, CI, and Java (#310) (#319)
+- Complete scorecard metric coverage for all 8 metrics (#320)
+- Scorecard as CI verdict + lifecycle formula fixes (partial #309) (#322)
+- Auto-read replay, lifecycle, and injection artifacts in baseline collector (#326)
+- Unify to two-layer threshold model (#327)
+- Proactive OAuth token refresh before expiry (#332)
+- Auto-benchmark mode in dev.sh and token estimation tuning (#343)
+- Explicit multi-session support for multiple CLI windows on one daemon (#346)
+- Workspace-first retrieval priority in AutoMemoryStore (#352)
+- One-line install script for cross-platform setup (#358)
+- Add aceclaw-update command for easy pull + rebuild (#359)
+- Binary distribution via GitHub Releases (#362)
 ## [0.1.0] - 2026-03-05
 
 ### Bug Fixes
