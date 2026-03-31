@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.1] - 2026-03-31
+
+### Bug Fixes
+
+- Remove invalid OAuth scope from token refresh request (#382)
 ## [0.3.0] - 2026-03-29
 
 ### Bug Fixes
