@@ -3,6 +3,8 @@
 // Generate version.properties from gradle.properties at build time
 tasks.register("generateVersionProperties") {
     val outputDir = layout.buildDirectory.dir("generated/resources/version")
+    inputs.property("version", project.version)
+    inputs.property("group", project.group.toString())
     outputs.dir(outputDir)
     doLast {
         val dir = outputDir.get().asFile
