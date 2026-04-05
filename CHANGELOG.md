@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.7] - 2026-04-05
+
+### Features
+
+- MCP server health monitoring with auto-repair (#395)
 ## [0.3.6] - 2026-04-04
 
 ### Bug Fixes
