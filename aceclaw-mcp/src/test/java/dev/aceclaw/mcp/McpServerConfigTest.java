@@ -10,6 +10,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 
+import java.time.Duration;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class McpServerConfigTest {
@@ -223,6 +225,100 @@ class McpServerConfigTest {
     }
 
     @Test
+    void parseTimeoutFromConfig() throws IOException {
+        Files.writeString(tempDir.resolve(".mcp.json"), """
+                {
+                  "mcpServers": {
+                    "slow-server": {
+                      "command": "npx",
+                      "args": ["server"],
+                      "timeout": 120
+                    }
+                  }
+                }
+                """);
+
+        var result = McpServerConfig.load(tempDir);
+
+        var entry = result.get("slow-server");
+        assertThat(entry.timeout()).isEqualTo(120);
+    }
+
+    @Test
+    void missingTimeoutDefaultsToNull() throws IOException {
+        Files.writeString(tempDir.resolve(".mcp.json"), """
+                {
+                  "mcpServers": {
+                    "default-server": {
+                      "command": "node",
+                      "args": ["server.js"]
+                    }
+                  }
+                }
+                """);
+
+        var result = McpServerConfig.load(tempDir);
+
+        assertThat(result.get("default-server").timeout()).isNull();
+    }
+
+    @Test
+    void zeroTimeoutFallsBackToNull() throws IOException {
+        Files.writeString(tempDir.resolve(".mcp.json"), """
+                {
+                  "mcpServers": {
+                    "bad-server": {
+                      "command": "node",
+                      "timeout": 0
+                    }
+                  }
+                }
+                """);
+
+        var result = McpServerConfig.load(tempDir);
+
+        assertThat(result.get("bad-server").timeout()).isNull();
+    }
+
+    @Test
+    void negativeTimeoutFallsBackToNull() throws IOException {
+        Files.writeString(tempDir.resolve(".mcp.json"), """
+                {
+                  "mcpServers": {
+                    "neg-server": {
+                      "command": "node",
+                      "timeout": -1
+                    }
+                  }
+                }
+                """);
+
+        var result = McpServerConfig.load(tempDir);
+
+        assertThat(result.get("neg-server").timeout()).isNull();
+    }
+
+    @Test
+    void timeoutParsedForRemoteTransport() throws IOException {
+        Files.writeString(tempDir.resolve(".mcp.json"), """
+                {
+                  "mcpServers": {
+                    "remote-slow": {
+                      "url": "https://example.com/mcp",
+                      "timeout": 300
+                    }
+                  }
+                }
+                """);
+
+        var result = McpServerConfig.load(tempDir);
+
+        var entry = result.get("remote-slow");
+        assertThat(entry.transport()).isEqualTo(McpServerConfig.TransportType.SSE);
+        assertThat(entry.timeout()).isEqualTo(300);
+    }
+
+    @Test
     void mergeFromDirectlyWithValidConfig() throws IOException {
         var configFile = tempDir.resolve("test.json");
         Files.writeString(configFile, """
@@ -240,5 +336,29 @@ class McpServerConfigTest {
         assertThat(target).hasSize(2);
         assertThat(target.get("s1").transport()).isEqualTo(McpServerConfig.TransportType.SSE);
         assertThat(target.get("s2").transport()).isEqualTo(McpServerConfig.TransportType.STDIO);
+    }
+
+    // --- Manager-level wiring tests: config timeout → Duration ---
+
+    @Test
+    void resolveTimeoutUsesCustomValue() {
+        var entry = McpServerConfig.ServerEntry.stdio("node", java.util.List.of(), java.util.Map.of());
+        // Override with timeout via constructor
+        var withTimeout = new McpServerConfig.ServerEntry(
+                "node", java.util.List.of(), java.util.Map.of(), null, java.util.Map.of(),
+                McpServerConfig.TransportType.STDIO, 120);
+
+        var resolved = McpClientManager.resolveTimeout(withTimeout);
+
+        assertThat(resolved).isEqualTo(Duration.ofSeconds(120));
+    }
+
+    @Test
+    void resolveTimeoutFallsBackToDefaultWhenNull() {
+        var entry = McpServerConfig.ServerEntry.stdio("node", java.util.List.of(), java.util.Map.of());
+
+        var resolved = McpClientManager.resolveTimeout(entry);
+
+        assertThat(resolved).isEqualTo(Duration.ofMinutes(10));
     }
 }
