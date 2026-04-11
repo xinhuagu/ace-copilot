@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.12] - 2026-04-11
+
+### Bug Fixes
+
+- Always set apiKey from Keychain even when OAuth token is expired
 ## [0.3.11] - 2026-04-09
 
 ### Features
