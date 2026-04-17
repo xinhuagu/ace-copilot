@@ -62,6 +62,7 @@ public record RequestAttribution(Map<RequestSource, Integer> bySource, int total
      * Returns the count attributed to the given source, or zero if that source never fired.
      */
     public int count(RequestSource source) {
+        Objects.requireNonNull(source, "source");
         return bySource.getOrDefault(source, 0);
     }
 

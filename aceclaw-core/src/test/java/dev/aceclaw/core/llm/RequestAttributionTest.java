@@ -130,6 +130,16 @@ class RequestAttributionTest {
     }
 
     @Test
+    void countRejectsNullSource() {
+        // Per CLAUDE.md: method parameters passed to downstream calls must fail fast on
+        // null rather than silently returning a plausible-looking zero.
+        var a = RequestAttribution.builder().record(RequestSource.MAIN_TURN).build();
+        assertThatThrownBy(() -> a.count(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("source");
+    }
+
+    @Test
     void bySourceMapIsUnmodifiable() {
         var a = RequestAttribution.builder().record(RequestSource.MAIN_TURN).build();
         assertThatThrownBy(() -> a.bySource().put(RequestSource.PLANNER, 1))
