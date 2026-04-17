@@ -44,6 +44,15 @@ public final class ContextMonitor {
     private long totalOutputTokens;
     /** Cumulative LLM API request count across all turns in the session. */
     private long totalLlmRequests;
+    /**
+     * Per-source breakdown of {@link #totalLlmRequests}, keyed by lowercase source name
+     * (e.g. {@code "main_turn"}, {@code "planner"}). Populated from the JSON-RPC
+     * {@code usage.llmRequestsBySource} field when the daemon sends it; left empty when
+     * talking to an older daemon. Invariant when populated:
+     * {@code sum(values) == totalLlmRequests}.
+     */
+    private final java.util.LinkedHashMap<String, Long> totalLlmRequestsBySource =
+            new java.util.LinkedHashMap<>();
     /** Number of compaction events observed in the session. */
     private int compactionCount;
     /** Number of compaction events that stopped after phase 1 pruning. */
@@ -158,10 +167,36 @@ public final class ContextMonitor {
     }
 
     /**
+     * Folds a turn's per-source request breakdown into the session total. When the daemon
+     * sends {@code usage.llmRequestsBySource}, the CLI feeds that map here so
+     * {@code /status} can render per-source counts alongside the existing scalar total.
+     * Silently accepts {@code null} or empty maps (older daemons don't send the field),
+     * leaving the per-source total untouched but the scalar total still tracked via
+     * {@link #recordLlmRequests(int)}.
+     */
+    public synchronized void recordLlmRequestsBySource(java.util.Map<String, Integer> turnBySource) {
+        if (turnBySource == null || turnBySource.isEmpty()) return;
+        turnBySource.forEach((source, count) -> {
+            if (source == null || source.isBlank() || count == null || count <= 0) return;
+            totalLlmRequestsBySource.merge(source, (long) count, Long::sum);
+        });
+    }
+
+    /**
      * Returns cumulative LLM API request count across all turns.
      */
     public synchronized long totalLlmRequests() {
         return totalLlmRequests;
+    }
+
+    /**
+     * Returns the per-source breakdown of {@link #totalLlmRequests}. Empty when the daemon
+     * hasn't yet sent a per-source map (older daemon, or no requests recorded this session).
+     * Iteration order is insertion order — typically the order sources first appeared.
+     */
+    public synchronized java.util.Map<String, Long> totalLlmRequestsBySource() {
+        return java.util.Collections.unmodifiableMap(
+                new java.util.LinkedHashMap<>(totalLlmRequestsBySource));
     }
 
     /**
