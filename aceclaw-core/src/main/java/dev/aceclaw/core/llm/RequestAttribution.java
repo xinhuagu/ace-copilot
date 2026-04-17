@@ -113,6 +113,20 @@ public record RequestAttribution(Map<RequestSource, Integer> bySource, int total
             return this;
         }
 
+        /**
+         * Folds another attribution's per-source counts into this builder. Used by the
+         * streaming loop to absorb compaction-summary requests produced by MessageCompactor
+         * into the parent turn's attribution, and by plan executors to aggregate step
+         * attributions into a plan-level total.
+         */
+        public Builder merge(RequestAttribution other) {
+            if (other == null || other.total == 0) return this;
+            for (Map.Entry<RequestSource, Integer> e : other.bySource.entrySet()) {
+                record(e.getKey(), e.getValue());
+            }
+            return this;
+        }
+
         public int total() {
             return total;
         }

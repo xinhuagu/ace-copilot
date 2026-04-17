@@ -300,6 +300,24 @@ class AgentLoopIntegrationTest {
     }
 
     @Test
+    void fallbackOverloadAttributesRequestsToFallback() throws Exception {
+        // When SequentialPlanExecutor retries a failed step via the fallback path, it invokes
+        // runTurn with RequestSource.FALLBACK so the same Turn.requestAttribution distinguishes
+        // the retry work from the normal MAIN_TURN flow. This test pins that entry-point.
+        var llm = new FakeLlmClient(List.of(
+                new LlmResponse("id", "model", List.of(new ContentBlock.Text("done")),
+                        StopReason.END_TURN, new Usage(10, 5, 0, 0))
+        ));
+        var loop = new AgentLoop(llm, new ToolRegistry(), "model", null);
+
+        var turn = loop.runTurn("fallback attempt", List.of(), RequestSource.FALLBACK);
+
+        assertThat(turn.llmRequestCount()).isEqualTo(1);
+        assertThat(turn.requestAttribution().count(RequestSource.FALLBACK)).isEqualTo(1);
+        assertThat(turn.requestAttribution().count(RequestSource.MAIN_TURN)).isZero();
+    }
+
+    @Test
     void multiIterationToolUseCountsAllLlmRequests() throws Exception {
         var toolUse = new ContentBlock.ToolUse("t1", "echo", "{}");
         var llm = new FakeLlmClient(List.of(

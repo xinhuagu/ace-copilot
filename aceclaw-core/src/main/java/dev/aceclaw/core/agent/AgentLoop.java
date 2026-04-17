@@ -77,6 +77,18 @@ public final class AgentLoop {
      * @throws LlmException if the LLM call fails
      */
     public Turn runTurn(String userPrompt, List<Message> conversationHistory) throws LlmException {
+        return runTurn(userPrompt, conversationHistory, RequestSource.MAIN_TURN);
+    }
+
+    /**
+     * Runs a single agent turn attributing every LLM request to an explicit
+     * {@link RequestSource}. Callers that issue a turn outside the normal interactive path
+     * (e.g. SequentialPlanExecutor fallback paths attribute as FALLBACK) pass the relevant
+     * source here so the resulting Turn's requestAttribution reflects what actually produced
+     * the work.
+     */
+    public Turn runTurn(String userPrompt, List<Message> conversationHistory,
+                        RequestSource defaultSource) throws LlmException {
         long turnStart = System.currentTimeMillis();
         int turnNumber = (int) conversationHistory.stream()
                 .filter(m -> m instanceof Message.UserMessage).count() + 1;
@@ -105,7 +117,7 @@ public final class AgentLoop {
                 // Build and send the LLM request
                 var request = buildRequest(allMessages);
                 llmRequestCount++;
-                attributionBuilder.record(RequestSource.MAIN_TURN);
+                attributionBuilder.record(defaultSource);
                 var response = llmClient.sendMessage(request);
 
                 // Accumulate usage
