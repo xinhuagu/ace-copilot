@@ -5,7 +5,10 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -51,8 +54,8 @@ public final class ContextMonitor {
      * talking to an older daemon. Invariant when populated:
      * {@code sum(values) == totalLlmRequests}.
      */
-    private final java.util.LinkedHashMap<String, Long> totalLlmRequestsBySource =
-            new java.util.LinkedHashMap<>();
+    private final LinkedHashMap<String, Long> totalLlmRequestsBySource =
+            new LinkedHashMap<>();
     /** Number of compaction events observed in the session. */
     private int compactionCount;
     /** Number of compaction events that stopped after phase 1 pruning. */
@@ -174,7 +177,7 @@ public final class ContextMonitor {
      * leaving the per-source total untouched but the scalar total still tracked via
      * {@link #recordLlmRequests(int)}.
      */
-    public synchronized void recordLlmRequestsBySource(java.util.Map<String, Integer> turnBySource) {
+    public synchronized void recordLlmRequestsBySource(Map<String, Integer> turnBySource) {
         if (turnBySource == null || turnBySource.isEmpty()) return;
         turnBySource.forEach((source, count) -> {
             if (source == null || source.isBlank() || count == null || count <= 0) return;
@@ -194,9 +197,9 @@ public final class ContextMonitor {
      * hasn't yet sent a per-source map (older daemon, or no requests recorded this session).
      * Iteration order is insertion order — typically the order sources first appeared.
      */
-    public synchronized java.util.Map<String, Long> totalLlmRequestsBySource() {
-        return java.util.Collections.unmodifiableMap(
-                new java.util.LinkedHashMap<>(totalLlmRequestsBySource));
+    public synchronized Map<String, Long> totalLlmRequestsBySource() {
+        return Collections.unmodifiableMap(
+                new LinkedHashMap<>(totalLlmRequestsBySource));
     }
 
     /**

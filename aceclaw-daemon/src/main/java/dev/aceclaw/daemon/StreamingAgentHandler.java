@@ -605,7 +605,7 @@ public final class StreamingAgentHandler {
         }
         var bySourceNode = objectMapper.createObjectNode();
         attribution.bySource().forEach((source, count) ->
-                bySourceNode.put(source.name().toLowerCase(java.util.Locale.ROOT), count));
+                bySourceNode.put(source.name().toLowerCase(Locale.ROOT), count));
         usageNode.set("llmRequestsBySource", bySourceNode);
     }
 
