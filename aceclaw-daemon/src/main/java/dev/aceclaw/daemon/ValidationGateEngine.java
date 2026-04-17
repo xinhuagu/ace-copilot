@@ -323,6 +323,7 @@ public final class ValidationGateEngine {
         Path snapshotPath = projectRoot.resolve(AUDIT_DIR).resolve(SNAPSHOT_FILE);
         Files.createDirectories(snapshotPath.getParent());
         var merged = new LinkedHashMap<String, JsonNode>();
+        boolean seededFromSnapshot = false;
         if (Files.isRegularFile(snapshotPath)) {
             try {
                 JsonNode existing = mapper.readTree(snapshotPath.toFile());
@@ -331,11 +332,21 @@ public final class ValidationGateEngine {
                         String key = node.path("draftPath").asText("");
                         if (!key.isBlank()) merged.put(key, node);
                     }
+                    seededFromSnapshot = true;
                 }
             } catch (Exception e) {
-                log.debug("Corrupt validation snapshot at {}; rebuilding from supplied decisions: {}",
+                log.debug("Corrupt validation snapshot at {}; falling back to audit seed: {}",
                         snapshotPath, e.getMessage());
             }
+        }
+        if (!seededFromSnapshot) {
+            // Bootstrap case (snapshot missing or corrupt). Without this, a single-draft
+            // validate (via the skill.draft.validate RPC) would write a snapshot containing
+            // only the targeted draft, and the TUI — which now trusts the snapshot — would
+            // regress every sibling to "pending" even if they had prior known verdicts.
+            // Seed from the audit tail so siblings keep their last-known verdict until the
+            // next full validateAll run refreshes them.
+            merged.putAll(seedFromAudit(projectRoot));
         }
         for (var d : decisions) {
             merged.put(d.draftPath(), draftDecisionToJson(d));
@@ -347,6 +358,33 @@ public final class ValidationGateEngine {
         merged.values().forEach(arr::add);
         root.set("drafts", arr);
         atomicWriteJson(snapshotPath, root);
+    }
+
+    /**
+     * Builds a per-draft seed map from the audit log's last-seen entry per draftPath.
+     * The audit is deduped by (draftPath, verdict) so the reasons captured here may be stale
+     * relative to the current evaluation, but they are strictly no worse than what the TUI
+     * would have shown when reading the audit directly — which is exactly the fallback we
+     * replaced. Used only when the snapshot itself is missing or corrupt.
+     */
+    private LinkedHashMap<String, JsonNode> seedFromAudit(Path projectRoot) {
+        var seed = new LinkedHashMap<String, JsonNode>();
+        Path auditPath = projectRoot.resolve(AUDIT_DIR).resolve(AUDIT_FILE);
+        if (!Files.isRegularFile(auditPath)) return seed;
+        try {
+            for (var line : Files.readAllLines(auditPath)) {
+                if (line.isBlank()) continue;
+                JsonNode node = mapper.readTree(line);
+                if (node == null) continue;
+                String draftPath = node.path("draftPath").asText("");
+                if (draftPath.isBlank()) continue;
+                // Last write wins — audit is chronological, later entries supersede earlier.
+                seed.put(draftPath, node);
+            }
+        } catch (Exception e) {
+            log.debug("Failed to seed snapshot from audit at {}: {}", auditPath, e.getMessage());
+        }
+        return seed;
     }
 
     /**

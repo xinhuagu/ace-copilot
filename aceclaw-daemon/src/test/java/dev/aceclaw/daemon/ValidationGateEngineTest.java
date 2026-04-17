@@ -1,5 +1,6 @@
 package dev.aceclaw.daemon;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -264,6 +265,68 @@ class ValidationGateEngineTest {
                 ".aceclaw/metrics/continuous-learning/skill-draft-validation-snapshot.json");
         var root = new ObjectMapper().readTree(snapshotPath.toFile());
         assertThat(root.path("drafts").size()).isEqualTo(2);
+    }
+
+    @Test
+    void validateSingleDraftSeedsSnapshotFromAuditWhenSnapshotMissing() throws Exception {
+        // Regression guard for a reviewer-found hole: if skill.draft.validate (RPC) is called
+        // before any full validateAll — or after the snapshot has been deleted — mergeSnapshot
+        // previously produced a snapshot containing only the targeted draft. The TUI trusts
+        // the snapshot over the audit, so every sibling would regress to "pending" despite
+        // having known prior verdicts in the audit. Fix: seed from audit when snapshot absent.
+        Path firstDraft = tempDir.resolve(".aceclaw/skills-drafts/retry-safe/SKILL.md");
+        Files.createDirectories(firstDraft.getParent());
+        Files.writeString(firstDraft, """
+                ---
+                name: "retry-safe"
+                description: "Retry with bounded timeout"
+                allowed-tools: [bash, read_file]
+                disable-model-invocation: true
+                ---
+                # Draft Skill
+                """);
+        Path siblingDraft = tempDir.resolve(".aceclaw/skills-drafts/sibling/SKILL.md");
+        Files.createDirectories(siblingDraft.getParent());
+        Files.writeString(siblingDraft, """
+                ---
+                name: "sibling"
+                description: "Unrelated draft"
+                allowed-tools: [bash]
+                disable-model-invocation: true
+                ---
+                # Sibling
+                """);
+
+        // Pre-existing audit with sibling's last-known verdict. No snapshot file exists.
+        Path auditPath = tempDir.resolve(
+                ".aceclaw/metrics/continuous-learning/skill-draft-validation-audit.jsonl");
+        Files.createDirectories(auditPath.getParent());
+        Files.writeString(auditPath, """
+                {"draftPath":".aceclaw/skills-drafts/sibling/SKILL.md","verdict":"hold","reasons":[{"gate":"replay","code":"REPLAY_REPORT_MISSING","outcome":"hold","message":"replay missing"}]}
+                """);
+        writeReplayReport(0.10);
+
+        var engine = new ValidationGateEngine(
+                fixedClock(), false, true,
+                Path.of(".aceclaw/metrics/continuous-learning/replay-latest.json"),
+                0.65);
+        engine.validateSingleDraft(tempDir, firstDraft, "rpc-single");
+
+        Path snapshotPath = tempDir.resolve(
+                ".aceclaw/metrics/continuous-learning/skill-draft-validation-snapshot.json");
+        var root = new ObjectMapper().readTree(snapshotPath.toFile());
+        var drafts = root.path("drafts");
+        assertThat(drafts.size()).isEqualTo(2);
+
+        // Sibling keeps its audit-seeded verdict rather than disappearing into "pending".
+        boolean siblingFound = false;
+        for (JsonNode d : drafts) {
+            if (".aceclaw/skills-drafts/sibling/SKILL.md".equals(d.path("draftPath").asText())) {
+                siblingFound = true;
+                assertThat(d.path("verdict").asText()).isEqualTo("hold");
+            }
+        }
+        assertThat(siblingFound).isTrue();
     }
 
     @Test
