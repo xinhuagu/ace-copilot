@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -33,6 +34,7 @@ public final class ValidationGateEngine {
     private static final String DRAFTS_DIR = ".aceclaw/skills-drafts";
     private static final String AUDIT_DIR = ".aceclaw/metrics/continuous-learning";
     private static final String AUDIT_FILE = "skill-draft-validation-audit.jsonl";
+    private static final String SNAPSHOT_FILE = "skill-draft-validation-snapshot.json";
 
     private static final String DEFAULT_REPLAY_REPORT = ".aceclaw/metrics/continuous-learning/replay-latest.json";
 
@@ -88,6 +90,7 @@ public final class ValidationGateEngine {
             decisions.add(validateSingle(projectRoot, draftFile, normalizedTrigger, replay));
         }
         var changed = writeAudit(projectRoot, decisions);
+        writeSnapshot(projectRoot, decisions, normalizedTrigger);
         return summarize(projectRoot, decisions, changed);
     }
 
@@ -98,6 +101,7 @@ public final class ValidationGateEngine {
         var replay = evaluateReplay(projectRoot);
         var decision = validateSingle(projectRoot, draftPath, normalizedTrigger, replay);
         var changed = writeAudit(projectRoot, List.of(decision));
+        mergeSnapshot(projectRoot, List.of(decision), normalizedTrigger);
         return summarize(projectRoot, List.of(decision), changed);
     }
 
@@ -274,6 +278,88 @@ public final class ValidationGateEngine {
             changed.add(d);
         }
         return List.copyOf(changed);
+    }
+
+    /**
+     * Writes a current-state snapshot of every draft's verdict, overwriting prior contents.
+     *
+     * <p>The append-only audit file is deduped by (draftPath, verdict) to bound growth,
+     * which means a HOLD whose underlying reason silently shifts (e.g. REPLAY_REPORT_MISSING
+     * → REPLAY_GATE_FAILED once the report appears but metrics still fail) never produces a
+     * new audit entry. The snapshot is the authoritative "what is true right now" view —
+     * consumers that need current state (TUI, metrics collectors) should read it instead of
+     * the audit tail.
+     */
+    private void writeSnapshot(Path projectRoot, List<DraftDecision> decisions, String trigger) throws IOException {
+        Path snapshotPath = projectRoot.resolve(AUDIT_DIR).resolve(SNAPSHOT_FILE);
+        Files.createDirectories(snapshotPath.getParent());
+        var root = mapper.createObjectNode();
+        root.put("updatedAt", Instant.now(clock).toString());
+        root.put("trigger", trigger);
+        var arr = mapper.createArrayNode();
+        for (var d : decisions) {
+            arr.add(draftDecisionToJson(d));
+        }
+        root.set("drafts", arr);
+        Files.writeString(
+                snapshotPath,
+                mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root),
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+    }
+
+    /**
+     * Merges a partial decision list into the existing snapshot without dropping other drafts.
+     * Used by {@link #validateSingleDraft} so single-draft validation doesn't erase sibling state.
+     */
+    private void mergeSnapshot(Path projectRoot, List<DraftDecision> decisions, String trigger) throws IOException {
+        Path snapshotPath = projectRoot.resolve(AUDIT_DIR).resolve(SNAPSHOT_FILE);
+        Files.createDirectories(snapshotPath.getParent());
+        var merged = new LinkedHashMap<String, com.fasterxml.jackson.databind.JsonNode>();
+        if (Files.isRegularFile(snapshotPath)) {
+            try {
+                JsonNode existing = mapper.readTree(snapshotPath.toFile());
+                if (existing != null && existing.path("drafts").isArray()) {
+                    for (JsonNode node : existing.path("drafts")) {
+                        String key = node.path("draftPath").asText("");
+                        if (!key.isBlank()) merged.put(key, node);
+                    }
+                }
+            } catch (Exception ignored) {
+                // corrupt snapshot: rebuild from supplied decisions
+            }
+        }
+        for (var d : decisions) {
+            merged.put(d.draftPath(), draftDecisionToJson(d));
+        }
+        var root = mapper.createObjectNode();
+        root.put("updatedAt", Instant.now(clock).toString());
+        root.put("trigger", trigger);
+        var arr = mapper.createArrayNode();
+        merged.values().forEach(arr::add);
+        root.set("drafts", arr);
+        Files.writeString(
+                snapshotPath,
+                mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root),
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+    }
+
+    private com.fasterxml.jackson.databind.node.ObjectNode draftDecisionToJson(DraftDecision d) {
+        var node = mapper.createObjectNode();
+        node.put("draftPath", d.draftPath());
+        node.put("verdict", d.verdict().name().toLowerCase(Locale.ROOT));
+        node.put("evaluatedAt", d.evaluatedAt().toString());
+        node.put("trigger", d.trigger());
+        var reasonArray = mapper.createArrayNode();
+        for (var r : d.reasons()) {
+            var rn = mapper.createObjectNode();
+            rn.put("gate", r.gate());
+            rn.put("code", r.code());
+            rn.put("outcome", r.outcome().name().toLowerCase(Locale.ROOT));
+            rn.put("message", r.message());
+            reasonArray.add(rn);
+        }
+        node.set("reasons", reasonArray);
+        return node;
     }
 
     /**

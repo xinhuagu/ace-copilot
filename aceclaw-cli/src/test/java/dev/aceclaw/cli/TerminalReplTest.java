@@ -517,13 +517,41 @@ class TerminalReplTest {
     }
 
     @Test
-    void skillDraftStatusSummary_includesVerdictCounts() throws Exception {
+    void skillDraftStatusSummary_includesVerdictCountsAndDominantReason() throws Exception {
         var statusRepl = newReplForProject(tempDir);
         writeSkillDraftArtifacts(tempDir);
 
         String summary = (String) invokePrivate(statusRepl, "skillDraftStatusSummary",
                 new Class<?>[]{Path.class}, tempDir);
-        assertThat(summary).isEqualTo("1(p:0,h:1,b:0,n:0)");
+        assertThat(summary).isEqualTo("1(p:0,h:1,b:0,n:0) [STATIC_ALLOWED_TOOLS_POLICY_VIOLATION]");
+    }
+
+    @Test
+    void skillDraftStatusSummary_prefersSnapshotOverStaleAudit() throws Exception {
+        var statusRepl = newReplForProject(tempDir);
+        writeSkillDraftArtifacts(tempDir);
+        // Audit says HOLD/REPLAY_REPORT_MISSING (stale), snapshot says HOLD/REPLAY_GATE_FAILED (current).
+        // The status line must reflect the snapshot so users see the actual current gate failure.
+        Path snapshot = tempDir.resolve(".aceclaw/metrics/continuous-learning/skill-draft-validation-snapshot.json");
+        Files.writeString(snapshot, """
+                {
+                  "updatedAt": "2026-04-17T12:00:00Z",
+                  "trigger": "auto-promotion",
+                  "drafts": [
+                    {
+                      "draftPath": ".aceclaw/skills-drafts/retry-safe/SKILL.md",
+                      "verdict": "hold",
+                      "reasons": [
+                        {"gate":"replay","code":"REPLAY_GATE_FAILED","outcome":"hold","message":"token_estimation_error_ratio_p95 exceeds threshold"}
+                      ]
+                    }
+                  ]
+                }
+                """);
+
+        String summary = (String) invokePrivate(statusRepl, "skillDraftStatusSummary",
+                new Class<?>[]{Path.class}, tempDir);
+        assertThat(summary).isEqualTo("1(p:0,h:1,b:0,n:0) [REPLAY_GATE_FAILED]");
     }
 
     @Test

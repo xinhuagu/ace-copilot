@@ -1,5 +1,6 @@
 package dev.aceclaw.daemon;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -170,6 +171,99 @@ class ValidationGateEngineTest {
                   }
                 }
                 """.formatted(tokenErrorRatio));
+    }
+
+    @Test
+    void snapshotReflectsCurrentVerdictEvenWhenAuditIsDeduped() throws Exception {
+        // First run produces REPLAY_REPORT_MISSING.
+        writeDraft("""
+                ---
+                name: "retry-safe"
+                description: "Retry with bounded timeout"
+                allowed-tools: [bash, read_file]
+                disable-model-invocation: true
+                ---
+
+                # Draft Skill
+                ## Strategy
+                - Keep retries bounded
+                """);
+        var engine = new ValidationGateEngine(
+                fixedClock(), false, true,
+                Path.of(".aceclaw/metrics/continuous-learning/replay-latest.json"),
+                0.65);
+        engine.validateAll(tempDir, "first-run");
+
+        // Second run: replay report now exists but exceeds the threshold.
+        // The verdict stays HOLD, so writeAudit dedups — audit does NOT get a new entry.
+        // The snapshot, however, must reflect the new reason code.
+        writeReplayReport(1.43);
+        engine.validateAll(tempDir, "second-run");
+
+        Path snapshotPath = tempDir.resolve(
+                ".aceclaw/metrics/continuous-learning/skill-draft-validation-snapshot.json");
+        assertThat(snapshotPath).isRegularFile();
+
+        var mapper = new ObjectMapper();
+        var root = mapper.readTree(snapshotPath.toFile());
+        assertThat(root.path("trigger").asText()).isEqualTo("second-run");
+        var drafts = root.path("drafts");
+        assertThat(drafts.isArray()).isTrue();
+        assertThat(drafts.size()).isEqualTo(1);
+        var draft = drafts.get(0);
+        assertThat(draft.path("verdict").asText()).isEqualTo("hold");
+        var reasons = draft.path("reasons");
+        assertThat(reasons.isArray()).isTrue();
+        assertThat(reasons.get(0).path("code").asText()).isEqualTo("REPLAY_GATE_FAILED");
+
+        // Audit file still reflects only the original verdict change (dedup intact).
+        Path auditPath = tempDir.resolve(
+                ".aceclaw/metrics/continuous-learning/skill-draft-validation-audit.jsonl");
+        var auditLines = Files.readAllLines(auditPath);
+        assertThat(auditLines).hasSize(1);
+        assertThat(auditLines.getFirst()).contains("REPLAY_REPORT_MISSING");
+    }
+
+    @Test
+    void validateSingleDraftMergesIntoSnapshotWithoutErasingSiblings() throws Exception {
+        // Two drafts; validateAll populates snapshot with both.
+        Path firstDraft = tempDir.resolve(".aceclaw/skills-drafts/retry-safe/SKILL.md");
+        Files.createDirectories(firstDraft.getParent());
+        Files.writeString(firstDraft, """
+                ---
+                name: "retry-safe"
+                description: "Retry with bounded timeout"
+                allowed-tools: [bash, read_file]
+                disable-model-invocation: true
+                ---
+                # Draft Skill
+                """);
+        Path secondDraft = tempDir.resolve(".aceclaw/skills-drafts/other/SKILL.md");
+        Files.createDirectories(secondDraft.getParent());
+        Files.writeString(secondDraft, """
+                ---
+                name: "other"
+                description: "Another draft"
+                allowed-tools: [bash]
+                disable-model-invocation: true
+                ---
+                # Draft Skill
+                """);
+        writeReplayReport(0.10);
+
+        var engine = new ValidationGateEngine(
+                fixedClock(), false, true,
+                Path.of(".aceclaw/metrics/continuous-learning/replay-latest.json"),
+                0.65);
+        engine.validateAll(tempDir, "initial");
+
+        // Re-validate only the first draft; snapshot must still contain both entries.
+        engine.validateSingleDraft(tempDir, firstDraft, "manual-recheck");
+
+        Path snapshotPath = tempDir.resolve(
+                ".aceclaw/metrics/continuous-learning/skill-draft-validation-snapshot.json");
+        var root = new ObjectMapper().readTree(snapshotPath.toFile());
+        assertThat(root.path("drafts").size()).isEqualTo(2);
     }
 
     private static Clock fixedClock() {

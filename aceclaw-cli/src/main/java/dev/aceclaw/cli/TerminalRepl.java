@@ -92,6 +92,7 @@ public final class TerminalRepl {
     private static final String CL_REPLAY_REPORT = "replay-latest.json";
     private static final String CL_RELEASE_STATE = "skill-release-state.json";
     private static final String CL_VALIDATION_AUDIT = "skill-draft-validation-audit.jsonl";
+    private static final String CL_VALIDATION_SNAPSHOT = "skill-draft-validation-snapshot.json";
     private static final String CL_CANDIDATES = ".aceclaw/memory/candidates.jsonl";
     private static final String CL_DRAFTS_DIR = ".aceclaw/skills-drafts";
     private static final Path HOME_CANDIDATES_PATH = Path.of(
@@ -2412,6 +2413,7 @@ public final class TerminalRepl {
         int pass = 0;
         int hold = 0;
         int block = 0;
+        var reasonCounts = new LinkedHashMap<String, Integer>();
         for (var draft : snapshot.drafts().values()) {
             switch (draft.validationVerdict()) {
                 case "pass" -> pass++;
@@ -2419,9 +2421,23 @@ public final class TerminalRepl {
                 case "block" -> block++;
                 default -> pending++;
             }
+            if (!"pass".equals(draft.validationVerdict())) {
+                // First reason is the primary gate failure; collapsed into a count for the status line.
+                draft.validationReasons().stream().findFirst().ifPresent(reason -> {
+                    String code = reason.split(":", 2)[0].trim();
+                    if (!code.isBlank()) {
+                        reasonCounts.merge(code, 1, Integer::sum);
+                    }
+                });
+            }
         }
-        return snapshot.drafts().size()
+        String base = snapshot.drafts().size()
                 + "(p:" + pass + ",h:" + hold + ",b:" + block + ",n:" + pending + ")";
+        String dominantReason = reasonCounts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(null);
+        return dominantReason != null ? base + " [" + dominantReason + "]" : base;
     }
 
     private SkillDraftEvent parseSkillDraftEvent(JsonNode node) {
@@ -2495,6 +2511,7 @@ public final class TerminalRepl {
         }
 
         Map<String, SkillValidationStatus> validations = loadSkillValidationStatuses(
+                projectRoot.resolve(CL_METRICS_DIR).resolve(CL_VALIDATION_SNAPSHOT),
                 projectRoot.resolve(CL_METRICS_DIR).resolve(CL_VALIDATION_AUDIT));
         Map<String, SkillReleaseStatus> releases = loadSkillReleaseStatuses(
                 projectRoot.resolve(CL_METRICS_DIR).resolve(CL_RELEASE_STATE));
@@ -2531,6 +2548,53 @@ public final class TerminalRepl {
             return new SkillDraftSnapshot(Map.of());
         }
         return new SkillDraftSnapshot(drafts);
+    }
+
+    private Map<String, SkillValidationStatus> loadSkillValidationStatuses(Path snapshotPath, Path auditPath) {
+        var fromSnapshot = loadSkillValidationSnapshot(snapshotPath);
+        if (!fromSnapshot.isEmpty()) {
+            return fromSnapshot;
+        }
+        return loadSkillValidationStatuses(auditPath);
+    }
+
+    private Map<String, SkillValidationStatus> loadSkillValidationSnapshot(Path snapshotPath) {
+        var statuses = new LinkedHashMap<String, SkillValidationStatus>();
+        if (!Files.isRegularFile(snapshotPath)) {
+            return statuses;
+        }
+        try {
+            JsonNode root = statusMapper.readTree(snapshotPath.toFile());
+            if (root == null) return statuses;
+            JsonNode drafts = root.path("drafts");
+            if (!drafts.isArray()) return statuses;
+            for (JsonNode node : drafts) {
+                String draftPath = node.path("draftPath").asText("");
+                if (draftPath.isBlank()) continue;
+                var reasons = new ArrayList<String>();
+                JsonNode arr = node.path("reasons");
+                if (arr.isArray()) {
+                    for (JsonNode reason : arr) {
+                        String code = reason.path("code").asText("");
+                        String message = reason.path("message").asText("");
+                        if (!code.isBlank() && !message.isBlank()) {
+                            reasons.add(sanitizeTerminalText(code + ": " + message));
+                        } else if (!code.isBlank()) {
+                            reasons.add(sanitizeTerminalText(code));
+                        } else if (!message.isBlank()) {
+                            reasons.add(sanitizeTerminalText(message));
+                        }
+                    }
+                }
+                statuses.put(draftPath, new SkillValidationStatus(
+                        sanitizeTerminalText(node.path("verdict").asText("pending")),
+                        reasons
+                ));
+            }
+        } catch (Exception e) {
+            log.debug("Failed to parse skill draft validation snapshot: {}", e.getMessage());
+        }
+        return statuses;
     }
 
     private Map<String, SkillValidationStatus> loadSkillValidationStatuses(Path auditPath) {
