@@ -1291,13 +1291,17 @@ public final class TerminalRepl {
             // NOT the per-call value — using it would cause erratic usage % jumps.
             // If no streaming usage was received, keep the monitor's existing per-call value (0 means "no update").
             long perCallContext = handle.liveInputTokens();
+            // Parse once; this parsed map is fed to the session monitor below (on the first
+            // render only, via markUsageAccounted) AND to the per-turn display formatter
+            // below (on every render, since display is idempotent across re-renders).
+            Map<String, Integer> bySource = parseLlmRequestsBySource(usage);
             // Guarded: same handle can reach renderTaskCompletion through multiple paths
             // (foreground completion, /fg rendezvous, fallback notify). Only the first render
             // should feed session totals or the user-visible counters double-count.
             if (handle.markUsageAccounted()) {
                 contextMonitor.recordTurnComplete(turnIn, turnOut, perCallContext);
                 contextMonitor.recordLlmRequests(llmRequests);
-                contextMonitor.recordLlmRequestsBySource(parseLlmRequestsBySource(usage));
+                contextMonitor.recordLlmRequestsBySource(bySource);
                 contextMonitor.checkThresholds(log);
             }
 
@@ -1312,7 +1316,7 @@ public final class TerminalRepl {
             // Per-turn breakdown inline when the daemon provided a map (PR C). Falls back
             // to the scalar-only form for older daemons or turns the daemon didn't decompose.
             String llmRequestBreakdown = llmRequests > 0
-                    ? formatLlmRequestsBreakdown(parseLlmRequestsBySource(usage))
+                    ? formatLlmRequestsBreakdown(bySource)
                     : "";
             String llmRequestText = llmRequests > 0
                     ? "  " + llmRequests + " LLM req" + llmRequestBreakdown
