@@ -158,6 +158,24 @@ public final class RuntimeMetricsExporter {
      * @param toolMetrics the session tool metrics collector (may be null)
      */
     public void export(Path projectRoot, ToolMetricsCollector toolMetrics) {
+        export(projectRoot, toolMetrics, null, null);
+    }
+
+    /**
+     * Exports all accumulated metrics to the runtime-latest.json file, tagging the
+     * snapshot with the current provider + model so downstream baseline analysis can
+     * segment Copilot data by pricing tier. When provider is Copilot, a normalized
+     * {@code model_multiplier} is derived from {@link CopilotRequestMultipliers} so
+     * raw request counts can be converted to cost units without a second lookup.
+     *
+     * @param projectRoot the project root directory (must not be null)
+     * @param toolMetrics the session tool metrics collector (may be null)
+     * @param provider    the LLM provider identifier (e.g. {@code "copilot"}, {@code "anthropic"});
+     *                    {@code null} omits the field
+     * @param model       the active model identifier; {@code null} omits the field
+     */
+    public void export(Path projectRoot, ToolMetricsCollector toolMetrics,
+                       String provider, String model) {
         Objects.requireNonNull(projectRoot, "projectRoot");
         try {
             // Take a consistent snapshot under lock
@@ -165,6 +183,20 @@ public final class RuntimeMetricsExporter {
 
             ObjectNode root = mapper.createObjectNode();
             root.put("exported_at", Instant.now().toString());
+            if (provider != null && !provider.isBlank()) {
+                root.put("provider", provider);
+            }
+            if (model != null && !model.isBlank()) {
+                root.put("model", model);
+            }
+            Double multiplier = CopilotRequestMultipliers.forProviderAndModel(provider, model);
+            if (multiplier != null) {
+                // Only populated for Copilot. Non-Copilot providers charge per-token, not
+                // per-request, so a request multiplier is not meaningful and the field is
+                // omitted rather than set to a misleading 1.0.
+                root.put("model_multiplier", multiplier);
+                root.put("model_multiplier_rate_card_date", CopilotRequestMultipliers.RATE_CARD_DATE);
+            }
 
             ObjectNode metrics = root.putObject("metrics");
 

@@ -2094,7 +2094,9 @@ public final class StreamingAgentHandler {
                 exporter.recordTimeout();
             }
             if (projectPath != null) {
-                exporter.export(projectPath, metricsCollector);
+                String provider = getLlmClient() != null ? getLlmClient().provider() : null;
+                String model = getModelForSession(sessionId);
+                exporter.export(projectPath, metricsCollector, provider, model);
             }
         } catch (Exception e) {
             log.debug("Runtime metrics recording failed: {}", e.getMessage());

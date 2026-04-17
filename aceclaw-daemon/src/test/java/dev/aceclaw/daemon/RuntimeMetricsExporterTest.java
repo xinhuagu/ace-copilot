@@ -140,6 +140,57 @@ class RuntimeMetricsExporterTest {
     }
 
     @Test
+    void export_includesProviderModelAndMultiplierForCopilot() throws Exception {
+        // Copilot path: the export carries a multiplier so offline analysis can translate
+        // raw request counts into normalized cost units.
+        var exporter = new RuntimeMetricsExporter();
+        exporter.recordTurn();
+
+        exporter.export(tempDir, null, "copilot", "claude-opus-4-6");
+
+        Path output = tempDir.resolve(".aceclaw/metrics/continuous-learning/runtime-latest.json");
+        JsonNode root = new ObjectMapper().readTree(output.toFile());
+        assertThat(root.get("provider").asText()).isEqualTo("copilot");
+        assertThat(root.get("model").asText()).isEqualTo("claude-opus-4-6");
+        assertThat(root.get("model_multiplier").asDouble()).isEqualTo(10.0);
+        assertThat(root.has("model_multiplier_rate_card_date")).isTrue();
+    }
+
+    @Test
+    void export_omitsMultiplierForNonCopilotProvider() throws Exception {
+        // Direct Anthropic / OpenAI are token-priced; a request multiplier doesn't apply.
+        // Field is omitted rather than set to 1.0 so baseline scripts can tell "unknown"
+        // from "equivalent to the base rate".
+        var exporter = new RuntimeMetricsExporter();
+        exporter.recordTurn();
+
+        exporter.export(tempDir, null, "anthropic", "claude-opus-4-6");
+
+        Path output = tempDir.resolve(".aceclaw/metrics/continuous-learning/runtime-latest.json");
+        JsonNode root = new ObjectMapper().readTree(output.toFile());
+        assertThat(root.get("provider").asText()).isEqualTo("anthropic");
+        assertThat(root.get("model").asText()).isEqualTo("claude-opus-4-6");
+        assertThat(root.has("model_multiplier")).isFalse();
+        assertThat(root.has("model_multiplier_rate_card_date")).isFalse();
+    }
+
+    @Test
+    void export_backwardCompatibleWhenProviderModelNotSupplied() throws Exception {
+        // The single-arg export variant stays — callers on older code paths still work,
+        // and they just don't tag the snapshot with provider/model.
+        var exporter = new RuntimeMetricsExporter();
+        exporter.recordTurn();
+
+        exporter.export(tempDir, null);
+
+        Path output = tempDir.resolve(".aceclaw/metrics/continuous-learning/runtime-latest.json");
+        JsonNode root = new ObjectMapper().readTree(output.toFile());
+        assertThat(root.has("provider")).isFalse();
+        assertThat(root.has("model")).isFalse();
+        assertThat(root.has("model_multiplier")).isFalse();
+    }
+
+    @Test
     void export_withNoData_marksPendingInstrumentation() throws Exception {
         var exporter = new RuntimeMetricsExporter();
         exporter.export(tempDir, null);
