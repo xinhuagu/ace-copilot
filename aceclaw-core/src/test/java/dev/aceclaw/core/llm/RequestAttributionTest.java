@@ -81,6 +81,34 @@ class RequestAttributionTest {
     }
 
     @Test
+    void builderMergeFoldsAnotherAttributionIntoThisBuilder() {
+        // Used by the streaming loop to absorb a CompactionResult's request attribution
+        // into the parent turn's running builder, and by SequentialPlanExecutor to fold
+        // per-step attributions into the plan total. Each per-source count must add.
+        var compactionAttr = RequestAttribution.builder()
+                .record(RequestSource.COMPACTION_SUMMARY)
+                .build();
+        var turnBuilder = RequestAttribution.builder()
+                .record(RequestSource.MAIN_TURN, 2);
+
+        turnBuilder.merge(compactionAttr);
+
+        var snapshot = turnBuilder.build();
+        assertThat(snapshot.total()).isEqualTo(3);
+        assertThat(snapshot.count(RequestSource.MAIN_TURN)).isEqualTo(2);
+        assertThat(snapshot.count(RequestSource.COMPACTION_SUMMARY)).isEqualTo(1);
+    }
+
+    @Test
+    void builderMergeToleratesNullAndEmpty() {
+        var b = RequestAttribution.builder().record(RequestSource.MAIN_TURN);
+        b.merge(null);
+        b.merge(RequestAttribution.empty());
+
+        assertThat(b.total()).isEqualTo(1);
+    }
+
+    @Test
     void mergeWithEmptyIsIdentity() {
         var a = RequestAttribution.builder().record(RequestSource.MAIN_TURN, 4).build();
 
