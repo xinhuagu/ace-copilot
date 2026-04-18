@@ -2578,9 +2578,12 @@ public final class AceCopilotDaemon {
      * <p>Resolution order:
      * <ol>
      *   <li>{@code ACE_COPILOT_SIDECAR_DIR} env var, if set</li>
-     *   <li>{@code <user.dir>/ace-copilot-sidecar/}, if the script exists there
+     *   <li>{@code <user.dir>/ace-copilot-sidecar/}, if the script exists
      *       (source-tree runs via {@code ./gradlew :ace-copilot-daemon:run} or IDE)</li>
-     *   <li>{@code <app.home>/sidecar/}, if set (reserved for future installDist packaging)</li>
+     *   <li>{@code <installRoot>/sidecar/} derived from the location of this
+     *       class's JAR, for Gradle application-plugin installs where the
+     *       sidecar is packaged under {@code <appHome>/sidecar/} (see
+     *       {@code ace-copilot-cli/build.gradle.kts})</li>
      * </ol>
      */
     private static java.nio.file.Path resolveCopilotSidecarDir() {
@@ -2592,13 +2595,31 @@ public final class AceCopilotDaemon {
         if (java.nio.file.Files.exists(inSourceTree.resolve("sidecar.mjs"))) {
             return inSourceTree;
         }
-        String appHome = System.getProperty("app.home");
-        if (appHome != null && !appHome.isBlank()) {
-            var packaged = java.nio.file.Path.of(appHome, "sidecar");
-            if (java.nio.file.Files.exists(packaged.resolve("sidecar.mjs"))) {
-                return packaged;
-            }
+        var packaged = packagedSidecarDir();
+        if (packaged != null && java.nio.file.Files.exists(packaged.resolve("sidecar.mjs"))) {
+            return packaged;
         }
         return inSourceTree;
+    }
+
+    /**
+     * When launched from a Gradle application install, this class's JAR
+     * lives at {@code <appHome>/lib/ace-copilot-daemon-*.jar} and the
+     * packaged sidecar at {@code <appHome>/sidecar/}. Returns {@code null}
+     * for non-JAR or unexpected layouts.
+     */
+    private static java.nio.file.Path packagedSidecarDir() {
+        try {
+            var src = AceCopilotDaemon.class.getProtectionDomain().getCodeSource();
+            if (src == null) return null;
+            var jar = java.nio.file.Path.of(src.getLocation().toURI());
+            if (!jar.getFileName().toString().endsWith(".jar")) return null;
+            var libDir = jar.getParent();
+            if (libDir == null || !"lib".equals(libDir.getFileName().toString())) return null;
+            var appHome = libDir.getParent();
+            return appHome != null ? appHome.resolve("sidecar") : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
