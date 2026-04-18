@@ -1891,13 +1891,25 @@ public final class StreamingAgentHandler {
      * {@code NeedsUserApproval} decisions through the existing TUI
      * {@code permission.request} flow attached to the active
      * {@link CancelAwareStreamContext}.
+     *
+     * <p>Emits {@code stream.tool_use} before execution and
+     * {@code stream.tool_completed} after, matching the chat-path event
+     * shape so the TUI renders tool activity identically on both paths
+     * (#12). This is the minimum parity the session runtime needs while
+     * first-class mid-execution output streaming for long-running tools
+     * waits for #5's deeper rework.
      */
-    private JsonNode handleCopilotToolInvoke(JsonNode params, ToolRegistry registry) {
+    private JsonNode handleCopilotToolInvoke(JsonNode params,
+                                             ToolRegistry registry,
+                                             CancelAwareStreamContext cancelContext,
+                                             String sessionId) {
         String name = params.path("name").asText("");
         JsonNode args = params.has("arguments") ? params.get("arguments") : objectMapper.createObjectNode();
+        String toolCallId = "copilot-" + sessionId + "-" + System.nanoTime();
 
         var toolOpt = registry.get(name);
         if (toolOpt.isEmpty()) {
+            emitToolCompleted(cancelContext, toolCallId, name, 0, true, "Unknown tool");
             var err = objectMapper.createObjectNode();
             err.put("isError", true);
             err.put("content", "Unknown tool: " + name);
@@ -1907,23 +1919,59 @@ public final class StreamingAgentHandler {
         try {
             inputJson = objectMapper.writeValueAsString(args);
         } catch (IOException e) {
+            emitToolCompleted(cancelContext, toolCallId, name, 0, true, "Invalid arguments");
             var err = objectMapper.createObjectNode();
             err.put("isError", true);
             err.put("content", "Invalid tool arguments: " + e.getMessage());
             return err;
         }
+        emitToolUse(cancelContext, toolCallId, name, inputJson);
+        long started = System.currentTimeMillis();
         try {
             var result = toolOpt.get().execute(inputJson);
+            long durationMs = System.currentTimeMillis() - started;
+            emitToolCompleted(cancelContext, toolCallId, name, durationMs, result.isError(),
+                    result.isError() ? (result.output() != null ? result.output() : "") : "");
             var node = objectMapper.createObjectNode();
             node.put("isError", result.isError());
             node.put("content", result.output() != null ? result.output() : "");
             return node;
         } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - started;
             log.warn("tool.invoke {} failed: {}", name, e.getMessage());
+            emitToolCompleted(cancelContext, toolCallId, name, durationMs, true, e.getMessage());
             var err = objectMapper.createObjectNode();
             err.put("isError", true);
             err.put("content", "Tool execution failed: " + e.getMessage());
             return err;
+        }
+    }
+
+    private void emitToolUse(CancelAwareStreamContext ctx, String id, String name, String inputJson) {
+        try {
+            var p = objectMapper.createObjectNode();
+            p.put("id", id);
+            p.put("name", name);
+            String summary = StreamingNotificationHandler.summarizeToolInput(name, inputJson, objectMapper);
+            if (summary != null && !summary.isBlank()) p.put("summary", summary);
+            ctx.sendNotification("stream.tool_use", p);
+        } catch (IOException e) {
+            log.debug("Failed to emit stream.tool_use: {}", e.getMessage());
+        }
+    }
+
+    private void emitToolCompleted(CancelAwareStreamContext ctx, String id, String name,
+                                   long durationMs, boolean isError, String errorText) {
+        try {
+            var p = objectMapper.createObjectNode();
+            p.put("id", id);
+            p.put("name", name);
+            p.put("durationMs", durationMs);
+            p.put("isError", isError);
+            if (isError && errorText != null && !errorText.isBlank()) p.put("error", errorText);
+            ctx.sendNotification("stream.tool_completed", p);
+        } catch (IOException e) {
+            log.debug("Failed to emit stream.tool_completed: {}", e.getMessage());
         }
     }
 
@@ -1941,22 +1989,36 @@ public final class StreamingAgentHandler {
     }
 
     /**
-     * Phase 1 dispatch for the Copilot SDK sessionful runtime (issue #3).
+     * Dispatch for the Copilot SDK sessionful runtime (issues #3 spike,
+     * #4 Phase 2, #12 edge hardening).
      *
-     * <p>Delegates one user prompt to {@link CopilotAcpClient#sendAndWait} on the
-     * per-session sidecar. Streams assistant text to the TUI via {@code stream.text}
-     * notifications. Records the assistant's final message on the session history.
+     * <p>Delegates one user prompt to {@link CopilotAcpClient#sendAndWait}
+     * on the per-session sidecar. Streams assistant text via
+     * {@code stream.text}, tool activity via {@code stream.tool_use} and
+     * {@code stream.tool_completed}, and context-reset / elicitation
+     * warnings via {@code stream.warning}. Records the assistant's final
+     * message on the session history.
      *
-     * <p>Known limitations (deferred to later phases):
+     * <p>Tools are resolved from {@code permissionAwareRegistry} so that
+     * {@link dev.acecopilot.security.PermissionAwareTool} — and through it
+     * {@link PermissionManager} — remains the authority for every tool
+     * call, including the existing TUI {@code permission.request} prompt
+     * for WRITE / EXECUTE levels.
+     *
+     * <p>Known gaps (explicitly tracked):
      * <ul>
-     *   <li>SDK agent uses its own built-in tools, not ace-copilot's 6 tools (Phase 2, #4)</li>
-     *   <li>SDK agent auto-approves its permissions (sidecar uses {@code approveAll}) —
-     *       filesystem / shell side effects bypass {@link PermissionManager} (Phase 2, #4)</li>
-     *   <li>No {@code respondToUserInput} routing — follow-up messages are new
-     *       {@code sendAndWait} calls (Phase 3, #5)</li>
-     *   <li>No planner / self-improvement / checkpoint / compaction hooks</li>
-     *   <li>Cancellation mid-call is best-effort: the request returns after the
-     *       sendAndWait finishes; cancel has no wire-level interrupt yet</li>
+     *   <li>No {@code respondToUserInput} routing — follow-up messages are
+     *       new {@code sendAndWait} calls (Phase 3, #5). Structured-input
+     *       elicitations are auto-declined with a user-visible warning
+     *       until that lands.</li>
+     *   <li>Long-running tool output is delivered as a single
+     *       {@code stream.tool_completed} payload, not incrementally
+     *       (Phase 3 rework, #5).</li>
+     *   <li>No planner / self-improvement / checkpoint / compaction hooks
+     *       on this path (Phase 4, #6).</li>
+     *   <li>Cancellation mid-call is best-effort: the request returns
+     *       after the sendAndWait finishes; cancel has no wire-level
+     *       interrupt yet.</li>
      * </ul>
      */
     private Object handlePromptViaCopilotSession(String sessionId,
@@ -2052,10 +2114,34 @@ public final class StreamingAgentHandler {
         // permission.request round-trip via cancelContext.
         client.setRequestHandler((method, params) -> {
             if ("tool.invoke".equals(method)) {
-                return handleCopilotToolInvoke(params, permissionAwareRegistry);
+                return handleCopilotToolInvoke(params, permissionAwareRegistry, cancelContext, sessionId);
             }
             log.warn("Unhandled sidecar RPC: {}", method);
             throw new IllegalArgumentException("unsupported method: " + method);
+        });
+
+        // Forward session/elicitation_declined notifications from the
+        // sidecar as stream.warning so users see when the SDK agent (or an
+        // MCP server it calls) asked for structured input the runtime
+        // cannot surface yet (#12 until #5 lands a TUI flow for it).
+        client.setNotificationHandler(n -> {
+            if (!"session/elicitation_declined".equals(n.method())) return;
+            try {
+                String what = n.params().path("message").asText("");
+                String src = n.params().path("elicitationSource").asText("");
+                String msg = "Copilot session declined an elicitation request"
+                        + (src.isBlank() ? "" : " from " + src)
+                        + (what.isBlank() ? "" : ": " + what)
+                        + ". This runtime does not yet surface structured form input (see #5).";
+                log.warn(msg);
+                var p = objectMapper.createObjectNode();
+                p.put("level", "warning");
+                p.put("message", msg);
+                p.put("reason", "elicitation_declined");
+                cancelContext.sendNotification("stream.warning", p);
+            } catch (Exception e) {
+                log.debug("Failed to forward elicitation_declined warning: {}", e.getMessage());
+            }
         });
 
         var started = System.currentTimeMillis();

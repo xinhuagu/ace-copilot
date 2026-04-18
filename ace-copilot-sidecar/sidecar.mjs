@@ -25,9 +25,12 @@
 //                        premiumUsed, premiumLimit }
 //   - Requests from sidecar → daemon (Phase 2, issue #4):
 //       tool.invoke         { name, arguments } → { content, isError? }
-//       permission.request  { kind, toolName?, fileName?, command?, url?, reason? }
-//                            → { decision: "approved"|"denied-interactively-by-user"
-//                                         |"denied-by-rules", reason? }
+//   - Additional notifications (Pre-Phase 3, issue #12):
+//       session/elicitation_declined
+//                            { mode, message, elicitationSource, url }
+//                            — fired when the SDK agent requests structured
+//                              form input; auto-declined until Phase 3 (#5)
+//                              grows a TUI surface for elicitation + user_input
 //   - Logs go to stderr, not stdout (stdout carries framed JSON-RPC only).
 
 import { CopilotClient, defineTool } from "@github/copilot-sdk";
@@ -207,6 +210,26 @@ async function ensureSession(model, toolDefs) {
           kind: "denied-by-rules",
           reason: `kind="${req?.kind}" is not allowed under the ace-copilot custom-tool allowlist.`,
         };
+      },
+      // Pre-Phase 3 (#12): structured-form input from MCP servers or the
+      // SDK agent. We do not yet have a TUI surface for elicitation
+      // (Phase 3, #5 will land respondToUserInput / respondToElicitation
+      // together), so decline deterministically and surface a warning up
+      // to the TUI. Silent decline was the default before — explicit
+      // decline + notification makes the behavior visible.
+      onElicitationRequest: async (ctx) => {
+        writeMessage({
+          jsonrpc: "2.0",
+          method: "session/elicitation_declined",
+          params: {
+            mode: ctx?.mode ?? null,
+            message: ctx?.message ?? null,
+            elicitationSource: ctx?.elicitationSource ?? null,
+            url: ctx?.url ?? null,
+          },
+        });
+        log(`elicitation auto-declined: mode=${ctx?.mode} source=${ctx?.elicitationSource}`);
+        return { action: "decline", content: {} };
       },
     };
     if (aceCopilotTools.length > 0) {
