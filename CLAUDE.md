@@ -50,7 +50,7 @@ Java 21 with `--enable-preview` required everywhere (compile, test, runtime). Th
 
 ## Architecture Overview
 
-AceCopilot is a **daemon-first AI coding agent**. The CLI is a thin client that connects to a persistent JVM daemon via Unix Domain Socket. Multiple CLI/TUI windows can connect to one daemon simultaneously, each with its own independent session. One active TUI per workspace is enforced by `WorkspaceAttachmentRegistry`. See `docs/multi-session.md` for details.
+ace-copilot is a **daemon-first AI coding agent**. The CLI is a thin client that connects to a persistent JVM daemon via Unix Domain Socket. Multiple CLI/TUI windows can connect to one daemon simultaneously, each with its own independent session. One active TUI per workspace is enforced by `WorkspaceAttachmentRegistry`. See `docs/multi-session.md` for details.
 
 ```
 CLI (Picocli + JLine3)
@@ -77,9 +77,9 @@ ace-copilot-core         (LlmClient, Tool, AgentLoop, StreamingAgentLoop, Conten
   ├── ace-copilot-tools  (ReadFileTool, WriteFileTool, EditFileTool, BashExecTool, GlobSearchTool, GrepSearchTool)
   └── ace-copilot-security (PermissionManager, PermissionDecision sealed interface, DefaultPermissionPolicy)
         ↑
-ace-copilot-daemon       (AceCopilotDaemon, UdsListener, RequestRouter, ConnectionBridge, SessionManager, StreamingAgentHandler)
+ace-copilot-daemon       (ace-copilotDaemon, UdsListener, RequestRouter, ConnectionBridge, SessionManager, StreamingAgentHandler)
   ↑
-ace-copilot-cli          (AceCopilotMain, DaemonClient, DaemonStarter, TerminalRepl)
+ace-copilot-cli          (ace-copilotMain, DaemonClient, DaemonStarter, TerminalRepl)
 ```
 
 Modules `ace-copilot-sdk`, `ace-copilot-infra` (event hierarchy), `ace-copilot-memory`, `ace-copilot-mcp`, `ace-copilot-server`, `ace-copilot-test` exist or serve as supporting/placeholder modules.
@@ -103,7 +103,7 @@ The `StreamContext` interface enables this bidirectional flow — handlers can `
 - `DaemonLock.LockResult`: `Acquired | AlreadyRunning | StaleLock`
 - `ConversationMessage`: `User | Assistant | System`
 - `PlanStatus`: `Draft | Executing | Completed | Failed`
-- `AceCopilotEvent`: `AgentEvent | ToolEvent | SessionEvent | HealthEvent | SystemEvent | SchedulerEvent | PlanEvent`
+- `ace-copilotEvent`: `AgentEvent | ToolEvent | SessionEvent | HealthEvent | SystemEvent | SchedulerEvent | PlanEvent`
 
 Use exhaustive pattern matching (`switch`) on these — the compiler enforces completeness.
 

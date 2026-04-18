@@ -1,10 +1,10 @@
-# AceCopilot Self-Learning Pipeline
+# ace-copilot Self-Learning Pipeline
 
 > Version 2.0 | 2026-03-13
 
 ## Overview
 
-AceCopilot learns from its own behavior across three layers:
+ace-copilot learns from its own behavior across three layers:
 
 1. **Per-turn detectors** capture tool failures, recoveries, and recurring local patterns.
 2. **Session-close retrospectives** summarize what happened in the finished session and append a historical snapshot.
@@ -288,7 +288,7 @@ Agent Turn
 
 **Integration points:**
 - `StreamingAgentHandler` — holds engine reference via `setSelfImprovementEngine()`, fires async virtual thread after each turn completes
-- `AceCopilotDaemon.wireAgentHandler()` — creates `ErrorDetector`, `PatternDetector`, and `SelfImprovementEngine`, wires into handler when `memoryStore` is available
+- `ace-copilotDaemon.wireAgentHandler()` — creates `ErrorDetector`, `PatternDetector`, and `SelfImprovementEngine`, wires into handler when `memoryStore` is available
 
 **Failure isolation:** All exceptions are caught and logged — the engine never propagates errors to the agent session or blocks the response to the user.
 

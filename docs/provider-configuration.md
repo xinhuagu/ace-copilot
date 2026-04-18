@@ -1,6 +1,6 @@
 # Provider Configuration
 
-AceCopilot supports multiple LLM providers. This guide covers how to configure each one.
+ace-copilot supports multiple LLM providers. This guide covers how to configure each one.
 
 ## GitHub Copilot (Enterprise)
 
@@ -15,7 +15,7 @@ Use your GitHub Copilot subscription to access a wide range of models — includ
 
 ### Authentication
 
-AceCopilot resolves your GitHub token automatically in this order:
+ace-copilot resolves your GitHub token automatically in this order:
 
 1. **Cached OAuth token** from device-code flow (`ace-copilot-cli copilot auth`)
 2. **`apiKey`** in the copilot profile (`~/.ace-copilot/config.json`)
@@ -29,7 +29,7 @@ The simplest method is GitHub CLI:
 # Login to GitHub (one-time)
 gh auth login
 
-# Start AceCopilot with Copilot
+# Start ace-copilot with Copilot
 ./dev.sh copilot
 ```
 
@@ -64,7 +64,7 @@ Copilot exposes models from multiple providers. Use `/model <name>` at runtime t
 | `gpt-5.2-codex` | Responses API | Codex model, optimized for coding |
 | `o4-mini` | Chat Completions | OpenAI reasoning model |
 
-AceCopilot automatically routes requests to the correct API endpoint — Codex models use the Responses API (`/responses`), all others use Chat Completions (`/chat/completions`).
+ace-copilot automatically routes requests to the correct API endpoint — Codex models use the Responses API (`/responses`), all others use Chat Completions (`/chat/completions`).
 
 > **Model name format:** Copilot uses dot-notation for versions (`claude-opus-4.6`), while Anthropic direct API uses hyphen-notation (`claude-opus-4-6`). When switching between providers, use the format for the active provider. If the global config has an Anthropic-format model name (e.g. `claude-opus-4-6`), the Copilot provider ignores it and uses its own default (`claude-sonnet-4.5`).
 
@@ -100,7 +100,7 @@ Use Codex OAuth credentials (for example from `codex auth login`) without manual
 
 ### Authentication Resolution
 
-When `provider` is `openai-codex`, AceCopilot resolves token in this order:
+When `provider` is `openai-codex`, ace-copilot resolves token in this order:
 
 1. `apiKey` in profile (explicit override)
 2. `~/.codex/auth.json` → `tokens.access_token`
@@ -123,10 +123,10 @@ When `provider` is `openai-codex`, AceCopilot resolves token in this order:
 ```
 
 ```bash
-# Authenticate via AceCopilot (runs Codex CLI flow)
+# Authenticate via ace-copilot (runs Codex CLI flow)
 ace-copilot models auth login --provider openai-codex
 
-# Start AceCopilot with openai-codex provider
+# Start ace-copilot with openai-codex provider
 ./dev.sh openai-codex
 ```
 
@@ -136,10 +136,10 @@ ace-copilot models auth login --provider openai-codex
 
 `openai-codex` uses ChatGPT Codex backend semantics, not standard OpenAI Responses API semantics.
 
-- AceCopilot always sends `stream=true`
-- AceCopilot always sends `store=false`
-- AceCopilot does not send `temperature`
-- AceCopilot does not send `max_output_tokens`
+- ace-copilot always sends `stream=true`
+- ace-copilot always sends `store=false`
+- ace-copilot does not send `temperature`
+- ace-copilot does not send `max_output_tokens`
 
 `maxTokens` and `temperature` can remain in your profile for cross-provider consistency, but they are ignored when `provider=openai-codex`.
 
@@ -151,7 +151,7 @@ Use Claude models directly via the Anthropic API. Supports extended thinking, pr
 
 ### Authentication
 
-AceCopilot supports two authentication modes for Anthropic:
+ace-copilot supports two authentication modes for Anthropic:
 
 #### Option 1: API Key (`sk-ant-api03-*`)
 
@@ -183,18 +183,18 @@ Or in `~/.ace-copilot/config.json`:
 
 Uses Claude CLI's OAuth credentials. Supports automatic token refresh so long-running daemon sessions never disconnect.
 
-**Setup:** Log in with Claude CLI once — AceCopilot auto-discovers the credentials:
+**Setup:** Log in with Claude CLI once — ace-copilot auto-discovers the credentials:
 
 ```bash
 # One-time: authenticate with Claude CLI
 claude /login
 
-# AceCopilot automatically reads from:
+# ace-copilot automatically reads from:
 #   macOS Keychain: "anthropic.com" → claudeAiOauth.accessToken
 #   Fallback file: ~/.claude/.credentials
 ```
 
-No manual configuration needed. AceCopilot reads the OAuth token, refresh token, and expiry from Claude CLI's credential store.
+No manual configuration needed. ace-copilot reads the OAuth token, refresh token, and expiry from Claude CLI's credential store.
 
 **Token refresh behavior:**
 - **Proactive refresh:** Before each API request, the daemon checks if the token is expired or about to expire. If so, it refreshes automatically using the OAuth refresh endpoint — no failed requests, no user intervention.
@@ -229,7 +229,7 @@ brew install ollama     # macOS
 # Pull a model
 ollama pull qwen3:32b
 
-# Start AceCopilot with Ollama
+# Start ace-copilot with Ollama
 ./dev.sh ollama
 ```
 
@@ -249,13 +249,13 @@ Configure in `~/.ace-copilot/config.json`:
 }
 ```
 
-> **Note on model size:** AceCopilot is an autonomous agent that performs multi-step reasoning, tool selection, and JSON-structured tool calls. Small language models (8B, 14B parameters) lack the capacity to reliably handle these tasks — they frequently produce malformed tool calls, hallucinate tool names, or lose track of multi-turn context. **Use models with at least 32B parameters** (e.g., `qwen3:32b`, `llama-3.3-70b`) for acceptable agent performance. 70B+ models are recommended for complex tasks.
+> **Note on model size:** ace-copilot is an autonomous agent that performs multi-step reasoning, tool selection, and JSON-structured tool calls. Small language models (8B, 14B parameters) lack the capacity to reliably handle these tasks — they frequently produce malformed tool calls, hallucinate tool names, or lose track of multi-turn context. **Use models with at least 32B parameters** (e.g., `qwen3:32b`, `llama-3.3-70b`) for acceptable agent performance. 70B+ models are recommended for complex tasks.
 
 ---
 
 ## Other OpenAI-Compatible Providers
 
-AceCopilot works with any provider that implements the OpenAI Chat Completions API.
+ace-copilot works with any provider that implements the OpenAI Chat Completions API.
 
 | Provider | Config Name | Default Base URL |
 |----------|-------------|-----------------|

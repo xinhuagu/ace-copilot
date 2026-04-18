@@ -4,7 +4,7 @@
 
 **AF_UNIX works on Windows 10 1803+ with JDK 21. No transport abstraction needed for the MVP.**
 
-AceCopilot can continue using `UnixDomainSocketAddress` on Windows without introducing named pipes, loopback TCP, or a transport abstraction layer.
+ace-copilot can continue using `UnixDomainSocketAddress` on Windows without introducing named pipes, loopback TCP, or a transport abstraction layer.
 
 ## Evidence
 
@@ -21,7 +21,7 @@ AceCopilot can continue using `UnixDomainSocketAddress` on Windows without intro
 
 ### Path Length
 - AF_UNIX paths limited to 108 bytes (Linux), 104 bytes (macOS)
-- AceCopilot socket: `~/.ace-copilot/ace-copilot.sock` = ~35-50 bytes depending on username
+- ace-copilot socket: `~/.ace-copilot/ace-copilot.sock` = ~35-50 bytes depending on username
 - Windows equivalent: `C:\Users\<user>\.ace-copilot\ace-copilot.sock` = ~45-55 bytes
 - Well within limits on all platforms
 

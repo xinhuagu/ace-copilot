@@ -1,8 +1,8 @@
-# AceCopilot Context Engineering
+# ace-copilot Context Engineering
 
 > Version 1.0 | 2026-03-17
 
-AceCopilot actively manages what enters the context window so long-running sessions stay effective. This document covers the full pipeline: system prompt budgeting, request-aware assembly, request-time pruning, context compaction, candidate injection, and observability.
+ace-copilot actively manages what enters the context window so long-running sessions stay effective. This document covers the full pipeline: system prompt budgeting, request-aware assembly, request-time pruning, context compaction, candidate injection, and observability.
 
 ---
 

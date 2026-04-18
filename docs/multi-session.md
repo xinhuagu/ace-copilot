@@ -1,6 +1,6 @@
 # Multi-Session Model
 
-AceCopilot follows a **one daemon, many sessions** architecture. A single persistent daemon process manages all sessions, while each CLI/TUI window gets its own independent session.
+ace-copilot follows a **one daemon, many sessions** architecture. A single persistent daemon process manages all sessions, while each CLI/TUI window gets its own independent session.
 
 ## Installation
 
@@ -27,7 +27,7 @@ Checks for a newer release, downloads and replaces if available. Refuses to upda
 - Rebuilds the CLI distribution from source
 - Stops and restarts the daemon (destructive — interrupts all active sessions)
 - Auto-runs benchmark checks on feature branches (`--auto` by default)
-- Use when you are developing AceCopilot itself and want benchmark validation
+- Use when you are developing ace-copilot itself and want benchmark validation
 
 ### `restart.sh` / `ace-copilot-restart` — Quick Restart
 
@@ -110,7 +110,7 @@ Terminal 1 (dev.sh)          Terminal 2 (tui.sh)         Terminal 3 (tui.sh)
         |                           |                           |
         +---------- UDS -----------+---------- UDS ------------+
                                     |
-                              AceCopilot Daemon
+                              ace-copilot Daemon
                     +---------------------------+
                     | SessionManager            |
                     |   session-abc (workspace A)|

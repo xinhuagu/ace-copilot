@@ -1,4 +1,4 @@
-# AceCopilot Memory System Design
+# ace-copilot Memory System Design
 
 > Version 2.2 | 2026-03-14
 
@@ -6,7 +6,7 @@
 
 ![Memory System Architecture](img/memory-architecture.png)
 
-The AceCopilot memory system enables **cross-session learning** through an 8-tier hierarchical memory model, HMAC-signed persistent storage, hybrid search, markdown memory files, path-based conditional rules, memory consolidation, and multiple automated extraction pipelines. The agent accumulates knowledge over time — mistakes to avoid, codebase patterns, user preferences, error recovery strategies — and applies them automatically in future sessions.
+The ace-copilot memory system enables **cross-session learning** through an 8-tier hierarchical memory model, HMAC-signed persistent storage, hybrid search, markdown memory files, path-based conditional rules, memory consolidation, and multiple automated extraction pipelines. The agent accumulates knowledge over time — mistakes to avoid, codebase patterns, user preferences, error recovery strategies — and applies them automatically in future sessions.
 
 ---
 
@@ -438,7 +438,7 @@ Memory tiers are injected as markdown sections:
 - Jackson readTree("") returns null in 2.18.2 — check isObject() [jackson, api]
 
 # Persistent Memory Notes
-## AceCopilot Project Memory
+## ace-copilot Project Memory
 ...
 
 # Daily Journal
@@ -536,7 +536,7 @@ This complements auto-memory by providing a human-readable, editable knowledge b
 
 ## 8. System Prompt Size Budget
 
-The system prompt budget is implemented today. AceCopilot assembles memory tiers, path-based rules, environment context, tool guidance, and runtime learning sections, then applies a character budget before the request is sent.
+The system prompt budget is implemented today. ace-copilot assembles memory tiers, path-based rules, environment context, tool guidance, and runtime learning sections, then applies a character budget before the request is sent.
 
 ### 8.1 Current Budget Model
 
@@ -557,7 +557,7 @@ When a tier exceeds its cap, or the total assembled prompt exceeds the global ca
 - truncation keeps a 70/20/10 split of head / tail / marker
 - `Soul` and `Managed Policy` remain the hardest tiers to displace
 
-This is an intentionally simple character-budget model. AceCopilot does not require exact token accounting for every tier before assembly.
+This is an intentionally simple character-budget model. ace-copilot does not require exact token accounting for every tier before assembly.
 
 ### 8.3 Context-Aware Compaction Boundary
 
@@ -565,23 +565,23 @@ This is an intentionally simple character-budget model. AceCopilot does not requ
 
 ---
 
-## 9. AceCopilot vs OpenClaw
+## 9. ace-copilot vs OpenClaw
 
-This section compares AceCopilot's current memory-and-learning design with OpenClaw's currently documented default path. It is not a claim that OpenClaw cannot support richer behavior through plugins or alternative context engines.
+This section compares ace-copilot's current memory-and-learning design with OpenClaw's currently documented default path. It is not a claim that OpenClaw cannot support richer behavior through plugins or alternative context engines.
 
 ### 9.1 High-Level Difference
 
 ![Architecture Comparison](img/architecture_comparison_openclaw_vs_ace-copilot_1.drawio.png)
 
-OpenClaw is stronger as a broader context and retrieval product. AceCopilot is stronger as a behavior-centric learning kernel.
+OpenClaw is stronger as a broader context and retrieval product. ace-copilot is stronger as a behavior-centric learning kernel.
 
 In practice:
 - OpenClaw emphasizes explicit memory, retrieval, context observability, and platform breadth.
-- AceCopilot emphasizes governed memory, behavior-derived insights, rule promotion, and long-running learning loops.
+- ace-copilot emphasizes governed memory, behavior-derived insights, rule promotion, and long-running learning loops.
 
 ### 9.2 Comparison Table
 
-| Dimension | AceCopilot today | OpenClaw documented core path |
+| Dimension | ace-copilot today | OpenClaw documented core path |
 |-----------|---------------|-------------------------------|
 | **Primary focus** | Learn from runtime behavior and feed it back into future runs | Persist, retrieve, and inspect durable memory/context |
 | **Memory model** | 8-tier hierarchy with policy vs learned-memory separation | Disk-backed memory plus platform context surfaces |
@@ -592,9 +592,9 @@ In practice:
 | **Governance** | Confidence thresholds, consolidation, candidate bridge, rule promotion, validation/rollback around adaptive skills | Strong context/runtime product controls; learning governance depends more on extensions |
 | **Platform breadth** | Local daemon + CLI + coding-first workflow | Wider channels, broader platform surface, larger ecosystem |
 
-### 9.3 Where AceCopilot is Stronger
+### 9.3 Where ace-copilot is Stronger
 
-AceCopilot is stronger in the places that matter most for long-running task execution:
+ace-copilot is stronger in the places that matter most for long-running task execution:
 
 1. **Behavior-derived memory** — learnings come from failures, recoveries, repeated sequences, and user corrections, not only from explicit note writing.
 2. **Governed promotion** — confidence thresholds, consolidation, correction-rule promotion, candidate bridging, and skill validation reduce the chance of learning raw noise.
@@ -606,11 +606,11 @@ OpenClaw is still stronger in several context-engineering areas:
 
 1. **Retrieval maturity** — its documented default path is richer in retrieval tooling and operator-facing memory inspection.
 2. **Context observability** — OpenClaw exposes a clearer product surface for prompt composition and compaction behavior.
-3. **Platform surface** — it reaches more channels and product scenarios than AceCopilot currently does.
+3. **Platform surface** — it reaches more channels and product scenarios than ace-copilot currently does.
 
 ### 9.5 The Design Tradeoff
 
-AceCopilot is intentionally narrower. It treats memory as one layer of a larger long-running learning system:
+ace-copilot is intentionally narrower. It treats memory as one layer of a larger long-running learning system:
 
 ```text
 behavior -> typed insight -> persisted memory -> promoted rule/candidate -> future run
@@ -622,7 +622,7 @@ OpenClaw's documented default path is closer to:
 write memory -> index memory -> retrieve memory -> reuse memory
 ```
 
-Both are valid. AceCopilot's design matters if the goal is not just to remember more, but to improve behavior over time under governance.
+Both are valid. ace-copilot's design matters if the goal is not just to remember more, but to improve behavior over time under governance.
 
 ---
 

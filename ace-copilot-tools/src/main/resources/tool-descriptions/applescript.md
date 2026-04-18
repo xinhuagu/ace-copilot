@@ -23,11 +23,11 @@ Parameter details:
 
 Common patterns:
 - Open an app: tell application "Safari" to activate
-- Show dialog: display dialog "Hello" with title "AceCopilot"
+- Show dialog: display dialog "Hello" with title "ace-copilot"
 - Reveal in Finder: tell application "Finder" to reveal POSIX file "/path/to/file"
 - Get clipboard: the clipboard
 - Set clipboard: set the clipboard to "text content"
-- Send notification: display notification "Done" with title "AceCopilot"
+- Send notification: display notification "Done" with title "ace-copilot"
 - List running apps: tell application "System Events" to get name of every process
 
 Error handling patterns:

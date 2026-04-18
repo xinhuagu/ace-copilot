@@ -1,11 +1,11 @@
-# AceCopilot - Product Requirements Document
+# ace-copilot - Product Requirements Document
 
 ## A High-Performance, Secure, Self-Learning AI Coding Agent for Java
 
 **Version**: 1.0
 **Date**: 2026-02-16
 **Status**: Draft
-**Team**: AceCopilot PRD Team (Architect, OpenClaw Expert, PO, Security Expert, Engineer, Frontend Developer)
+**Team**: ace-copilot PRD Team (Architect, OpenClaw Expert, PO, Security Expert, Engineer, Frontend Developer)
 
 ---
 
@@ -34,9 +34,9 @@
 
 ## 1. Product Vision
 
-**AceCopilot** reimagines the AI coding agent experience by leveraging the Java ecosystem's strengths: type safety, concurrency, enterprise maturity, and GraalVM native compilation.
+**ace-copilot** reimagines the AI coding agent experience by leveraging the Java ecosystem's strengths: type safety, concurrency, enterprise maturity, and GraalVM native compilation.
 
-While existing agents like Claude Code (TypeScript/Node.js) and OpenClaw (TypeScript) have proven the interactive AI coding paradigm, AceCopilot delivers the same powerful workflow with the performance characteristics, security guarantees, and operational maturity that enterprise environments demand.
+While existing agents like Claude Code (TypeScript/Node.js) and OpenClaw (TypeScript) have proven the interactive AI coding paradigm, ace-copilot delivers the same powerful workflow with the performance characteristics, security guarantees, and operational maturity that enterprise environments demand.
 
 ### Why Java?
 
@@ -48,7 +48,7 @@ While existing agents like Claude Code (TypeScript/Node.js) and OpenClaw (TypeSc
 
 ### Vision Statement
 
-> AceCopilot is a persistent, always-on AI agent that turns your device into an intelligent coding companion. Built on Java with daemon-first architecture, it delivers reliability, security, and speed — running as a system service that learns, acts proactively, and serves all your development tools.
+> ace-copilot is a persistent, always-on AI agent that turns your device into an intelligent coding companion. Built on Java with daemon-first architecture, it delivers reliability, security, and speed — running as a system service that learns, acts proactively, and serves all your development tools.
 
 ---
 
@@ -56,7 +56,7 @@ While existing agents like Claude Code (TypeScript/Node.js) and OpenClaw (TypeSc
 
 Existing AI coding agents have proven the paradigm is powerful, but current implementations have gaps:
 
-| Problem | Current State | AceCopilot Solution |
+| Problem | Current State | ace-copilot Solution |
 |---------|--------------|-----------------|
 | Slow startup | Node.js agents take 500-800ms to start | GraalVM native image: <50ms startup |
 | High memory usage | 80-120MB idle, 200-400MB active | 20-30MB idle, 60-120MB active |
@@ -73,17 +73,17 @@ Existing AI coding agents have proven the paradigm is powerful, but current impl
 ### Solo Developer ("Alex")
 - Full-stack developer, freelancer or startup engineer
 - Wants fast AI assistance without heavy IDE plugins
-- **AceCopilot Value**: Instant startup, multi-LLM switching, single binary, lightweight resource usage
+- **ace-copilot Value**: Instant startup, multi-LLM switching, single binary, lightweight resource usage
 
 ### Team Lead ("Jordan")
 - Engineering team lead at a mid-size company (20-50 engineers)
 - Needs consistent tooling and coding standard enforcement
-- **AceCopilot Value**: Project-level `.ace-copilot/` config, hook system for CI/CD, permission model, team-wide policies
+- **ace-copilot Value**: Project-level `.ace-copilot/` config, hook system for CI/CD, permission model, team-wide policies
 
 ### Enterprise Architect ("Morgan")
 - Principal engineer at a Fortune 500 company
 - Security compliance, audit requirements, on-premise LLM deployment
-- **AceCopilot Value**: Enterprise-grade security, JVM sandbox, JPMS encapsulation, Micrometer metrics, Ollama support
+- **ace-copilot Value**: Enterprise-grade security, JVM sandbox, JPMS encapsulation, Micrometer metrics, Ollama support
 
 ---
 
@@ -91,7 +91,7 @@ Existing AI coding agents have proven the paradigm is powerful, but current impl
 
 ### 4.0 Daemon-First Architecture — Device as Agent
 
-AceCopilot runs as a **persistent system daemon**, turning your device into an always-on AI agent. The CLI, IDE plugins, and other clients are all thin clients that connect to this daemon.
+ace-copilot runs as a **persistent system daemon**, turning your device into an always-on AI agent. The CLI, IDE plugins, and other clients are all thin clients that connect to this daemon.
 
 **Startup Modes**:
 
@@ -219,7 +219,7 @@ Resume behavior for natural-language inputs like `continue` / `resume` must foll
 
 ### 4.5.2 Task Planner (Autonomous Planning & Execution)
 
-For complex, multi-step tasks, AceCopilot provides an **autonomous Task Planner** that decomposes user goals into structured, dependency-aware task graphs (DAGs) before execution begins — going beyond step-by-step ReAct reasoning.
+For complex, multi-step tasks, ace-copilot provides an **autonomous Task Planner** that decomposes user goals into structured, dependency-aware task graphs (DAGs) before execution begins — going beyond step-by-step ReAct reasoning.
 
 **Core Capabilities**:
 - **LLM-driven task decomposition**: Analyzes the user's goal and generates a DAG of sub-tasks with dependency ordering, execution strategies, and risk assessment
@@ -317,7 +317,7 @@ Custom subagent definitions via Markdown + YAML frontmatter. Independent context
 
 ### 4.9.1 Agent Teams (Multi-Agent Orchestration)
 
-Agent Teams enable multiple AceCopilot agent instances to work collaboratively on complex tasks. Faithfully ported from Claude Code's agent team design with Java enhancements.
+Agent Teams enable multiple ace-copilot agent instances to work collaboratively on complex tasks. Faithfully ported from Claude Code's agent team design with Java enhancements.
 
 **Architecture** (matching Claude Code):
 - **Team Lead**: Main session that creates team, spawns teammates, coordinates work
@@ -351,7 +351,7 @@ Agent Teams enable multiple AceCopilot agent instances to work collaboratively o
 
 ### 5.1 Performance: GraalVM Native Image
 
-| Metric | Node.js (Claude Code) | AceCopilot (GraalVM Native) |
+| Metric | Node.js (Claude Code) | ace-copilot (GraalVM Native) |
 |--------|----------------------|--------------------------|
 | Cold Start | ~500-800ms | **<50ms** |
 | Memory (idle) | ~80-120MB | **~20-30MB** |
@@ -472,7 +472,7 @@ ace-copilot-cli ──> ace-copilot-daemon (thin client connects via UDS)
 **Task Planner**: Goal decomposition -> DAG generation -> parallel execution -> replanning on failure
 
 **Key interfaces** (all using sealed types):
-- `AceCopilotDaemon`, `DaemonLock`, `DaemonConfig`, `SessionManager`, `AgentSession`
+- `ace-copilotDaemon`, `DaemonLock`, `DaemonConfig`, `SessionManager`, `AgentSession`
 - `HeartbeatRunner`, `CronScheduler`, `CronJob`, `CronSchedule` (sealed: Interval, CronExpression, EventTriggered)
 - `BootSystem`, `StateSerializer`, `LifecycleManager`
 - `Agent`, `AgentLoop`, `Turn`, `StopReason`
@@ -490,7 +490,7 @@ ace-copilot-cli ──> ace-copilot-daemon (thin client connects via UDS)
 
 **Infrastructure interfaces** (ace-copilot-infra):
 - `Gateway`, `ConnectionManager`, `GatewayRequest` (sealed: Agent, Tool, MCP, Health, Admin)
-- `EventBus`, `AceCopilotEvent` (sealed hierarchy: Agent, Tool, Health, Session, Team, Scheduler, System events)
+- `EventBus`, `ace-copilotEvent` (sealed hierarchy: Agent, Tool, Health, Session, Team, Scheduler, System events)
 - `MessageQueue`, `AgentMessage` (sealed: TaskAssignment, TaskResult, ChatMessage, BroadcastMessage, ShutdownRequest, PlanApproval, HeartbeatPing), `MessageHandler`, `MessageSubscription`
 - `HealthMonitor`, `HealthCheckable`, `HealthStatus` (sealed: Healthy, Degraded, Unhealthy, Unknown)
 - `Scheduler`, `ScheduledTask`, `SchedulePolicy`
@@ -520,7 +520,7 @@ ace-copilot-cli ──> ace-copilot-daemon (thin client connects via UDS)
 - **ScheduledExecutorService** with virtual thread factory for periodic tasks (health checks, memory consolidation)
 - **Circuit breakers** with virtual thread-safe state machines for external service resilience
 
-> **Virtual Threads over Reactive Streams**: Project Loom eliminates the need for reactive programming patterns (Flow, RxJava, Reactor). AceCopilot uses simple blocking code on virtual threads instead. This results in simpler, more debuggable code with natural backpressure via BlockingQueue capacity. Flow API is available for external library interop but is not used internally.
+> **Virtual Threads over Reactive Streams**: Project Loom eliminates the need for reactive programming patterns (Flow, RxJava, Reactor). ace-copilot uses simple blocking code on virtual threads instead. This results in simpler, more debuggable code with natural backpressure via BlockingQueue capacity. Flow API is available for external library interop but is not used internally.
 
 ### 6.4.1 Infrastructure Architecture
 
@@ -620,7 +620,7 @@ OpenClaw suffered critical failures within 48 hours of going viral (January 2026
 - Malicious skills containing credential stealers
 - Unrestricted shell command execution
 
-AceCopilot addresses all of these with: default-deny permissions, OS-level sandbox, skill/plugin validation, credential isolation, and audit logging.
+ace-copilot addresses all of these with: default-deny permissions, OS-level sandbox, skill/plugin validation, credential isolation, and audit logging.
 
 ---
 
@@ -721,7 +721,7 @@ Incremental rendering with `MarkdownStreamBuffer`:
 
 ### 9.6 IDE Integration (Post-MVP)
 
-Shared `AceCopilotUiAdapter` interface for all UI targets:
+Shared `ace-copilotUiAdapter` interface for all UI targets:
 - **VS Code**: TypeScript extension via JSON-RPC over stdio
 - **IntelliJ**: Kotlin plugin via Platform SDK
 - **Web Dashboard** (v2): Javalin-based monitoring with WebSocket real-time updates
@@ -969,7 +969,7 @@ This ensures no insight is lost even if the agent did not actively call `memory 
 
 ### Competitive Benchmarks
 
-| Benchmark | Claude Code | AceCopilot Target |
+| Benchmark | Claude Code | ace-copilot Target |
 |-----------|------------|----------------|
 | Startup time | ~500-800ms | < 50ms (10x faster) |
 | Memory footprint | ~80-120MB idle | < 30MB idle (4x less) |
@@ -1014,4 +1014,4 @@ All detailed research is available in the `research/` directory:
 
 ---
 
-*This PRD was compiled from research by the AceCopilot PRD Team: Architect, OpenClaw Expert, Product Owner, Security Expert, Java Engineer, and Frontend Developer.*
+*This PRD was compiled from research by the ace-copilot PRD Team: Architect, OpenClaw Expert, Product Owner, Security Expert, Java Engineer, and Frontend Developer.*

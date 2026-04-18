@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-03-01
-- Decision Owners: AceCopilot CLI/Core
+- Decision Owners: ace-copilot CLI/Core
 - Related: PRD 4.5/4.5.1/4.5.2, Continuous-Learning Plan/Governance/Operations
 
 ## Context
@@ -53,7 +53,7 @@ Adopt a **Dual-Channel Session Model**:
 
 5. **Mapping to Existing Types**
 
-The dual-channel model maps to existing AceCopilot types as follows:
+The dual-channel model maps to existing ace-copilot types as follows:
 
 **Lead Session:**
 - `SessionManager` (`ace-copilot-daemon`) owns the lifecycle of all `AgentSession` instances via a `ConcurrentHashMap<String, AgentSession>`.
@@ -273,7 +273,7 @@ Each worker session consumes a separate context window. Approximate per-worker t
 - **Kill switch**: Runtime flag in `StreamingAgentHandler` to disable worker-session spawning globally (`workerSpawnEnabled`, default `false` in Phase 0/1).
 - **Permission scope**: Each worker inherits a restricted `PermissionManager` scope. Worker approvals cannot elevate lead-session permissions. Write permissions require explicit `SubAgentConfig.allowedTools` inclusion.
 - **Automatic cleanup**: `SubAgentRunner.backgroundTasks` already applies `BG_CLEANUP_AGE` (30 minutes) for stale tasks. Worker `AgentSession` instances are deactivated and removed from `SessionManager` on completion or timeout.
-- **Audit trail**: Worker spawn, artifact merge, and rollback events are emitted as `AceCopilotEvent` instances (`SchedulerEvent` or new `WorkerEvent` subtype) for the event bus. `SubAgentTranscript` (captured in `SubAgentResult`) provides full conversation replay for debugging.
+- **Audit trail**: Worker spawn, artifact merge, and rollback events are emitted as `ace-copilotEvent` instances (`SchedulerEvent` or new `WorkerEvent` subtype) for the event bus. `SubAgentTranscript` (captured in `SubAgentResult`) provides full conversation replay for debugging.
 
 ### Worker Session State Machine
 

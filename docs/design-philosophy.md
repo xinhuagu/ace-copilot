@@ -1,6 +1,6 @@
 # Design Philosophy
 
-Why AceCopilot is built in Java, from scratch, without any AI framework.
+Why ace-copilot is built in Java, from scratch, without any AI framework.
 
 ## What Is an Agent Harness?
 
@@ -8,7 +8,7 @@ An agent harness is not the AI itself. It is the runtime that manages the AI.
 
 Think of it like a pit crew for a race car. The driver (the LLM) does the driving. The crew handles timing, safety, and recovery.
 
-A harness runs the ReAct loop, executes tools, controls permissions, watches budgets, detects bad loops, and learns from past runs. Projects like Claude Code, LangChain, and OpenClaw all solve parts of this problem. AceCopilot chose Java because it makes this kind of runtime easier to build in a clean and reliable way.
+A harness runs the ReAct loop, executes tools, controls permissions, watches budgets, detects bad loops, and learns from past runs. Projects like Claude Code, LangChain, and OpenClaw all solve parts of this problem. ace-copilot chose Java because it makes this kind of runtime easier to build in a clean and reliable way.
 
 ## Big Model vs. Big Harness
 
@@ -25,7 +25,7 @@ Two things are now clear:
 
 ## Why No AI Framework
 
-This is the biggest lesson behind AceCopilot: **an agent harness is not just an AI app. It is infrastructure.**
+This is the biggest lesson behind ace-copilot: **an agent harness is not just an AI app. It is infrastructure.**
 
 At the model layer, only a thin adapter is needed — a streaming HTTP client and a JSON parser for tool calls. Everything else — permissions, safety, tool execution, learning, context management — is application logic.
 
@@ -45,7 +45,7 @@ Many scripting environments rely heavily on conventions and runtime checks. Perm
 
 That trade-off works well for short-lived workflows, but in a long-running agent it creates a fragile failure mode.
 
-AceCopilot models core concepts as closed sets, where adding a new variant forces the compiler to revisit every dependent path. **This is a form of security left shift: a class of errors moves from runtime surprises into compile-time checks.** Java's sealed types and exhaustive pattern matching make this possible:
+ace-copilot models core concepts as closed sets, where adding a new variant forces the compiler to revisit every dependent path. **This is a form of security left shift: a class of errors moves from runtime surprises into compile-time checks.** Java's sealed types and exhaustive pattern matching make this possible:
 
 ```java
 // Adding a new variant here is a compile error
@@ -61,7 +61,7 @@ sealed interface ContentBlock
 
 In real long-running tasks, an agent often needs to read several files, inspect logs, probe services, or gather evidence from different places before it can reason well. If the harness does all of that one step at a time, the agent spends too much time waiting.
 
-AceCopilot runs independent tool calls in parallel within a single ReAct turn, where failures stop the rest cleanly, and the whole runtime stays understandable.
+ace-copilot runs independent tool calls in parallel within a single ReAct turn, where failures stop the rest cleanly, and the whole runtime stays understandable.
 
 Java's **virtual threads** make parallel I/O straightforward without turning the codebase into async control flow. More importantly, **virtual threads allow writing concurrent systems without turning concurrency into a control-flow problem.**
 
@@ -81,7 +81,7 @@ What ties all of this together is **control**.
 
 An agent harness is not just coordinating API calls. It is managing execution, safety, state, and learning over time. Small inconsistencies do not fail fast — they build up.
 
-That is why AceCopilot treats itself as infrastructure.
+That is why ace-copilot treats itself as infrastructure.
 
 In this kind of system, abstraction is not always helpful. If the system hides how it runs, how state changes, or how it fails, it becomes much harder to reason about when something goes wrong.
 
@@ -97,7 +97,7 @@ Java is not perfect for this job.
 - **Verbosity**: A short Python script can become much longer in Java. But many of those extra lines buy type safety, error handling, and thread safety.
 - **Startup time**: JVM startup is slower than Node.js, which matters for short-lived scripts. But for a daemon that runs for hours, that cost is negligible.
 
-These are real trade-offs. For the kind of system AceCopilot is — long-running, concurrent, safety-critical — they are worth it.
+These are real trade-offs. For the kind of system ace-copilot is — long-running, concurrent, safety-critical — they are worth it.
 
 ## Key Takeaway
 

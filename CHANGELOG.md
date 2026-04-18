@@ -260,7 +260,7 @@
 - Refresh README positioning copy
 - Add demo GIF to README
 - Replace demo GIF with 2x speed version
-- Reposition AceCopilot as enterprise agent harness
+- Reposition ace-copilot as enterprise agent harness
 
 ### Features
 

@@ -1,8 +1,8 @@
-# AceCopilot Security Model
+# ace-copilot Security Model
 
 > Version 1.0 | 2026-03-17
 
-AceCopilot defends across five dimensions: network isolation, permission enforcement, memory integrity, content boundaries, and data protection.
+ace-copilot defends across five dimensions: network isolation, permission enforcement, memory integrity, content boundaries, and data protection.
 
 ---
 
@@ -125,7 +125,7 @@ Memory tiers are loaded in strict priority order (100 → 50). Human-authored co
 
 ## Security Design Principles
 
-| Principle | How AceCopilot implements it |
+| Principle | How ace-copilot implements it |
 |-----------|---------------------------|
 | **Defense in depth** | Permission system + UDS isolation + HMAC signing + content budgets |
 | **Fail-safe defaults** | Only READ auto-approved; all writes need explicit approval |

@@ -1,6 +1,6 @@
 # Memory Ownership Model
 
-This document defines the memory ownership model for multi-session AceCopilot. It classifies every persistent store by scope, documents concurrency guarantees, and identifies follow-up work.
+This document defines the memory ownership model for multi-session ace-copilot. It classifies every persistent store by scope, documents concurrency guarantees, and identifies follow-up work.
 
 See also: [Multi-Session Model](multi-session.md) for the session/workspace architecture.
 

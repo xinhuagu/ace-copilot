@@ -1,4 +1,4 @@
-<h1 align="center">AceCopilot</h1>
+<h1 align="center">ace-copilot</h1>
 
 <p align="center">A self-learning agent harness for long-running work</p>
 
@@ -9,27 +9,27 @@
   <img src="https://img.shields.io/badge/Gradle-8.14-02303A?logo=gradle&logoColor=white" alt="Gradle 8.14">
 </p>
 
-> **AceCopilot exists because long-running tasks demand learning.**
+> **ace-copilot exists because long-running tasks demand learning.**
 >
 > When an agent runs for minutes or hours, context is not enough. It must absorb experience while it works, reuse what succeeds, and govern what it learns so it does not become noisy or unsafe.
 > The goal is to make an agent behave more like an experienced engineering system over time.
 
 
-An **agent harness** is the orchestration layer that turns LLMs into persistent, self-correcting workers — the loop that reasons, acts, observes, recovers, and remembers. Most harnesses treat each session as a blank slate. **AceCopilot doesn't.** It is built for long-running execution, where repeated failures, recoveries, tool sequences, and user corrections must become reusable knowledge instead of disappearing at the end of the session.
+An **agent harness** is the orchestration layer that turns LLMs into persistent, self-correcting workers — the loop that reasons, acts, observes, recovers, and remembers. Most harnesses treat each session as a blank slate. **ace-copilot doesn't.** It is built for long-running execution, where repeated failures, recoveries, tool sequences, and user corrections must become reusable knowledge instead of disappearing at the end of the session.
 
 <p align="center">
-  <img src="docs/img/ace-copilot_daemon_architecture.drawio.png" alt="AceCopilot Self-Learning Daemon Architecture" width="600">
+  <img src="docs/img/ace-copilot_daemon_architecture.drawio.png" alt="ace-copilot Self-Learning Daemon Architecture" width="600">
 </p>
 
 **[Read the design philosophy: why Java, why no AI framework, and what drives the architecture.](docs/design-philosophy.md)**
 
-AceCopilot is a persistent JVM daemon built for workflows that run for hours, not seconds. Pure Java 21, zero network attack surface, built from scratch around one idea:
+ace-copilot is a persistent JVM daemon built for workflows that run for hours, not seconds. Pure Java 21, zero network attack surface, built from scratch around one idea:
 
 **Memory helps an agent remember. Self-learning helps an agent improve.**
 
-That is the spirit of AceCopilot, and it drives four key differentiators:
+That is the spirit of ace-copilot, and it drives four key differentiators:
 
-1. **Plan → Execute → Replan** — Most agent harnesses use a flat ReAct loop (think → act → observe, one step at a time). AceCopilot generates an **explicit task plan** before execution, runs it step by step with per-step iteration budgets, and **replans inline** when steps fail. Plans are streamed to the user in real time. This gives AceCopilot a structural advantage in long-running tasks — the agent has a visible roadmap instead of hoping the model stays on track turn by turn.
+1. **Plan → Execute → Replan** — Most agent harnesses use a flat ReAct loop (think → act → observe, one step at a time). ace-copilot generates an **explicit task plan** before execution, runs it step by step with per-step iteration budgets, and **replans inline** when steps fail. Plans are streamed to the user in real time. This gives ace-copilot a structural advantage in long-running tasks — the agent has a visible roadmap instead of hoping the model stays on track turn by turn.
 2. **Self-Learning** — Zero-cost heuristic detectors and session-end retrospectives turn agent behavior into durable learning signals. The agent evolves its own strategies without extra LLM calls in the hot path.
 3. **Security** — UDS-only communication, sealed 4-level permissions, HMAC-signed memory
 4. **Long-Term Memory** — 8-tier hierarchy, hybrid search, automated consolidation
@@ -37,7 +37,7 @@ That is the spirit of AceCopilot, and it drives four key differentiators:
 **What makes this architecture different:**
 
 - **Daemon-first, not CLI-first** — The JVM daemon persists across sessions. No cold start, no re-parsing config, no re-loading memory. The CLI is a thin JSON-RPC client over Unix Domain Socket.
-- **Behavior-centric, not memory-centric** — Most agent memory systems store facts. AceCopilot observes *behavior* — error-recovery sequences, tool usage patterns, user corrections — and distills them into typed, confidence-scored insights. The agent doesn't just remember what happened; it learns *how it should act differently next time*.
+- **Behavior-centric, not memory-centric** — Most agent memory systems store facts. ace-copilot observes *behavior* — error-recovery sequences, tool usage patterns, user corrections — and distills them into typed, confidence-scored insights. The agent doesn't just remember what happened; it learns *how it should act differently next time*.
 - **Closed feedback loop** — Detectors emit typed insights → insights accumulate confidence across sessions → high-confidence insights get persisted → persisted memory is injected back into the next run. Repeated corrections auto-promote from auto-memory (Tier 6) to workspace rules (Tier 3).
 - **Everything is sealed** — `Insight` (5 permits), `PermissionDecision` (3 permits), `MemoryTier` (8 permits), `StreamEvent`, `ContentBlock` — the compiler enforces exhaustive handling everywhere. Adding a new variant is a compile error until all switches are updated.
 
@@ -46,7 +46,7 @@ That is the spirit of AceCopilot, and it drives four key differentiators:
 
 Most AI coding agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview), [OpenClaw](https://github.com/openclaw), [Codex CLI](https://github.com/openai/codex)) rely on a flat **ReAct loop** — the model reasons and acts one step at a time. While effective for short tasks, this approach offers no explicit plan visibility and no structured failure recovery for long-running work.
 
-AceCopilot takes a fundamentally different approach: it **layers an explicit planning pipeline on top of ReAct**. Each individual step is still executed by the same ReAct loop (reason → act → observe), which remains the best mechanism for single-step tool use. The difference is that AceCopilot wraps those steps in a higher-order plan that provides direction, budget control, and structured recovery — something a flat ReAct loop cannot do on its own.
+ace-copilot takes a fundamentally different approach: it **layers an explicit planning pipeline on top of ReAct**. Each individual step is still executed by the same ReAct loop (reason → act → observe), which remains the best mechanism for single-step tool use. The difference is that ace-copilot wraps those steps in a higher-order plan that provides direction, budget control, and structured recovery — something a flat ReAct loop cannot do on its own.
 
 ```
 Task → Complexity Estimator → Plan Generation (LLM) → Sequential Execution → Inline Replan
@@ -73,7 +73,7 @@ Task → Complexity Estimator → Plan Generation (LLM) → Sequential Execution
 
 ## Security First
 
-AceCopilot defends across five dimensions:
+ace-copilot defends across five dimensions:
 
 - **Zero network surface** — Daemon communicates only via Unix Domain Socket. No HTTP, no REST, no WebSocket.
 - **Sealed permissions** — 4-level hierarchy (`READ`/`WRITE`/`EXECUTE`/`DANGEROUS`) modeled as a sealed interface with compiler-enforced exhaustiveness. Sub-agents receive filtered tool registries to prevent privilege escalation.
@@ -85,7 +85,7 @@ See the [Security Details](docs/security.md) for the full breakdown.
 
 ## Self-Learning
 
-AceCopilot learns from its own behavior — no LLM calls required. Every tool execution, error recovery, and user correction is analyzed by heuristic detectors that produce type-safe insights.
+ace-copilot learns from its own behavior — no LLM calls required. Every tool execution, error recovery, and user correction is analyzed by heuristic detectors that produce type-safe insights.
 
 - **Automatic pattern detection** — `ErrorDetector` matches tool failures to subsequent retries. `PatternDetector` identifies repeated sequences, error-correction pairs, and user preferences. `SessionEndExtractor` captures corrections and strategies via regex-based passes at session close.
 - **Cross-session accumulation** — Insights start at 0.4 confidence and gain +0.2 per recurrence. Only patterns reaching 0.7 confidence are persisted.
@@ -115,7 +115,7 @@ See [Memory System Design](docs/memory-system-design.md) for the full architectu
 
 ## Context Engineering
 
-AceCopilot actively manages what goes into the context window to keep long-running sessions effective:
+ace-copilot actively manages what goes into the context window to keep long-running sessions effective:
 
 ```
 User query → RequestFocus (symbol/file/plan extraction)
@@ -156,7 +156,7 @@ Downloads the latest pre-built release, extracts to `~/.ace-copilot/`, and adds 
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-api03-..."
-ace-copilot                # Start AceCopilot (auto-starts daemon)
+ace-copilot                # Start ace-copilot (auto-starts daemon)
 ```
 
 Or use OAuth (auto-discovered from Claude CLI credentials):
@@ -171,7 +171,7 @@ All commands installed by `install.sh`. Every command that accepts `[provider]` 
 
 | Command | What it does |
 |---------|-------------|
-| `ace-copilot` | Start AceCopilot TUI (auto-starts daemon if not running) |
+| `ace-copilot` | Start ace-copilot TUI (auto-starts daemon if not running) |
 | `ace-copilot-tui [provider]` | Open another TUI window — never restarts daemon, safe for multi-session |
 | `ace-copilot-restart [provider]` | Stop daemon + restart with fresh build (warns if sessions active) |
 | `ace-copilot-update` | Update to latest release (refuses if sessions active) |
@@ -235,7 +235,7 @@ See [Provider Configuration](docs/provider-configuration.md) for full setup deta
 ### Build from Source (Developers)
 
 ```bash
-git clone https://github.com/xinhuagu/ace-copilot.git && cd AceCopilot
+git clone https://github.com/xinhuagu/ace-copilot.git && cd ace-copilot
 ./gradlew clean build && ./gradlew :ace-copilot-cli:installDist
 ./ace-copilot-cli/build/install/ace-copilot-cli/bin/ace-copilot-cli
 ```

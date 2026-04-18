@@ -1,7 +1,7 @@
 # Continuous Learning Baseline Plan
 
 ## Purpose
-This document defines the v1 measurement framework for AceCopilot continuous learning. The goal is to establish reproducible baseline metrics before enabling aggressive autonomous promotion and rollback policies.
+This document defines the v1 measurement framework for ace-copilot continuous learning. The goal is to establish reproducible baseline metrics before enabling aggressive autonomous promotion and rollback policies.
 
 This plan aligns with PRD success metrics and the current governed-learning implementation.
 Operational controls and rollback procedures are documented in `docs/continuous-learning-operations.md`.
