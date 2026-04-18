@@ -4,7 +4,7 @@
 
 **AF_UNIX works on Windows 10 1803+ with JDK 21. No transport abstraction needed for the MVP.**
 
-AceClaw can continue using `UnixDomainSocketAddress` on Windows without introducing named pipes, loopback TCP, or a transport abstraction layer.
+AceCopilot can continue using `UnixDomainSocketAddress` on Windows without introducing named pipes, loopback TCP, or a transport abstraction layer.
 
 ## Evidence
 
@@ -21,8 +21,8 @@ AceClaw can continue using `UnixDomainSocketAddress` on Windows without introduc
 
 ### Path Length
 - AF_UNIX paths limited to 108 bytes (Linux), 104 bytes (macOS)
-- AceClaw socket: `~/.aceclaw/aceclaw.sock` = ~35-50 bytes depending on username
-- Windows equivalent: `C:\Users\<user>\.aceclaw\aceclaw.sock` = ~45-55 bytes
+- AceCopilot socket: `~/.ace-copilot/ace-copilot.sock` = ~35-50 bytes depending on username
+- Windows equivalent: `C:\Users\<user>\.ace-copilot\ace-copilot.sock` = ~45-55 bytes
 - Well within limits on all platforms
 
 ## Code Audit: What Works, What Needs Fixing
@@ -69,7 +69,7 @@ Uses `DaemonConnection.connect()` internally. No platform-specific code.
 1. **Do NOT introduce transport abstraction** — AF_UNIX works on the target Windows versions
 2. **Do NOT introduce named pipes or loopback TCP** — unnecessary complexity, would break the zero-network-surface promise
 3. **Focus refactoring on DaemonStarter.java** — this is the only real blocker in the IPC/transport path
-4. **Keep the socket path at `~/.aceclaw/aceclaw.sock`** — works on all platforms, well within length limits
+4. **Keep the socket path at `~/.ace-copilot/ace-copilot.sock`** — works on all platforms, well within length limits
 
 ## Risk
 
@@ -84,5 +84,5 @@ All steps completed:
 - **Step 2**: DaemonStarter refactored into platform-aware launchers (Linux/macOS/Windows)
 - **Step 3**: ReadFileTool charset detection uses BOM on Windows (fail-safe, no guessing)
 - **Step 4**: CI runs Windows + macOS smoke tests (assemble + targeted cross-platform tests)
-- **Step 5**: Native `.cmd` wrappers for Windows (aceclaw, aceclaw-tui, aceclaw-restart, aceclaw-update)
+- **Step 5**: Native `.cmd` wrappers for Windows (ace-copilot, ace-copilot-tui, ace-copilot-restart, ace-copilot-update)
 - **Step 6**: README platform support matrix, Windows marked as experimental

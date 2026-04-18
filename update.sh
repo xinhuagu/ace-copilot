@@ -1,10 +1,10 @@
 #!/bin/sh
-# Update AceClaw to the latest release.
+# Update AceCopilot to the latest release.
 # Downloads the latest pre-built release — no git or build tools required.
 #
 # If run from a git checkout (developer), falls back to git pull + rebuild.
 #
-# Usage: aceclaw-update
+# Usage: ace-copilot-update
 set -e
 
 # Resolve symlinks to find the real script location
@@ -16,7 +16,7 @@ while [ -L "$SELF" ]; do
 done
 SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 
-REPO="xinhuagu/AceClaw"
+REPO="xinhuagu/ace-copilot"
 
 info()  { printf '  \033[1;34m>\033[0m %s\n' "$1"; }
 ok()    { printf '  \033[1;32m✓\033[0m %s\n' "$1"; }
@@ -24,7 +24,7 @@ warn()  { printf '  \033[1;33m!\033[0m %s\n' "$1"; }
 fail()  { printf '  \033[1;31m✗\033[0m %s\n' "$1"; exit 1; }
 
 echo ""
-echo "  AceClaw Update"
+echo "  AceCopilot Update"
 echo "  ──────────────"
 echo ""
 
@@ -33,12 +33,12 @@ echo ""
 # ---------------------------------------------------------------------------
 if [ -d "$SCRIPT_DIR/.git" ]; then
     fail "This is a git checkout, not a release install. To update from source:
-    cd $SCRIPT_DIR && git pull && ./gradlew :aceclaw-cli:installDist -q"
+    cd $SCRIPT_DIR && git pull && ./gradlew :ace-copilot-cli:installDist -q"
 fi
 
-if [ ! -f "$SCRIPT_DIR/VERSION" ] || [ ! -x "$SCRIPT_DIR/bin/aceclaw-cli" ]; then
-    fail "Not a valid release install (missing VERSION or bin/aceclaw-cli).
-  If this is a source checkout, use: git pull && ./gradlew :aceclaw-cli:installDist -q"
+if [ ! -f "$SCRIPT_DIR/VERSION" ] || [ ! -x "$SCRIPT_DIR/bin/ace-copilot-cli" ]; then
+    fail "Not a valid release install (missing VERSION or bin/ace-copilot-cli).
+  If this is a source checkout, use: git pull && ./gradlew :ace-copilot-cli:installDist -q"
 fi
 
 # ---------------------------------------------------------------------------
@@ -78,11 +78,11 @@ fi
 info "Updating: $CURRENT_VERSION -> $LATEST_VERSION"
 
 # Require daemon to be stopped before replacing binaries
-CLI_BIN="$INSTALL_DIR/bin/aceclaw-cli"
-if [ -S "$HOME/.aceclaw/aceclaw.sock" ] && [ -x "$CLI_BIN" ]; then
+CLI_BIN="$INSTALL_DIR/bin/ace-copilot-cli"
+if [ -S "$HOME/.ace-copilot/ace-copilot.sock" ] && [ -x "$CLI_BIN" ]; then
     ACTIVE_SESSIONS=$("$CLI_BIN" daemon status 2>/dev/null | sed -n 's/.*Active Sessions: *//p' || echo "0")
     if [ "$ACTIVE_SESSIONS" -gt 0 ] 2>/dev/null; then
-        fail "Daemon has $ACTIVE_SESSIONS active session(s). Stop all sessions first, then re-run aceclaw-update."
+        fail "Daemon has $ACTIVE_SESSIONS active session(s). Stop all sessions first, then re-run ace-copilot-update."
     fi
     info "Stopping daemon before update..."
     "$CLI_BIN" daemon stop 2>/dev/null || true
@@ -91,7 +91,7 @@ if [ -S "$HOME/.aceclaw/aceclaw.sock" ] && [ -x "$CLI_BIN" ]; then
 fi
 
 # Download
-ARCHIVE_NAME="aceclaw-cli-${LATEST_VERSION}.tar"
+ARCHIVE_NAME="ace-copilot-cli-${LATEST_VERSION}.tar"
 DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST_TAG/$ARCHIVE_NAME"
 TMP_DIR=$(mktemp -d)
 
@@ -109,7 +109,7 @@ fi
 if command -v curl >/dev/null 2>&1; then
     # shellcheck disable=SC2086 # intentional word-splitting of flag string
     curl $CURL_FLAGS -o "$TMP_DIR/$ARCHIVE_NAME" "$DOWNLOAD_URL" || {
-        ARCHIVE_NAME="aceclaw-cli-${LATEST_VERSION}.zip"
+        ARCHIVE_NAME="ace-copilot-cli-${LATEST_VERSION}.zip"
         DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST_TAG/$ARCHIVE_NAME"
         # shellcheck disable=SC2086
         curl $CURL_FLAGS -o "$TMP_DIR/$ARCHIVE_NAME" "$DOWNLOAD_URL" || fail "Download failed"
@@ -117,7 +117,7 @@ if command -v curl >/dev/null 2>&1; then
 else
     # shellcheck disable=SC2086
     wget $WGET_FLAGS -O "$TMP_DIR/$ARCHIVE_NAME" "$DOWNLOAD_URL" || {
-        ARCHIVE_NAME="aceclaw-cli-${LATEST_VERSION}.zip"
+        ARCHIVE_NAME="ace-copilot-cli-${LATEST_VERSION}.zip"
         DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST_TAG/$ARCHIVE_NAME"
         # shellcheck disable=SC2086
         wget $WGET_FLAGS -O "$TMP_DIR/$ARCHIVE_NAME" "$DOWNLOAD_URL" || fail "Download failed"
@@ -132,7 +132,7 @@ case "$ARCHIVE_NAME" in
     *.tar.gz) tar -xzf "$TMP_DIR/$ARCHIVE_NAME" -C "$INSTALL_DIR" --strip-components=1 ;;
     *.tar)    tar -xf "$TMP_DIR/$ARCHIVE_NAME" -C "$INSTALL_DIR" --strip-components=1 ;;
     *.zip)    unzip -qo "$TMP_DIR/$ARCHIVE_NAME" -d "$TMP_DIR/extract"
-              cp -r "$TMP_DIR/extract"/aceclaw-cli-*/* "$INSTALL_DIR/" ;;
+              cp -r "$TMP_DIR/extract"/ace-copilot-cli-*/* "$INSTALL_DIR/" ;;
 esac
 
 rm -rf "$TMP_DIR"
@@ -140,6 +140,6 @@ chmod +x "$INSTALL_DIR/bin/"* 2>/dev/null || true
 chmod +x "$INSTALL_DIR/"*.sh 2>/dev/null || true
 
 echo ""
-ok "AceClaw updated to $LATEST_VERSION!"
-echo "  Daemon will auto-start on next aceclaw/aceclaw-tui launch."
+ok "AceCopilot updated to $LATEST_VERSION!"
+echo "  Daemon will auto-start on next ace-copilot/ace-copilot-tui launch."
 echo ""

@@ -1,21 +1,21 @@
 #!/bin/sh
-# AceClaw installer — download pre-built release and install CLI commands.
+# AceCopilot installer — download pre-built release and install CLI commands.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/xinhuagu/AceClaw/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/xinhuagu/ace-copilot/main/install.sh | sh
 #
 # What it does:
 #   1. Checks prerequisites (Java 21 runtime)
 #   2. Downloads the latest release from GitHub
-#   3. Extracts to ~/.aceclaw/
-#   4. Creates aceclaw, aceclaw-tui, aceclaw-restart, aceclaw-update commands
+#   3. Extracts to ~/.ace-copilot/
+#   4. Creates ace-copilot, ace-copilot-tui, ace-copilot-restart, ace-copilot-update commands
 #
 # No build tools required — only Java 21 runtime.
 # Supports: macOS, Linux, Windows (Git Bash / WSL)
 set -e
 
-REPO="xinhuagu/AceClaw"
-INSTALL_DIR="$HOME/.aceclaw"
+REPO="xinhuagu/ace-copilot"
+INSTALL_DIR="$HOME/.ace-copilot"
 BIN_DIR=""
 PLATFORM=""
 
@@ -115,7 +115,7 @@ fetch_latest_version() {
 # Download and extract release
 # ---------------------------------------------------------------------------
 download_release() {
-    ARCHIVE_NAME="aceclaw-cli-${VERSION}.tar"
+    ARCHIVE_NAME="ace-copilot-cli-${VERSION}.tar"
     DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST_TAG/$ARCHIVE_NAME"
     TMP_DIR=$(mktemp -d)
 
@@ -134,7 +134,7 @@ download_release() {
         # shellcheck disable=SC2086 # intentional word-splitting of flag string
         curl $CURL_FLAGS -o "$TMP_DIR/$ARCHIVE_NAME" "$DOWNLOAD_URL" || {
             # Try .zip if .tar not found
-            ARCHIVE_NAME="aceclaw-cli-${VERSION}.zip"
+            ARCHIVE_NAME="ace-copilot-cli-${VERSION}.zip"
             DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST_TAG/$ARCHIVE_NAME"
             # shellcheck disable=SC2086
             curl $CURL_FLAGS -o "$TMP_DIR/$ARCHIVE_NAME" "$DOWNLOAD_URL" || fail "Download failed: $DOWNLOAD_URL"
@@ -142,7 +142,7 @@ download_release() {
     else
         # shellcheck disable=SC2086
         wget $WGET_FLAGS -O "$TMP_DIR/$ARCHIVE_NAME" "$DOWNLOAD_URL" || {
-            ARCHIVE_NAME="aceclaw-cli-${VERSION}.zip"
+            ARCHIVE_NAME="ace-copilot-cli-${VERSION}.zip"
             DOWNLOAD_URL="https://github.com/$REPO/releases/download/$LATEST_TAG/$ARCHIVE_NAME"
             # shellcheck disable=SC2086
             wget $WGET_FLAGS -O "$TMP_DIR/$ARCHIVE_NAME" "$DOWNLOAD_URL" || fail "Download failed: $DOWNLOAD_URL"
@@ -160,7 +160,7 @@ download_release() {
         *.tar.gz) tar -xzf "$TMP_DIR/$ARCHIVE_NAME" -C "$INSTALL_DIR" --strip-components=1 ;;
         *.tar)    tar -xf "$TMP_DIR/$ARCHIVE_NAME" -C "$INSTALL_DIR" --strip-components=1 ;;
         *.zip)    unzip -qo "$TMP_DIR/$ARCHIVE_NAME" -d "$TMP_DIR/extract"
-                  cp -r "$TMP_DIR/extract"/aceclaw-cli-*/* "$INSTALL_DIR/" ;;
+                  cp -r "$TMP_DIR/extract"/ace-copilot-cli-*/* "$INSTALL_DIR/" ;;
     esac
 
     rm -rf "$TMP_DIR"
@@ -187,54 +187,54 @@ install_commands() {
 }
 
 install_unix_symlinks() {
-    ln -sf "$INSTALL_DIR/bin/aceclaw-cli" "$BIN_DIR/aceclaw"
-    ln -sf "$INSTALL_DIR/tui.sh" "$BIN_DIR/aceclaw-tui"
-    ln -sf "$INSTALL_DIR/restart.sh" "$BIN_DIR/aceclaw-restart"
-    ln -sf "$INSTALL_DIR/update.sh" "$BIN_DIR/aceclaw-update"
+    ln -sf "$INSTALL_DIR/bin/ace-copilot-cli" "$BIN_DIR/ace-copilot"
+    ln -sf "$INSTALL_DIR/tui.sh" "$BIN_DIR/ace-copilot-tui"
+    ln -sf "$INSTALL_DIR/restart.sh" "$BIN_DIR/ace-copilot-restart"
+    ln -sf "$INSTALL_DIR/update.sh" "$BIN_DIR/ace-copilot-update"
 
-    ok "Installed: aceclaw, aceclaw-tui, aceclaw-restart, aceclaw-update"
+    ok "Installed: ace-copilot, ace-copilot-tui, ace-copilot-restart, ace-copilot-update"
 }
 
 install_windows_cmd() {
     # Use %USERPROFILE% so .cmd files resolve at runtime, not install time
-    cat > "$BIN_DIR/aceclaw.cmd" <<'CMDEOF'
+    cat > "$BIN_DIR/ace-copilot.cmd" <<'CMDEOF'
 @echo off
-call "%USERPROFILE%\.aceclaw\bin\aceclaw-cli.bat" %*
+call "%USERPROFILE%\.ace-copilot\bin\ace-copilot-cli.bat" %*
 CMDEOF
 
-    cat > "$BIN_DIR/aceclaw-tui.cmd" <<'CMDEOF'
+    cat > "$BIN_DIR/ace-copilot-tui.cmd" <<'CMDEOF'
 @echo off
-set ACECLAW_BENCH_MODE=none
-call "%USERPROFILE%\.aceclaw\bin\aceclaw-cli.bat" %*
+set ACE_COPILOT_BENCH_MODE=none
+call "%USERPROFILE%\.ace-copilot\bin\ace-copilot-cli.bat" %*
 CMDEOF
 
-    cat > "$BIN_DIR/aceclaw-restart.cmd" <<'CMDEOF'
+    cat > "$BIN_DIR/ace-copilot-restart.cmd" <<'CMDEOF'
 @echo off
-set ACECLAW_BENCH_MODE=none
-call "%USERPROFILE%\.aceclaw\bin\aceclaw-cli.bat" daemon stop 2>nul
-call "%USERPROFILE%\.aceclaw\bin\aceclaw-cli.bat" %*
+set ACE_COPILOT_BENCH_MODE=none
+call "%USERPROFILE%\.ace-copilot\bin\ace-copilot-cli.bat" daemon stop 2>nul
+call "%USERPROFILE%\.ace-copilot\bin\ace-copilot-cli.bat" %*
 CMDEOF
 
-    cat > "$BIN_DIR/aceclaw-update.cmd" <<'CMDEOF'
+    cat > "$BIN_DIR/ace-copilot-update.cmd" <<'CMDEOF'
 @echo off
 setlocal
-set "INSTALL_DIR=%USERPROFILE%\.aceclaw"
+set "INSTALL_DIR=%USERPROFILE%\.ace-copilot"
 if not exist "%INSTALL_DIR%\VERSION" (
-    echo No AceClaw installation found at %INSTALL_DIR%
+    echo No AceCopilot installation found at %INSTALL_DIR%
     exit /b 1
 )
 set /p CURRENT=<"%INSTALL_DIR%\VERSION"
 echo Current version: %CURRENT%
 echo.
 echo To update, re-run the installer:
-echo   curl -fsSL https://raw.githubusercontent.com/xinhuagu/AceClaw/main/install.sh ^| sh
+echo   curl -fsSL https://raw.githubusercontent.com/xinhuagu/ace-copilot/main/install.sh ^| sh
 echo.
 echo Or download the latest release from:
-echo   https://github.com/xinhuagu/AceClaw/releases/latest
+echo   https://github.com/xinhuagu/ace-copilot/releases/latest
 CMDEOF
 
-    ok "Installed: aceclaw.cmd, aceclaw-tui.cmd, aceclaw-restart.cmd, aceclaw-update.cmd"
-    warn "Windows support is experimental — see https://github.com/xinhuagu/AceClaw/issues/357"
+    ok "Installed: ace-copilot.cmd, ace-copilot-tui.cmd, ace-copilot-restart.cmd, ace-copilot-update.cmd"
+    warn "Windows support is experimental — see https://github.com/xinhuagu/ace-copilot/issues/357"
 }
 
 # ---------------------------------------------------------------------------
@@ -261,7 +261,7 @@ verify_path() {
 # ---------------------------------------------------------------------------
 main() {
     echo ""
-    echo "  AceClaw Installer"
+    echo "  AceCopilot Installer"
     echo "  ─────────────────"
     echo ""
 
@@ -273,13 +273,13 @@ main() {
     verify_path
 
     echo ""
-    ok "AceClaw $VERSION installed successfully!"
+    ok "AceCopilot $VERSION installed successfully!"
     echo ""
     echo "  Commands available:"
-    echo "    aceclaw          Start AceClaw (auto-starts daemon)"
-    echo "    aceclaw-tui      Open another TUI window (non-destructive)"
-    echo "    aceclaw-restart  Restart daemon (rebuilds in dev mode)"
-    echo "    aceclaw-update   Update to latest release"
+    echo "    ace-copilot          Start AceCopilot (auto-starts daemon)"
+    echo "    ace-copilot-tui      Open another TUI window (non-destructive)"
+    echo "    ace-copilot-restart  Restart daemon (rebuilds in dev mode)"
+    echo "    ace-copilot-update   Update to latest release"
     echo ""
 }
 

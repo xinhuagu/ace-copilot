@@ -121,7 +121,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$REPORT" ]]; then
-  REPORT=".aceclaw/metrics/continuous-learning/replay-latest.json"
+  REPORT=".ace-copilot/metrics/continuous-learning/replay-latest.json"
 fi
 if [[ -z "$BASELINE" ]]; then
   BASELINE="docs/reports/samples/learning-quality-gate-baseline.json"

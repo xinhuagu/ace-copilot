@@ -46,18 +46,18 @@ echo ""
 echo "=== Test 1: stale summary cleanup ==="
 
 PROJ1="$TMPDIR/test1"
-mkdir -p "$PROJ1/.aceclaw/metrics/continuous-learning"
+mkdir -p "$PROJ1/.ace-copilot/metrics/continuous-learning"
 echo '{"metrics":{"learning_hit_rate":{"value":0.99,"target":0.40,"status":"measured"}}}' \
-  > "$PROJ1/.aceclaw/metrics/continuous-learning/injection-audit-summary.json"
+  > "$PROJ1/.ace-copilot/metrics/continuous-learning/injection-audit-summary.json"
 
 bash "$SCRIPT_DIR/export-injection-audit-summary.sh" \
   --project-root "$PROJ1" \
   --audit-path "$TMPDIR/nonexistent.jsonl" \
-  --output "$PROJ1/.aceclaw/metrics/continuous-learning/injection-audit-summary.json" \
+  --output "$PROJ1/.ace-copilot/metrics/continuous-learning/injection-audit-summary.json" \
   2>/dev/null
 
 assert_file_missing "stale summary removed" \
-  "$PROJ1/.aceclaw/metrics/continuous-learning/injection-audit-summary.json"
+  "$PROJ1/.ace-copilot/metrics/continuous-learning/injection-audit-summary.json"
 
 # ============================================================
 # Test 2: Baseline collector priority chain
@@ -66,15 +66,15 @@ echo ""
 echo "=== Test 2: priority chain ==="
 
 PROJ2="$TMPDIR/test2"
-mkdir -p "$PROJ2/.aceclaw/metrics/continuous-learning"
+mkdir -p "$PROJ2/.ace-copilot/metrics/continuous-learning"
 
 # Set up all three artifact files with distinct values for learning_hit_rate
 echo '{"metrics":{"learning_hit_rate":{"value":0.50,"target":0.40,"status":"measured"}}}' \
-  > "$PROJ2/.aceclaw/metrics/continuous-learning/runtime-latest.json"
+  > "$PROJ2/.ace-copilot/metrics/continuous-learning/runtime-latest.json"
 echo '{"metrics":{"learning_hit_rate":{"value":0.60,"target":0.40,"status":"measured"}}}' \
-  > "$PROJ2/.aceclaw/metrics/continuous-learning/replay-latest.json"
+  > "$PROJ2/.ace-copilot/metrics/continuous-learning/replay-latest.json"
 echo '{"metrics":{"learning_hit_rate":{"value":0.70,"target":0.40,"status":"measured"}}}' \
-  > "$PROJ2/.aceclaw/metrics/continuous-learning/injection-audit-summary.json"
+  > "$PROJ2/.ace-copilot/metrics/continuous-learning/injection-audit-summary.json"
 
 # 2a: override beats everything
 bash "$SCRIPT_DIR/collect-continuous-learning-baseline.sh" \
@@ -98,7 +98,7 @@ assert_eq "runtime > replay > injection: source" \
   "$(baseline_metric "$TMPDIR/baseline-2b.json" learning_hit_rate source)" "runtime-latest.json"
 
 # 2c: remove runtime → replay wins
-rm "$PROJ2/.aceclaw/metrics/continuous-learning/runtime-latest.json"
+rm "$PROJ2/.ace-copilot/metrics/continuous-learning/runtime-latest.json"
 bash "$SCRIPT_DIR/collect-continuous-learning-baseline.sh" \
   --project-root "$PROJ2" \
   --output "$TMPDIR/baseline-2c.json" 2>/dev/null
@@ -109,7 +109,7 @@ assert_eq "replay > injection: source" \
   "$(baseline_metric "$TMPDIR/baseline-2c.json" learning_hit_rate source)" "replay-latest.json"
 
 # 2d: remove replay → injection wins
-rm "$PROJ2/.aceclaw/metrics/continuous-learning/replay-latest.json"
+rm "$PROJ2/.ace-copilot/metrics/continuous-learning/replay-latest.json"
 bash "$SCRIPT_DIR/collect-continuous-learning-baseline.sh" \
   --project-root "$PROJ2" \
   --output "$TMPDIR/baseline-2d.json" 2>/dev/null
@@ -120,7 +120,7 @@ assert_eq "injection only: source" \
   "$(baseline_metric "$TMPDIR/baseline-2d.json" learning_hit_rate source)" "injection-audit-summary.json"
 
 # 2e: remove injection → pending
-rm "$PROJ2/.aceclaw/metrics/continuous-learning/injection-audit-summary.json"
+rm "$PROJ2/.ace-copilot/metrics/continuous-learning/injection-audit-summary.json"
 bash "$SCRIPT_DIR/collect-continuous-learning-baseline.sh" \
   --project-root "$PROJ2" \
   --output "$TMPDIR/baseline-2e.json" 2>/dev/null
@@ -137,9 +137,9 @@ echo ""
 echo "=== Test 3: replay/lifecycle source fields ==="
 
 PROJ3="$TMPDIR/test3"
-mkdir -p "$PROJ3/.aceclaw/metrics/continuous-learning"
+mkdir -p "$PROJ3/.ace-copilot/metrics/continuous-learning"
 
-cat > "$PROJ3/.aceclaw/metrics/continuous-learning/replay-latest.json" << 'EOF'
+cat > "$PROJ3/.ace-copilot/metrics/continuous-learning/replay-latest.json" << 'EOF'
 {
   "metrics": {
     "replay_success_rate_delta": {"value": 0.05, "target": 0.00, "status": "measured"},
@@ -198,7 +198,7 @@ echo ""
 echo "=== Test 4: injection export hit rate computation ==="
 
 PROJ4="$TMPDIR/test4"
-mkdir -p "$PROJ4/.aceclaw/memory" "$PROJ4/.aceclaw/metrics/continuous-learning"
+mkdir -p "$PROJ4/.ace-copilot/memory" "$PROJ4/.ace-copilot/metrics/continuous-learning"
 
 # 1 injection, 3 outcomes (2 success, 1 failure) → hit_rate = 0.6667
 printf '%s\n' \
@@ -206,13 +206,13 @@ printf '%s\n' \
   '{"type":"outcome","data":{"success":true,"timestamp":"2026-03-01T00:01:00Z"}}' \
   '{"type":"outcome","data":{"success":true,"timestamp":"2026-03-01T00:02:00Z"}}' \
   '{"type":"outcome","data":{"success":false,"timestamp":"2026-03-01T00:03:00Z"}}' \
-  > "$PROJ4/.aceclaw/memory/injection-audit.jsonl"
+  > "$PROJ4/.ace-copilot/memory/injection-audit.jsonl"
 
 bash "$SCRIPT_DIR/export-injection-audit-summary.sh" \
   --project-root "$PROJ4" \
-  --output "$PROJ4/.aceclaw/metrics/continuous-learning/injection-audit-summary.json" 2>/dev/null
+  --output "$PROJ4/.ace-copilot/metrics/continuous-learning/injection-audit-summary.json" 2>/dev/null
 
-SUMMARY="$PROJ4/.aceclaw/metrics/continuous-learning/injection-audit-summary.json"
+SUMMARY="$PROJ4/.ace-copilot/metrics/continuous-learning/injection-audit-summary.json"
 
 assert_eq "export status" \
   "$(jq -r '.metrics.learning_hit_rate.status' "$SUMMARY")" "measured"

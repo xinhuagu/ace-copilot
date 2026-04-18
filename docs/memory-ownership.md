@@ -1,6 +1,6 @@
 # Memory Ownership Model
 
-This document defines the memory ownership model for multi-session AceClaw. It classifies every persistent store by scope, documents concurrency guarantees, and identifies follow-up work.
+This document defines the memory ownership model for multi-session AceCopilot. It classifies every persistent store by scope, documents concurrency guarantees, and identifies follow-up work.
 
 See also: [Multi-Session Model](multi-session.md) for the session/workspace architecture.
 
@@ -8,9 +8,9 @@ See also: [Multi-Session Model](multi-session.md) for the session/workspace arch
 
 | Scope | Lifetime | Shared By | Location |
 |-------|----------|-----------|----------|
-| **Session-local** | One TUI session | Nothing — fully isolated | `~/.aceclaw/history/{sessionId}.*`, `~/.aceclaw/sessions/`, `~/.aceclaw/checkpoints/` |
-| **Workspace-scoped** | Project lifetime | All sessions targeting the same project directory | `~/.aceclaw/workspaces/{hash}/`, `{projectRoot}/.aceclaw/` |
-| **Global/user-scoped** | User lifetime | All sessions across all workspaces | `~/.aceclaw/memory/`, `~/.aceclaw/index/`, `~/.aceclaw/skills/` |
+| **Session-local** | One TUI session | Nothing — fully isolated | `~/.ace-copilot/history/{sessionId}.*`, `~/.ace-copilot/sessions/`, `~/.ace-copilot/checkpoints/` |
+| **Workspace-scoped** | Project lifetime | All sessions targeting the same project directory | `~/.ace-copilot/workspaces/{hash}/`, `{projectRoot}/.ace-copilot/` |
+| **Global/user-scoped** | User lifetime | All sessions across all workspaces | `~/.ace-copilot/memory/`, `~/.ace-copilot/index/`, `~/.ace-copilot/skills/` |
 
 ## Store Classification
 
@@ -20,9 +20,9 @@ These stores are fully isolated per session. No multi-session concerns.
 
 | Store | Module | Persistence | Notes |
 |-------|--------|-------------|-------|
-| `SessionHistoryStore` | daemon | `~/.aceclaw/history/{sessionId}.jsonl` | Conversation messages + snapshot |
-| `FilePlanCheckpointStore` | daemon | `~/.aceclaw/checkpoints/{planId}.checkpoint.json` | Plan resume state |
-| `ResumeCheckpointStore` | cli | `~/.aceclaw/sessions/{sessionId}-{taskId}.checkpoint.json` | Task resume state |
+| `SessionHistoryStore` | daemon | `~/.ace-copilot/history/{sessionId}.jsonl` | Conversation messages + snapshot |
+| `FilePlanCheckpointStore` | daemon | `~/.ace-copilot/checkpoints/{planId}.checkpoint.json` | Plan resume state |
+| `ResumeCheckpointStore` | cli | `~/.ace-copilot/sessions/{sessionId}-{taskId}.checkpoint.json` | Task resume state |
 | `AgentSession` (in-memory) | daemon | Not persisted | Conversation messages, active flag |
 | `ErrorDetector` | daemon | Via HistoricalLogIndex | Analyzes current session errors |
 | `PatternDetector` | daemon | Via HistoricalLogIndex | Detects patterns in current session |
@@ -34,14 +34,14 @@ These stores are shared by all sessions targeting the same workspace. Concurrent
 
 | Store | Module | Persistence | Concurrency |
 |-------|--------|-------------|-------------|
-| `MarkdownMemoryStore` | memory | `~/.aceclaw/workspaces/{hash}/memory/MEMORY.md` + topic files | `ReentrantLock` |
-| `DailyJournal` | memory | `~/.aceclaw/workspaces/{hash}/memory/journal/YYYY-MM-DD.md` | `ReentrantLock` |
-| `CorrectionRulePromoter` | memory | Writes to workspace `ACECLAW.md` | Via MarkdownMemoryStore lock |
-| `LearningExplanationStore` | daemon | `{projectRoot}/.aceclaw/metrics/learning-explanations.jsonl` | `FileChannel.lock()` |
-| `LearningValidationStore` | daemon | `{projectRoot}/.aceclaw/metrics/learning-validations.jsonl` | `FileChannel.lock()` |
-| `LearningSignalReviewStore` | daemon | `{projectRoot}/.aceclaw/metrics/learning-signal-reviews.jsonl` | `ReentrantLock` + `FileChannel.lock()` |
-| `SkillDraftGenerator` | daemon | `{projectRoot}/.aceclaw/skills-drafts/{name}/SKILL.md` | Atomic write (tmp→rename) |
-| `SessionSkillPacker` | daemon | `{projectRoot}/.aceclaw/skills-drafts/{name}/SKILL.md` | Atomic write (tmp→rename) |
+| `MarkdownMemoryStore` | memory | `~/.ace-copilot/workspaces/{hash}/memory/MEMORY.md` + topic files | `ReentrantLock` |
+| `DailyJournal` | memory | `~/.ace-copilot/workspaces/{hash}/memory/journal/YYYY-MM-DD.md` | `ReentrantLock` |
+| `CorrectionRulePromoter` | memory | Writes to workspace `ACE_COPILOT.md` | Via MarkdownMemoryStore lock |
+| `LearningExplanationStore` | daemon | `{projectRoot}/.ace-copilot/metrics/learning-explanations.jsonl` | `FileChannel.lock()` |
+| `LearningValidationStore` | daemon | `{projectRoot}/.ace-copilot/metrics/learning-validations.jsonl` | `FileChannel.lock()` |
+| `LearningSignalReviewStore` | daemon | `{projectRoot}/.ace-copilot/metrics/learning-signal-reviews.jsonl` | `ReentrantLock` + `FileChannel.lock()` |
+| `SkillDraftGenerator` | daemon | `{projectRoot}/.ace-copilot/skills-drafts/{name}/SKILL.md` | Atomic write (tmp→rename) |
+| `SessionSkillPacker` | daemon | `{projectRoot}/.ace-copilot/skills-drafts/{name}/SKILL.md` | Atomic write (tmp→rename) |
 
 **Workspace path resolution**: `WorkspacePaths` computes a deterministic hash (`SHA-256`, truncated to 12 hex chars) of the canonical workspace path. All sessions in the same project directory share the same workspace directory.
 
@@ -51,11 +51,11 @@ These stores are shared across all workspaces. Most use file-level locking for s
 
 | Store | Module | Persistence | Concurrency |
 |-------|--------|-------------|-------------|
-| `AutoMemoryStore` | memory | `~/.aceclaw/memory/global.jsonl` + per-project files | `ReentrantLock` |
-| `CandidateStore` | memory | `~/.aceclaw/memory/candidates.jsonl` | `ReentrantLock`, full rewrite |
-| `HistoricalLogIndex` | memory | `~/.aceclaw/index/*.jsonl` | `FileChannel.lock()` on append |
-| `SkillMetricsStore` | daemon | `~/.aceclaw/skills/{name}/metrics.json` | Atomic write |
-| `SkillRefinementEngine` | daemon | `~/.aceclaw/skills/{name}/` | Atomic write |
+| `AutoMemoryStore` | memory | `~/.ace-copilot/memory/global.jsonl` + per-project files | `ReentrantLock` |
+| `CandidateStore` | memory | `~/.ace-copilot/memory/candidates.jsonl` | `ReentrantLock`, full rewrite |
+| `HistoricalLogIndex` | memory | `~/.ace-copilot/index/*.jsonl` | `FileChannel.lock()` on append |
+| `SkillMetricsStore` | daemon | `~/.ace-copilot/skills/{name}/metrics.json` | Atomic write |
+| `SkillRefinementEngine` | daemon | `~/.ace-copilot/skills/{name}/` | Atomic write |
 
 ## Promotion Paths
 
@@ -103,7 +103,7 @@ All stores are safe for multi-session concurrent access:
 ## File System Layout
 
 ```
-~/.aceclaw/
+~/.ace-copilot/
 ├── memory/                              [GLOBAL]
 │   ├── memory.key                       HMAC signing key
 │   ├── global.jsonl                     Cross-project memories
@@ -120,7 +120,7 @@ All stores are safe for multi-session concurrent access:
 │   ├── workspace-path.txt               Human reference
 │   └── memory/
 │       ├── MEMORY.md                    Main workspace memory
-│       ├── ACECLAW.md                   Promoted rules
+│       ├── ACE_COPILOT.md                   Promoted rules
 │       ├── {topic}.md                   Topic files
 │       └── journal/YYYY-MM-DD.md        Daily activity
 │
@@ -139,7 +139,7 @@ All stores are safe for multi-session concurrent access:
 │   ├── metrics.json
 │   └── versions/{v}.SKILL.md
 │
-{projectRoot}/.aceclaw/
+{projectRoot}/.ace-copilot/
 ├── metrics/                             [WORKSPACE]
 │   ├── learning-explanations.jsonl
 │   ├── learning-validations.jsonl

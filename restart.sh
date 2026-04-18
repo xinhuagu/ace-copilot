@@ -35,17 +35,17 @@ fi
 
 # Build (only if dev layout with gradlew exists)
 if [ -x "$SCRIPT_DIR/gradlew" ]; then
-    "$SCRIPT_DIR/gradlew" -p "$SCRIPT_DIR" :aceclaw-cli:installDist -q
+    "$SCRIPT_DIR/gradlew" -p "$SCRIPT_DIR" :ace-copilot-cli:installDist -q
 fi
 
 # Find CLI binary — release layout (bin/) or dev layout
-CLI_BIN="$SCRIPT_DIR/bin/aceclaw-cli"
+CLI_BIN="$SCRIPT_DIR/bin/ace-copilot-cli"
 if [ ! -x "$CLI_BIN" ]; then
-    CLI_BIN="$SCRIPT_DIR/aceclaw-cli/build/install/aceclaw-cli/bin/aceclaw-cli"
+    CLI_BIN="$SCRIPT_DIR/ace-copilot-cli/build/install/ace-copilot-cli/bin/ace-copilot-cli"
 fi
 
 # Stop old daemon (best-effort) — warn about active sessions
-if [ -S ~/.aceclaw/aceclaw.sock ]; then
+if [ -S ~/.ace-copilot/ace-copilot.sock ]; then
     ACTIVE_SESSIONS=$("$CLI_BIN" daemon status 2>/dev/null | sed -n 's/.*Active Sessions: *//p' || echo "0")
     if [ "$ACTIVE_SESSIONS" -gt 0 ] 2>/dev/null; then
         echo ">> WARNING: Restarting daemon with $ACTIVE_SESSIONS active session(s)"
@@ -55,8 +55,8 @@ if [ -S ~/.aceclaw/aceclaw.sock ]; then
     sleep 0.5
 fi
 # Kill by PID if still alive
-if [ -f ~/.aceclaw/aceclaw.pid ]; then
-    kill "$(cat ~/.aceclaw/aceclaw.pid)" 2>/dev/null || true
+if [ -f ~/.ace-copilot/ace-copilot.pid ]; then
+    kill "$(cat ~/.ace-copilot/ace-copilot.pid)" 2>/dev/null || true
     sleep 0.3
 fi
 
@@ -66,10 +66,10 @@ if [ -n "$PROVIDER" ]; then
         *" $PROVIDER "*) ;;
         *) echo "Invalid provider: $PROVIDER"; echo "Valid: $VALID_PROVIDERS"; exit 1 ;;
     esac
-    export ACECLAW_PROVIDER="$PROVIDER"
+    export ACE_COPILOT_PROVIDER="$PROVIDER"
 fi
 
 # No benchmarks
-export ACECLAW_BENCH_MODE="none"
+export ACE_COPILOT_BENCH_MODE="none"
 
 exec "$CLI_BIN"

@@ -77,27 +77,27 @@ reviews:
 
   # Per-module review instructions
   path_instructions:
-    - path: "aceclaw-security/**"
+    - path: "ace-copilot-security/**"
       instructions: >
         Review security module changes with extra scrutiny.
         Check for permission bypasses, HMAC integrity issues, and unsafe defaults.
 
-    - path: "aceclaw-memory/**"
+    - path: "ace-copilot-memory/**"
       instructions: >
         Verify HMAC signing is maintained, check for memory tier ordering issues,
         and ensure workspace isolation.
 
-    - path: "aceclaw-core/**"
+    - path: "ace-copilot-core/**"
       instructions: >
         Focus on agent loop correctness, tool execution safety,
         and LLM client error handling.
 
-    - path: "aceclaw-tools/**"
+    - path: "ace-copilot-tools/**"
       instructions: >
         Check cross-platform compatibility (Windows/macOS/Linux).
         Verify ProcessBuilder commands work on all platforms.
 
-    - path: "aceclaw-daemon/**"
+    - path: "ace-copilot-daemon/**"
       instructions: >
         Check UDS listener lifecycle, shutdown ordering,
         and thread safety with virtual threads.

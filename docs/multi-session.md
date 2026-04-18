@@ -1,42 +1,42 @@
 # Multi-Session Model
 
-AceClaw follows a **one daemon, many sessions** architecture. A single persistent daemon process manages all sessions, while each CLI/TUI window gets its own independent session.
+AceCopilot follows a **one daemon, many sessions** architecture. A single persistent daemon process manages all sessions, while each CLI/TUI window gets its own independent session.
 
 ## Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/xinhuagu/AceClaw/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/xinhuagu/ace-copilot/main/install.sh | sh
 ```
 
-Downloads the latest pre-built release to `~/.aceclaw/`. Only requires Java 21 runtime.
+Downloads the latest pre-built release to `~/.ace-copilot/`. Only requires Java 21 runtime.
 
-After installation: `aceclaw`, `aceclaw-tui`, `aceclaw-restart`, `aceclaw-update`.
+After installation: `ace-copilot`, `ace-copilot-tui`, `ace-copilot-restart`, `ace-copilot-update`.
 
 ### Update
 
 ```bash
-aceclaw-update
+ace-copilot-update
 ```
 
 Checks for a newer release, downloads and replaces if available. Refuses to update if the daemon has active sessions — stop all sessions first.
 
 ## Scripts
 
-### `dev.sh` / `aceclaw-dev` — Development Entrypoint
+### `dev.sh` / `ace-copilot-dev` — Development Entrypoint
 
 - Rebuilds the CLI distribution from source
 - Stops and restarts the daemon (destructive — interrupts all active sessions)
 - Auto-runs benchmark checks on feature branches (`--auto` by default)
-- Use when you are developing AceClaw itself and want benchmark validation
+- Use when you are developing AceCopilot itself and want benchmark validation
 
-### `restart.sh` / `aceclaw-restart` — Quick Restart
+### `restart.sh` / `ace-copilot-restart` — Quick Restart
 
 - Rebuilds the CLI distribution from source
 - Stops and restarts the daemon (destructive — interrupts all active sessions)
 - Never runs benchmarks — fastest way to restart
 - Use when you just want a clean daemon restart without waiting for checks
 
-### `tui.sh` / `aceclaw-tui` — Non-Destructive TUI Entrypoint
+### `tui.sh` / `ace-copilot-tui` — Non-Destructive TUI Entrypoint
 
 - Connects to the running daemon, or starts one if none exists
 - Never stops or restarts the daemon
@@ -80,7 +80,7 @@ All sessions targeting the same project directory share:
 - Daily journal — `DailyJournal`
 - Learning metrics — `LearningExplanationStore`, `LearningValidationStore`
 - Skill drafts — `SkillDraftGenerator`, `SessionSkillPacker`
-- Promoted rules — `CorrectionRulePromoter` → ACECLAW.md
+- Promoted rules — `CorrectionRulePromoter` → ACE_COPILOT.md
 
 ### Global/Daemon-Shared State
 
@@ -110,7 +110,7 @@ Terminal 1 (dev.sh)          Terminal 2 (tui.sh)         Terminal 3 (tui.sh)
         |                           |                           |
         +---------- UDS -----------+---------- UDS ------------+
                                     |
-                              AceClaw Daemon
+                              AceCopilot Daemon
                     +---------------------------+
                     | SessionManager            |
                     |   session-abc (workspace A)|

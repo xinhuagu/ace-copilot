@@ -17,7 +17,7 @@ Related document:
 
 ## Configuration
 
-Config keys in `.aceclaw/config.json`:
+Config keys in `.ace-copilot/config.json`:
 
 - `candidateInjectionEnabled` (`bool`)
 - `candidatePromotionEnabled` (`bool`)
@@ -29,7 +29,7 @@ Config keys in `.aceclaw/config.json`:
 - `skillDraftValidationEnabled` (`bool`, default `true`)
 - `skillDraftValidationStrictMode` (`bool`, default `false`)
 - `skillDraftValidationReplayRequired` (`bool`, default `true`)
-- `skillDraftValidationReplayReport` (`string`, default `.aceclaw/metrics/continuous-learning/replay-latest.json`)
+- `skillDraftValidationReplayReport` (`string`, default `.ace-copilot/metrics/continuous-learning/replay-latest.json`)
 - `skillDraftValidationMaxTokenEstimationErrorRatio` (`double`, default `0.65`)
 - `skillAutoReleaseEnabled` (`bool`, default `true`)
 - `skillAutoReleaseMinCandidateScore` (`double`, default `0.80`)
@@ -47,31 +47,31 @@ Config keys in `.aceclaw/config.json`:
 
 Environment overrides:
 
-- `ACECLAW_CANDIDATE_INJECTION`
-- `ACECLAW_CANDIDATE_PROMOTION`
-- `ACECLAW_CANDIDATE_INJECTION_MAX_TOKENS`
-- `ACECLAW_SKILL_DRAFT_VALIDATION`
-- `ACECLAW_SKILL_DRAFT_VALIDATION_STRICT_MODE`
-- `ACECLAW_SKILL_DRAFT_VALIDATION_REPLAY_REQUIRED`
-- `ACECLAW_REPLAY_REPORT_PATH`
-- `ACECLAW_SKILL_DRAFT_VALIDATION_MAX_TOKEN_ESTIMATION_ERROR_RATIO`
-- `ACECLAW_SKILL_AUTO_RELEASE`
-- `ACECLAW_SKILL_AUTO_RELEASE_MIN_SCORE`
-- `ACECLAW_SKILL_AUTO_RELEASE_MIN_EVIDENCE`
-- `ACECLAW_SKILL_AUTO_RELEASE_CANARY_MIN_ATTEMPTS`
-- `ACECLAW_SKILL_AUTO_RELEASE_CANARY_MAX_FAILURE_RATE`
-- `ACECLAW_SKILL_AUTO_RELEASE_CANARY_MAX_TIMEOUT_RATE`
-- `ACECLAW_SKILL_AUTO_RELEASE_CANARY_MAX_PERMISSION_BLOCK_RATE`
-- `ACECLAW_SKILL_AUTO_RELEASE_ROLLBACK_MAX_FAILURE_RATE`
-- `ACECLAW_SKILL_AUTO_RELEASE_ROLLBACK_MAX_TIMEOUT_RATE`
-- `ACECLAW_SKILL_AUTO_RELEASE_ROLLBACK_MAX_PERMISSION_BLOCK_RATE`
-- `ACECLAW_SKILL_AUTO_RELEASE_ACTIVE_MAX_FAILURE_RATE`
-- `ACECLAW_SKILL_AUTO_RELEASE_HEALTH_LOOKBACK_HOURS`
-- `ACECLAW_SKILL_AUTO_RELEASE_CANARY_DWELL_HOURS`
+- `ACE_COPILOT_CANDIDATE_INJECTION`
+- `ACE_COPILOT_CANDIDATE_PROMOTION`
+- `ACE_COPILOT_CANDIDATE_INJECTION_MAX_TOKENS`
+- `ACE_COPILOT_SKILL_DRAFT_VALIDATION`
+- `ACE_COPILOT_SKILL_DRAFT_VALIDATION_STRICT_MODE`
+- `ACE_COPILOT_SKILL_DRAFT_VALIDATION_REPLAY_REQUIRED`
+- `ACE_COPILOT_REPLAY_REPORT_PATH`
+- `ACE_COPILOT_SKILL_DRAFT_VALIDATION_MAX_TOKEN_ESTIMATION_ERROR_RATIO`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE_MIN_SCORE`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE_MIN_EVIDENCE`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE_CANARY_MIN_ATTEMPTS`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE_CANARY_MAX_FAILURE_RATE`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE_CANARY_MAX_TIMEOUT_RATE`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE_CANARY_MAX_PERMISSION_BLOCK_RATE`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE_ROLLBACK_MAX_FAILURE_RATE`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE_ROLLBACK_MAX_TIMEOUT_RATE`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE_ROLLBACK_MAX_PERMISSION_BLOCK_RATE`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE_ACTIVE_MAX_FAILURE_RATE`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE_HEALTH_LOOKBACK_HOURS`
+- `ACE_COPILOT_SKILL_AUTO_RELEASE_CANARY_DWELL_HOURS`
 
 JVM/system properties:
 
-- `aceclaw.candidate.injection.tokenHeadroomFactor` (`0 < value <= 1`, default `0.85`)
+- `ace-copilot.candidate.injection.tokenHeadroomFactor` (`0 < value <= 1`, default `0.85`)
   - Applies a conservative headroom multiplier before token-budget enforcement to reduce estimator undercount risk.
 
 Tokenizer hard constraint:
@@ -184,10 +184,10 @@ Parameters:
 
 Behavior:
 - Reads `PROMOTED` candidates from candidate store.
-- Generates drafts at `.aceclaw/skills-drafts/<skill-name>/SKILL.md`.
+- Generates drafts at `.ace-copilot/skills-drafts/<skill-name>/SKILL.md`.
 - Generated drafts always include `disable-model-invocation: true`.
 - Writes generation audit to:
-  `.aceclaw/metrics/continuous-learning/skill-draft-audit.jsonl`.
+  `.ace-copilot/metrics/continuous-learning/skill-draft-audit.jsonl`.
 - If draft validation is enabled, generation also returns a validation summary.
 
 ### 6) Validate draft skills (autonomous gate)
@@ -207,7 +207,7 @@ Optional single-draft validation:
 {
   "method": "skill.draft.validate",
   "params": {
-    "draftPath": ".aceclaw/skills-drafts/retry-safe/SKILL.md",
+    "draftPath": ".ace-copilot/skills-drafts/retry-safe/SKILL.md",
     "trigger": "manual-single"
   }
 }
@@ -218,7 +218,7 @@ Gate behavior:
 - Policy packs: `static`, `dry-run`, `replay`, `safety`
 - Machine-readable reason payload: `{ gate, code, outcome, message }`
 - Validation audit log:
-  `.aceclaw/metrics/continuous-learning/skill-draft-validation-audit.jsonl`
+  `.ace-copilot/metrics/continuous-learning/skill-draft-validation-audit.jsonl`
 - Auto re-evaluation trigger:
   candidate evidence/score updates trigger background re-validation (`trigger=evidence-update`).
 
@@ -240,8 +240,8 @@ Rollout policy:
 - Auto-rollback to `shadow` on validation failure or guardrail breach
 
 Release audit/state:
-- State snapshot: `.aceclaw/metrics/continuous-learning/skill-release-state.json`
-- Transition audit: `.aceclaw/metrics/continuous-learning/skill-release-audit.jsonl`
+- State snapshot: `.ace-copilot/metrics/continuous-learning/skill-release-state.json`
+- Transition audit: `.ace-copilot/metrics/continuous-learning/skill-release-audit.jsonl`
 
 ### 8) Emergency override commands
 
@@ -351,8 +351,8 @@ Thresholds can be tuned via config (no recompile needed):
 
 Or via environment variables for CI/deployment overrides:
 ```bash
-ACECLAW_SKILL_AUTO_RELEASE_CANARY_MAX_FAILURE_RATE=0.05  # stricter for production
-ACECLAW_SKILL_AUTO_RELEASE_CANARY_DWELL_HOURS=48         # longer observation
+ACE_COPILOT_SKILL_AUTO_RELEASE_CANARY_MAX_FAILURE_RATE=0.05  # stricter for production
+ACE_COPILOT_SKILL_AUTO_RELEASE_CANARY_DWELL_HOURS=48         # longer observation
 ```
 
 ## Observability Panel (`#64`)
@@ -361,13 +361,13 @@ The interactive CLI prompt status panel includes a continuous-learning summary l
 when project-local learning artifacts are present.
 
 - Replay quality status:
-  - source: `.aceclaw/metrics/continuous-learning/replay-latest.json`
+  - source: `.ace-copilot/metrics/continuous-learning/replay-latest.json`
   - display: `replay=<status>:<token_estimation_error_ratio_max>` (or `pending` / `read-error`)
 - Candidate pipeline status:
-  - source: `.aceclaw/memory/candidates.jsonl`
+  - source: `.ace-copilot/memory/candidates.jsonl`
   - display: total candidates and state counters (`PROMOTED`, `DEMOTED`)
 - Auto-release rollout status:
-  - source: `.aceclaw/metrics/continuous-learning/skill-release-state.json`
+  - source: `.ace-copilot/metrics/continuous-learning/skill-release-state.json`
   - display: stage counters (`SHADOW`, `CANARY`, `ACTIVE`)
 
 Notes:
@@ -394,7 +394,7 @@ Notes:
 
 ### Anti-pattern gate false-positive drift
 
-1. Inspect `.aceclaw/metrics/continuous-learning/anti-pattern-gate-feedback.json`:
+1. Inspect `.ace-copilot/metrics/continuous-learning/anti-pattern-gate-feedback.json`:
    - weighted false-positive rate
    - top offending `ruleId`
 2. If a rule is clearly over-blocking, apply temporary override for active session/tool:
@@ -410,8 +410,8 @@ Smoke checks:
 1. `candidate.injection.set(enabled=false)` should remove injected section in next turn.
 2. `candidate.injection.set(enabled=true,maxTokens=...)` should apply within one turn.
 3. `candidate.rollback` should transition `PROMOTED -> DEMOTED` and append transition log.
-4. Ensure `skill.draft.generate` creates at least one `.aceclaw/skills-drafts/<skill-name>/SKILL.md` with `disable-model-invocation: true` and appends one line to `.aceclaw/metrics/continuous-learning/skill-draft-audit.jsonl`.
-5. When running `skill.draft.validate`, verify deterministic `pass/hold/block` verdicts and appended lines in `.aceclaw/metrics/continuous-learning/skill-draft-validation-audit.jsonl`.
+4. Ensure `skill.draft.generate` creates at least one `.ace-copilot/skills-drafts/<skill-name>/SKILL.md` with `disable-model-invocation: true` and appends one line to `.ace-copilot/metrics/continuous-learning/skill-draft-audit.jsonl`.
+5. When running `skill.draft.validate`, verify deterministic `pass/hold/block` verdicts and appended lines in `.ace-copilot/metrics/continuous-learning/skill-draft-validation-audit.jsonl`.
 6. `skill.release.evaluate` should emit stage transitions and persist release state/audit files.
 
 CI guardrail job:
@@ -432,7 +432,7 @@ preMergeCheck
 │   └── generateReplayReport
 │       └── generateReplayCases
 │           ├── validateReplaySuite
-│           └── :aceclaw-cli:runReplayCases
+│           └── :ace-copilot-cli:runReplayCases
 └── benchmarkScorecard
     └── generateReplayReport (shared, runs once)
 ```
@@ -458,8 +458,8 @@ Benchmark scorecard metric contract (`BenchmarkScorecard`):
 
 Replay gate configuration:
 
-- Default report path: `.aceclaw/metrics/continuous-learning/replay-latest.json`
-- Default replay cases input: `.aceclaw/metrics/continuous-learning/replay-cases.json` (generated, not sample)
+- Default report path: `.ace-copilot/metrics/continuous-learning/replay-latest.json`
+- Default replay cases input: `.ace-copilot/metrics/continuous-learning/replay-cases.json` (generated, not sample)
 - Default baseline thresholds file: `docs/reports/samples/learning-quality-gate-baseline.json`
 - Strict mode is the default for `preMergeCheck` (missing report fails the build).
 
@@ -475,8 +475,8 @@ Canonical CI runs (enforces fresh generation):
 ./gradlew preMergeCheck -PreplayGateStrict=true
 ```
 - CI default enforces anti-pattern false-positive gate:
-  - `ACECLAW_REPLAY_ENFORCE_ANTI_PATTERN_FP_RATE=true`
-  - threshold `ACECLAW_REPLAY_MAX_ANTI_PATTERN_FP_RATE=0.50`
+  - `ACE_COPILOT_REPLAY_ENFORCE_ANTI_PATTERN_FP_RATE=true`
+  - threshold `ACE_COPILOT_REPLAY_MAX_ANTI_PATTERN_FP_RATE=0.50`
 - Canonical hard-gate metrics:
   - `promotion_rate` (min)
   - `demotion_rate` (max)
@@ -484,23 +484,23 @@ Canonical CI runs (enforces fresh generation):
   - `rollback_rate` (max)
 - See `docs/continuous-learning-quality-gates.md` for formulas and baseline update process.
 - replay cases input/output path:
-  - `ACECLAW_REPLAY_INPUT_PATH` (recommended), or
-  - default `.aceclaw/metrics/continuous-learning/replay-cases.json`
+  - `ACE_COPILOT_REPLAY_INPUT_PATH` (recommended), or
+  - default `.ace-copilot/metrics/continuous-learning/replay-cases.json`
 - replay cases manifest path:
-  - `ACECLAW_REPLAY_MANIFEST_PATH` (default: `.aceclaw/metrics/continuous-learning/replay-cases.manifest.json`)
+  - `ACE_COPILOT_REPLAY_MANIFEST_PATH` (default: `.ace-copilot/metrics/continuous-learning/replay-cases.manifest.json`)
 - CI replay runner inputs:
-  - `ACECLAW_REPLAY_FULL_MODE` (default: `false`)
-  - `ACECLAW_REPLAY_PROMPTS_PATH` default:
+  - `ACE_COPILOT_REPLAY_FULL_MODE` (default: `false`)
+  - `ACE_COPILOT_REPLAY_PROMPTS_PATH` default:
     - full mode (`true`): `docs/reports/samples/replay-prompts-sample.json`
     - default (`false`): `docs/reports/samples/replay-prompts-ci-short.json` (12 cases, 3 per category)
-  - `ACECLAW_REPLAY_SUITE_MIN_PER_CATEGORY` — minimum cases per benchmark category (default: `3`)
+  - `ACE_COPILOT_REPLAY_SUITE_MIN_PER_CATEGORY` — minimum cases per benchmark category (default: `3`)
     - Two-layer threshold model:
       - **3 = can run** (structural minimum): suite has enough cases per category to be valid. Enforced by `validate-replay-suite.sh`, Gradle, CI, and `ReplayBenchmarkValidator`.
       - **10 = can trust** (statistical significance): suite has enough cases for benchmark verdicts to be meaningful. Enforced by `BenchmarkScorecard.MIN_SAMPLE_SIZE`. Below this, metrics report `INSUFFICIENT_DATA` but the suite still passes validation.
     - `generate-replay-report.sh` accepts `--replay-prompts` and computes the actual minimum per-category case count from the prompts file. This count is emitted as each replay metric's `sample_size` (instead of total case count). `BenchmarkScorecardCli` reads `sample_size` directly — no separate capping needed.
-  - `ACECLAW_REPLAY_TIMEOUT_MS` (default: `180000`)
-  - `ACECLAW_REPLAY_AUTO_APPROVE_PERMISSIONS` (default: `true`)
-  - `ACECLAW_REPLAY_MAX_TOKEN_ESTIMATION_ERROR_RATIO` (default by event):
+  - `ACE_COPILOT_REPLAY_TIMEOUT_MS` (default: `180000`)
+  - `ACE_COPILOT_REPLAY_AUTO_APPROVE_PERMISSIONS` (default: `true`)
+  - `ACE_COPILOT_REPLAY_MAX_TOKEN_ESTIMATION_ERROR_RATIO` (default by event):
     - default: `0.65` (character-count heuristic has high variance across content types)
 - Generate replay cases from real prompt executions (off/on modes):
   - `./gradlew generateReplayCases -PreplayPromptsInput=/path/to/replay-prompts.json -PreplayCasesOutput=/path/to/replay-cases.json -PreplayCasesManifestOutput=/path/to/replay-cases.manifest.json`

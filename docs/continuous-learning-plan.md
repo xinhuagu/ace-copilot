@@ -1,7 +1,7 @@
 # Continuous Learning Baseline Plan
 
 ## Purpose
-This document defines the v1 measurement framework for AceClaw continuous learning. The goal is to establish reproducible baseline metrics before enabling aggressive autonomous promotion and rollback policies.
+This document defines the v1 measurement framework for AceCopilot continuous learning. The goal is to establish reproducible baseline metrics before enabling aggressive autonomous promotion and rollback policies.
 
 This plan aligns with PRD success metrics and the current governed-learning implementation.
 Operational controls and rollback procedures are documented in `docs/continuous-learning-operations.md`.
@@ -72,13 +72,13 @@ Notes:
 - Replay cases include dual-track token fields (`estimated_tokens`, `provider_tokens`=`usage.outputTokens`) and derived `estimation_error_ratio`.
 - `token_estimation_error_ratio_max` must be `measured` and pass threshold for pre-merge acceptance.
 - Replay metric aggregation is implemented via `scripts/generate-replay-report.sh`.
-- Replay case execution is available via `:aceclaw-cli:runReplayCases` / `./gradlew generateReplayCases`.
+- Replay case execution is available via `:ace-copilot-cli:runReplayCases` / `./gradlew generateReplayCases`.
 - Replay suite schema + category coverage validation is enforced via `validateReplaySuite`.
 - CI-scale replay dataset growth and ownership governance (larger suite lifecycle) is still an ongoing integration track.
 
 ## Collection Output Schema
 Baseline output should be written to:
-- `.aceclaw/metrics/continuous-learning/baseline-<UTC timestamp>.json`
+- `.ace-copilot/metrics/continuous-learning/baseline-<UTC timestamp>.json`
 
 Top-level JSON sections:
 - `metadata`: repo, commit, branch, collection timestamp, command version.
@@ -98,7 +98,7 @@ Useful flags:
 ```bash
 # Custom output path
 ./scripts/collect-continuous-learning-baseline.sh \
-  --output /tmp/aceclaw-baseline.json
+  --output /tmp/ace-copilot-baseline.json
 
 # Override a metric manually (escape hatch for missing or incorrect data)
 ./scripts/collect-continuous-learning-baseline.sh \

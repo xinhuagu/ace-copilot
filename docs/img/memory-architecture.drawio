@@ -4,7 +4,7 @@
     <mxCell id="1" parent="0" />
     
     <!-- Title -->
-    <mxCell id="title" value="AceClaw Memory System Architecture" style="text;fontSize=18;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#1a1a2e;" vertex="1" parent="1">
+    <mxCell id="title" value="AceCopilot Memory System Architecture" style="text;fontSize=18;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#1a1a2e;" vertex="1" parent="1">
       <mxGeometry x="100" y="5" width="600" height="35" as="geometry" />
     </mxCell>
 
@@ -22,11 +22,11 @@ managed-policy.md (priority 90)" style="rounded=1;fillColor=#fadbd8;strokeColor=
       <mxGeometry x="20" y="109" width="210" height="32" as="geometry" />
     </mxCell>
     <mxCell id="tier3" value="T3: Workspace Memory 
-{project}/ACECLAW.md (priority 80)" style="rounded=1;fillColor=#d5f5e3;strokeColor=#27ae60;fontSize=11;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+{project}/ACE_COPILOT.md (priority 80)" style="rounded=1;fillColor=#d5f5e3;strokeColor=#27ae60;fontSize=11;align=center;whiteSpace=wrap;" vertex="1" parent="1">
       <mxGeometry x="20" y="146" width="210" height="32" as="geometry" />
     </mxCell>
     <mxCell id="tier4" value="T4: User Memory 
-~/.aceclaw/ACECLAW.md (priority 70)" style="rounded=1;fillColor=#d6eaf8;strokeColor=#2980b9;fontSize=11;align=center;whiteSpace=wrap;" vertex="1" parent="1">
+~/.ace-copilot/ACE_COPILOT.md (priority 70)" style="rounded=1;fillColor=#d6eaf8;strokeColor=#2980b9;fontSize=11;align=center;whiteSpace=wrap;" vertex="1" parent="1">
       <mxGeometry x="20" y="183" width="210" height="32" as="geometry" />
     </mxCell>
     <mxCell id="tier5" value="T5: Auto-Memory 
@@ -169,7 +169,7 @@ today + yesterday window" style="rounded=1;fillColor=#f9e79f;strokeColor=#d4ac0d
 
     <!-- Storage Layout -->
     <mxCell id="storage-header" value="Storage Layout" style="text;fontSize=13;fontStyle=1;align=left;fillColor=none;strokeColor=none;fontColor=#16213e;" vertex="1" parent="1"><mxGeometry x="20" y="415" width="200" height="22" as="geometry" /></mxCell>
-    <mxCell id="storage" value="~/.aceclaw/
+    <mxCell id="storage" value="~/.ace-copilot/
   memory/
     memory.key        (32B secret, POSIX 600)
     global.jsonl      (cross-project)
@@ -179,7 +179,7 @@ today + yesterday window" style="rounded=1;fillColor=#f9e79f;strokeColor=#d4ac0d
     journal/          (daily YYYY-MM-DD.md)
     workspace-path.txt
   SOUL.md              (global identity)
-  ACECLAW.md           (user preferences)" style="rounded=1;fillColor=#f2f3f4;strokeColor=#7f8c8d;fontSize=9;fontFamily=Courier New;align=left;whiteSpace=wrap;spacingLeft=8;spacingTop=4;" vertex="1" parent="1"><mxGeometry x="20" y="440" width="290" height="165" as="geometry" /></mxCell>
+  ACE_COPILOT.md           (user preferences)" style="rounded=1;fillColor=#f2f3f4;strokeColor=#7f8c8d;fontSize=9;fontFamily=Courier New;align=left;whiteSpace=wrap;spacingLeft=8;spacingTop=4;" vertex="1" parent="1"><mxGeometry x="20" y="440" width="290" height="165" as="geometry" /></mxCell>
 
     <!-- MemoryEntry Record -->
     <mxCell id="entry-header" value="MemoryEntry Record" style="text;fontSize=13;fontStyle=1;align=left;fillColor=none;strokeColor=none;fontColor=#16213e;" vertex="1" parent="1"><mxGeometry x="330" y="415" width="200" height="22" as="geometry" /></mxCell>

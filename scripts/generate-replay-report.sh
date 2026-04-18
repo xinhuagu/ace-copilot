@@ -48,12 +48,12 @@ failure_type (when success=false) accepted values:
 Options:
   --input <path>   Replay A/B case results JSON.
   --output <path>  Output report path
-                   (default: .aceclaw/metrics/continuous-learning/replay-latest.json)
+                   (default: .ace-copilot/metrics/continuous-learning/replay-latest.json)
   --manifest <path> Replay cases manifest JSON with cases_sha256.
   --anti-pattern-feedback <path> Anti-pattern gate feedback JSON
-                   (default: .aceclaw/metrics/continuous-learning/anti-pattern-gate-feedback.json)
+                   (default: .ace-copilot/metrics/continuous-learning/anti-pattern-gate-feedback.json)
   --candidate-transitions <path> Candidate transitions JSONL
-                   (default: .aceclaw/memory/candidate-transitions.jsonl)
+                   (default: .ace-copilot/memory/candidate-transitions.jsonl)
   --replay-prompts <path> Replay prompts suite JSON (for per-category sample_size)
   --help           Show this help.
 USAGE
@@ -104,17 +104,17 @@ if [[ -z "$INPUT" ]]; then
 fi
 
 if [[ -z "$OUTPUT" ]]; then
-  OUTPUT=".aceclaw/metrics/continuous-learning/replay-latest.json"
+  OUTPUT=".ace-copilot/metrics/continuous-learning/replay-latest.json"
 fi
 
 if [[ -z "$MANIFEST" ]]; then
-  MANIFEST=".aceclaw/metrics/continuous-learning/replay-cases.manifest.json"
+  MANIFEST=".ace-copilot/metrics/continuous-learning/replay-cases.manifest.json"
 fi
 if [[ -z "$ANTI_PATTERN_FEEDBACK" ]]; then
-  ANTI_PATTERN_FEEDBACK=".aceclaw/metrics/continuous-learning/anti-pattern-gate-feedback.json"
+  ANTI_PATTERN_FEEDBACK=".ace-copilot/metrics/continuous-learning/anti-pattern-gate-feedback.json"
 fi
 if [[ -z "$CANDIDATE_TRANSITIONS" ]]; then
-  CANDIDATE_TRANSITIONS=".aceclaw/memory/candidate-transitions.jsonl"
+  CANDIDATE_TRANSITIONS=".ace-copilot/memory/candidate-transitions.jsonl"
 fi
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -322,7 +322,7 @@ jq \
   | {
       metadata: {
         collected_at: $collected_at,
-        repo: "AceClaw",
+        repo: "AceCopilot",
         branch: $branch,
         commit: $commit,
         collector_version: "replay-v1"

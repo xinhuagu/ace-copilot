@@ -6,28 +6,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # One-line install (downloads pre-built release, no build tools needed)
-curl -fsSL https://raw.githubusercontent.com/xinhuagu/AceClaw/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/xinhuagu/ace-copilot/main/install.sh | sh
 
 # Update to latest release
-aceclaw-update
+ace-copilot-update
 
 # Full build (all 13 modules)
 ./gradlew clean build
 
 # Build + install CLI distribution (includes startup scripts)
-./gradlew :aceclaw-cli:installDist
+./gradlew :ace-copilot-cli:installDist
 
 # Run tests (all modules)
 ./gradlew test
 
 # Run a single test class
-./gradlew :aceclaw-daemon:test --tests "dev.aceclaw.daemon.DaemonIntegrationTest"
+./gradlew :ace-copilot-daemon:test --tests "dev.acecopilot.daemon.DaemonIntegrationTest"
 
 # Run a single test method
-./gradlew :aceclaw-daemon:test --tests "dev.aceclaw.daemon.DaemonIntegrationTest.testHealthStatus"
+./gradlew :ace-copilot-daemon:test --tests "dev.acecopilot.daemon.DaemonIntegrationTest.testHealthStatus"
 
 # Run the CLI (auto-starts daemon)
-./aceclaw-cli/build/install/aceclaw-cli/bin/aceclaw-cli
+./ace-copilot-cli/build/install/ace-copilot-cli/bin/ace-copilot-cli
 
 # Development: rebuild + restart daemon + auto-benchmark on feature branches
 ./dev.sh [--check | --baseline | --auto | --no-bench] [provider]
@@ -39,9 +39,9 @@ aceclaw-update
 ./tui.sh [provider]
 
 # Daemon management
-./aceclaw-cli/build/install/aceclaw-cli/bin/aceclaw-cli daemon start   # foreground
-./aceclaw-cli/build/install/aceclaw-cli/bin/aceclaw-cli daemon stop
-./aceclaw-cli/build/install/aceclaw-cli/bin/aceclaw-cli daemon status
+./ace-copilot-cli/build/install/ace-copilot-cli/bin/ace-copilot-cli daemon start   # foreground
+./ace-copilot-cli/build/install/ace-copilot-cli/bin/ace-copilot-cli daemon stop
+./ace-copilot-cli/build/install/ace-copilot-cli/bin/ace-copilot-cli daemon status
 ```
 
 ## Java Version & Preview Features
@@ -50,11 +50,11 @@ Java 21 with `--enable-preview` required everywhere (compile, test, runtime). Th
 
 ## Architecture Overview
 
-AceClaw is a **daemon-first AI coding agent**. The CLI is a thin client that connects to a persistent JVM daemon via Unix Domain Socket. Multiple CLI/TUI windows can connect to one daemon simultaneously, each with its own independent session. One active TUI per workspace is enforced by `WorkspaceAttachmentRegistry`. See `docs/multi-session.md` for details.
+AceCopilot is a **daemon-first AI coding agent**. The CLI is a thin client that connects to a persistent JVM daemon via Unix Domain Socket. Multiple CLI/TUI windows can connect to one daemon simultaneously, each with its own independent session. One active TUI per workspace is enforced by `WorkspaceAttachmentRegistry`. See `docs/multi-session.md` for details.
 
 ```
 CLI (Picocli + JLine3)
-  ↕ JSON-RPC 2.0 over UDS (~/.aceclaw/aceclaw.sock)
+  ↕ JSON-RPC 2.0 over UDS (~/.ace-copilot/ace-copilot.sock)
 Daemon (persistent JVM)
   ├── RequestRouter → dispatches methods to handlers
   ├── WorkspaceAttachmentRegistry → one live TUI per workspace
@@ -70,19 +70,19 @@ Daemon (persistent JVM)
 ### Module Dependency Graph
 
 ```
-aceclaw-bom          (version constraints, java-platform)
-aceclaw-core         (LlmClient, Tool, AgentLoop, StreamingAgentLoop, ContentBlock, StreamEvent, TaskPlanner)
+ace-copilot-bom          (version constraints, java-platform)
+ace-copilot-core         (LlmClient, Tool, AgentLoop, StreamingAgentLoop, ContentBlock, StreamEvent, TaskPlanner)
   ↑
-  ├── aceclaw-llm    (AnthropicClient, AnthropicMapper, AnthropicStreamSession)
-  ├── aceclaw-tools  (ReadFileTool, WriteFileTool, EditFileTool, BashExecTool, GlobSearchTool, GrepSearchTool)
-  └── aceclaw-security (PermissionManager, PermissionDecision sealed interface, DefaultPermissionPolicy)
+  ├── ace-copilot-llm    (AnthropicClient, AnthropicMapper, AnthropicStreamSession)
+  ├── ace-copilot-tools  (ReadFileTool, WriteFileTool, EditFileTool, BashExecTool, GlobSearchTool, GrepSearchTool)
+  └── ace-copilot-security (PermissionManager, PermissionDecision sealed interface, DefaultPermissionPolicy)
         ↑
-aceclaw-daemon       (AceClawDaemon, UdsListener, RequestRouter, ConnectionBridge, SessionManager, StreamingAgentHandler)
+ace-copilot-daemon       (AceCopilotDaemon, UdsListener, RequestRouter, ConnectionBridge, SessionManager, StreamingAgentHandler)
   ↑
-aceclaw-cli          (AceClawMain, DaemonClient, DaemonStarter, TerminalRepl)
+ace-copilot-cli          (AceCopilotMain, DaemonClient, DaemonStarter, TerminalRepl)
 ```
 
-Modules `aceclaw-sdk`, `aceclaw-infra` (event hierarchy), `aceclaw-memory`, `aceclaw-mcp`, `aceclaw-server`, `aceclaw-test` exist or serve as supporting/placeholder modules.
+Modules `ace-copilot-sdk`, `ace-copilot-infra` (event hierarchy), `ace-copilot-memory`, `ace-copilot-mcp`, `ace-copilot-server`, `ace-copilot-test` exist or serve as supporting/placeholder modules.
 
 ### Streaming Protocol
 
@@ -103,7 +103,7 @@ The `StreamContext` interface enables this bidirectional flow — handlers can `
 - `DaemonLock.LockResult`: `Acquired | AlreadyRunning | StaleLock`
 - `ConversationMessage`: `User | Assistant | System`
 - `PlanStatus`: `Draft | Executing | Completed | Failed`
-- `AceClawEvent`: `AgentEvent | ToolEvent | SessionEvent | HealthEvent | SystemEvent | SchedulerEvent | PlanEvent`
+- `AceCopilotEvent`: `AgentEvent | ToolEvent | SessionEvent | HealthEvent | SystemEvent | SchedulerEvent | PlanEvent`
 
 Use exhaustive pattern matching (`switch`) on these — the compiler enforces completeness.
 
@@ -113,18 +113,18 @@ Use exhaustive pattern matching (`switch`) on these — the compiler enforces co
 - **API key** (`sk-ant-api03-*`): sent via `x-api-key` header
 - **OAuth token** (`sk-ant-oat01-*`): sent via `Authorization: Bearer` header with required beta flags (`claude-code-20250219,oauth-2025-04-20`) and identity headers (`user-agent: claude-cli/2.1.2 (external, cli)`, `x-app: cli`). Auto-refreshes expired tokens using `https://console.anthropic.com/api/oauth/token`.
 
-Config loaded from: `~/.aceclaw/config.json` → `{project}/.aceclaw/config.json` → env vars (`ANTHROPIC_API_KEY`, `ACECLAW_MODEL`, `ACECLAW_LOG_LEVEL`). OAuth refresh tokens auto-discovered from Claude CLI credentials (`~/.claude/.credentials`).
+Config loaded from: `~/.ace-copilot/config.json` → `{project}/.ace-copilot/config.json` → env vars (`ANTHROPIC_API_KEY`, `ACE_COPILOT_MODEL`, `ACE_COPILOT_LOG_LEVEL`). OAuth refresh tokens auto-discovered from Claude CLI credentials (`~/.claude/.credentials`).
 
 ## Build Conventions
 
 - All subprojects use `java-library` plugin (not `java`) — needed for `api()` dependency declarations
-- BOM platform must be applied to `annotationProcessor` config too: `annotationProcessor(platform(project(":aceclaw-bom")))`
-- Picocli requires `annotationProcessor("info.picocli:picocli-codegen")` in aceclaw-cli
-- GraalVM Native Image configured in aceclaw-cli for single-binary distribution
+- BOM platform must be applied to `annotationProcessor` config too: `annotationProcessor(platform(project(":ace-copilot-bom")))`
+- Picocli requires `annotationProcessor("info.picocli:picocli-codegen")` in ace-copilot-cli
+- GraalVM Native Image configured in ace-copilot-cli for single-binary distribution
 
 ## Testing
 
-Integration tests in `aceclaw-daemon` use `MockLlmClient` (queue-based programmable mock) for full-stack E2E testing without real API calls. Tests cover the entire path: UDS socket → ConnectionBridge → RequestRouter → StreamingAgentHandler → AgentLoop → Tools + Permissions.
+Integration tests in `ace-copilot-daemon` use `MockLlmClient` (queue-based programmable mock) for full-stack E2E testing without real API calls. Tests cover the entire path: UDS socket → ConnectionBridge → RequestRouter → StreamingAgentHandler → AgentLoop → Tools + Permissions.
 
 ## Code Style
 

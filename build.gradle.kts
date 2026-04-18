@@ -15,15 +15,15 @@ allprojects {
 
 subprojects {
     // Skip java plugin for BOM (java-platform)
-    if (name == "aceclaw-bom") return@subprojects
+    if (name == "ace-copilot-bom") return@subprojects
 
     apply(plugin = "java-library")
 
     dependencies {
         // All modules use the BOM for version management
-        implementation(platform(project(":aceclaw-bom")))
-        testImplementation(platform(project(":aceclaw-bom")))
-        annotationProcessor(platform(project(":aceclaw-bom")))
+        implementation(platform(project(":ace-copilot-bom")))
+        testImplementation(platform(project(":ace-copilot-bom")))
+        annotationProcessor(platform(project(":ace-copilot-bom")))
 
         // Common test dependencies
         testImplementation("org.junit.jupiter:junit-jupiter")
@@ -53,23 +53,23 @@ subprojects {
         jvmArgs("--enable-preview")
     }
 
-    if (name == "aceclaw-daemon" || name == "aceclaw-memory" || name == "aceclaw-core") {
+    if (name == "ace-copilot-daemon" || name == "ace-copilot-memory" || name == "ace-copilot-core") {
         val sourceSets = extensions.getByType(SourceSetContainer::class.java)
         val includes = when (name) {
-            "aceclaw-daemon" -> listOf(
-                    "dev.aceclaw.daemon.CandidatePipelineIntegrationTest",
-                    "dev.aceclaw.daemon.StreamingAgentHandlerCandidateInjectionTest",
-                    "dev.aceclaw.daemon.AceClawConfigPersistenceTest"
+            "ace-copilot-daemon" -> listOf(
+                    "dev.acecopilot.daemon.CandidatePipelineIntegrationTest",
+                    "dev.acecopilot.daemon.StreamingAgentHandlerCandidateInjectionTest",
+                    "dev.acecopilot.daemon.AceCopilotConfigPersistenceTest"
             )
-            "aceclaw-memory" -> listOf(
-                    "dev.aceclaw.memory.CandidateStoreTest",
-                    "dev.aceclaw.memory.CandidateStateMachineTest",
-                    "dev.aceclaw.memory.CandidatePromptAssemblerTest"
+            "ace-copilot-memory" -> listOf(
+                    "dev.acecopilot.memory.CandidateStoreTest",
+                    "dev.acecopilot.memory.CandidateStateMachineTest",
+                    "dev.acecopilot.memory.CandidatePromptAssemblerTest"
             )
             else -> listOf(
-                    "dev.aceclaw.core.agent.SkillRegistryTest",
-                    "dev.aceclaw.core.agent.SkillContentResolverTest",
-                    "dev.aceclaw.core.agent.AgentLoopIntegrationTest"
+                    "dev.acecopilot.core.agent.SkillRegistryTest",
+                    "dev.acecopilot.core.agent.SkillContentResolverTest",
+                    "dev.acecopilot.core.agent.AgentLoopIntegrationTest"
             )
         }
 
@@ -90,9 +90,9 @@ tasks.register("continuousLearningSmoke") {
     group = "verification"
     description = "Runs end-to-end continuous-learning smoke tests across core modules."
     dependsOn(
-            ":aceclaw-daemon:continuousLearningSmokeTest",
-            ":aceclaw-memory:continuousLearningSmokeTest",
-            ":aceclaw-core:continuousLearningSmokeTest"
+            ":ace-copilot-daemon:continuousLearningSmokeTest",
+            ":ace-copilot-memory:continuousLearningSmokeTest",
+            ":ace-copilot-core:continuousLearningSmokeTest"
     )
 }
 
@@ -102,7 +102,7 @@ tasks.register<Exec>("replayQualityGate") {
     dependsOn("generateReplayReport")
 
     val replayReport = providers.gradleProperty("replayReport")
-            .orElse("${rootDir}/.aceclaw/metrics/continuous-learning/replay-latest.json")
+            .orElse("${rootDir}/.ace-copilot/metrics/continuous-learning/replay-latest.json")
     val strict = providers.gradleProperty("replayGateStrict")
             .map { it.toBooleanStrictOrNull() ?: false }
             .orElse(true)
@@ -151,15 +151,15 @@ tasks.register<Exec>("generateReplayReport") {
 
     val replayCasesInput = providers.gradleProperty("replayCasesInput")
             .orElse(providers.gradleProperty("replayInput"))
-            .orElse("${rootDir}/.aceclaw/metrics/continuous-learning/replay-cases.json")
+            .orElse("${rootDir}/.ace-copilot/metrics/continuous-learning/replay-cases.json")
     val replayCasesManifestInput = providers.gradleProperty("replayCasesManifestInput")
-            .orElse("${rootDir}/.aceclaw/metrics/continuous-learning/replay-cases.manifest.json")
+            .orElse("${rootDir}/.ace-copilot/metrics/continuous-learning/replay-cases.manifest.json")
     val replayReport = providers.gradleProperty("replayReport")
-            .orElse("${rootDir}/.aceclaw/metrics/continuous-learning/replay-latest.json")
+            .orElse("${rootDir}/.ace-copilot/metrics/continuous-learning/replay-latest.json")
     val replayAntiPatternFeedbackPath = providers.gradleProperty("replayAntiPatternFeedbackPath")
-            .orElse("${rootDir}/.aceclaw/metrics/continuous-learning/anti-pattern-gate-feedback.json")
+            .orElse("${rootDir}/.ace-copilot/metrics/continuous-learning/anti-pattern-gate-feedback.json")
     val replayCandidateTransitionsPath = providers.gradleProperty("replayCandidateTransitionsPath")
-            .orElse("${rootDir}/.aceclaw/memory/candidate-transitions.jsonl")
+            .orElse("${rootDir}/.ace-copilot/memory/candidate-transitions.jsonl")
     val replayPromptsInput = providers.gradleProperty("replayPromptsInput")
             .orElse(providers.gradleProperty("replayInput"))
             .orElse("${rootDir}/docs/reports/samples/replay-prompts-sample.json")
@@ -196,22 +196,22 @@ tasks.register<Exec>("validateReplaySuite") {
 tasks.register("generateReplayCases") {
     group = "verification"
     description = "Runs replay prompts (off/on) and emits replay-cases JSON."
-    dependsOn("validateReplaySuite", ":aceclaw-cli:runReplayCases")
+    dependsOn("validateReplaySuite", ":ace-copilot-cli:runReplayCases")
 }
 
 tasks.register<JavaExec>("benchmarkScorecard") {
     group = "verification"
     description = "Evaluates self-learning benchmark scorecard from replay and runtime metrics."
     dependsOn("generateReplayReport")
-    mainClass.set("dev.aceclaw.daemon.BenchmarkScorecardCli")
-    classpath = project(":aceclaw-daemon").sourceSets["main"].runtimeClasspath
+    mainClass.set("dev.acecopilot.daemon.BenchmarkScorecardCli")
+    classpath = project(":ace-copilot-daemon").sourceSets["main"].runtimeClasspath
 
     val replayReport = providers.gradleProperty("replayReport")
-            .orElse("${rootDir}/.aceclaw/metrics/continuous-learning/replay-latest.json")
+            .orElse("${rootDir}/.ace-copilot/metrics/continuous-learning/replay-latest.json")
     val runtimeMetrics = providers.gradleProperty("runtimeMetrics")
-            .orElse("${rootDir}/.aceclaw/metrics/continuous-learning/runtime-latest.json")
+            .orElse("${rootDir}/.ace-copilot/metrics/continuous-learning/runtime-latest.json")
     val scorecardOutput = providers.gradleProperty("scorecardOutput")
-            .orElse("${rootDir}/.aceclaw/metrics/continuous-learning/benchmark-scorecard.json")
+            .orElse("${rootDir}/.ace-copilot/metrics/continuous-learning/benchmark-scorecard.json")
 
     jvmArgs("--enable-preview")
     args("--replay-report", replayReport.get(),

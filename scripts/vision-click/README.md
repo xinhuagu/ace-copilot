@@ -36,12 +36,12 @@ python3 scripts/vision-click/vision_click.py \
 
 ```bash
 python3 scripts/vision-click/vision_click.py \
-  --template .aceclaw/skills/click-precision-robust/templates/teams-calendar-icon.png \
+  --template .ace-copilot/skills/click-precision-robust/templates/teams-calendar-icon.png \
   --confidence 0.80 \
   --retries 4
 
 python3 scripts/vision-click/vision_click.py \
-  --template .aceclaw/skills/click-precision-robust/templates/teams-next-week-icon.png \
+  --template .ace-copilot/skills/click-precision-robust/templates/teams-next-week-icon.png \
   --confidence 0.88 \
   --retries 4
 ```

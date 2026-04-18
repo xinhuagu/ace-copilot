@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Exports a summary JSON from the injection-audit.jsonl log.
-# Output: .aceclaw/metrics/continuous-learning/injection-audit-summary.json
+# Output: .ace-copilot/metrics/continuous-learning/injection-audit-summary.json
 #
 # The summary provides learning_hit_rate and diagnostic counts so that
 # the baseline collector can auto-read it instead of requiring manual
@@ -19,9 +19,9 @@ Usage: ./scripts/export-injection-audit-summary.sh [options]
 Options:
   --project-root <path>   Project root (default: cwd).
   --audit-path <path>     Path to injection-audit.jsonl
-                          (default: \$PROJECT_ROOT/.aceclaw/memory/injection-audit.jsonl)
+                          (default: \$PROJECT_ROOT/.ace-copilot/memory/injection-audit.jsonl)
   --output <path>         Output summary JSON path
-                          (default: \$PROJECT_ROOT/.aceclaw/metrics/continuous-learning/injection-audit-summary.json)
+                          (default: \$PROJECT_ROOT/.ace-copilot/metrics/continuous-learning/injection-audit-summary.json)
   --help                  Show this help.
 USAGE
 }
@@ -53,10 +53,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$AUDIT_PATH" ]]; then
-  AUDIT_PATH="$PROJECT_ROOT/.aceclaw/memory/injection-audit.jsonl"
+  AUDIT_PATH="$PROJECT_ROOT/.ace-copilot/memory/injection-audit.jsonl"
 fi
 if [[ -z "$OUTPUT" ]]; then
-  OUTPUT="$PROJECT_ROOT/.aceclaw/metrics/continuous-learning/injection-audit-summary.json"
+  OUTPUT="$PROJECT_ROOT/.ace-copilot/metrics/continuous-learning/injection-audit-summary.json"
 fi
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -100,7 +100,7 @@ jq -s \
   | {
       metadata: {
         collected_at: $collected_at,
-        repo: "AceClaw",
+        repo: "AceCopilot",
         branch: $branch,
         commit: $commit,
         source: $audit_path,

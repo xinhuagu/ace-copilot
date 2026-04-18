@@ -1,14 +1,14 @@
-# AceClaw Security Model
+# AceCopilot Security Model
 
 > Version 1.0 | 2026-03-17
 
-AceClaw defends across five dimensions: network isolation, permission enforcement, memory integrity, content boundaries, and data protection.
+AceCopilot defends across five dimensions: network isolation, permission enforcement, memory integrity, content boundaries, and data protection.
 
 ---
 
 ## 1. Zero Network Attack Surface
 
-The daemon communicates exclusively via **Unix Domain Socket** (`~/.aceclaw/aceclaw.sock`). No HTTP, REST, or WebSocket listeners exist.
+The daemon communicates exclusively via **Unix Domain Socket** (`~/.ace-copilot/ace-copilot.sock`). No HTTP, REST, or WebSocket listeners exist.
 
 | Component | Security Property |
 |-----------|-------------------|
@@ -66,7 +66,7 @@ Every persisted memory entry is signed with HMAC-SHA256.
 |----------|----------------|
 | **Signing** | `MemorySigner.sign()` computes `HMAC-SHA256(id\|category\|content\|tags\|createdAt\|source)` |
 | **Verification** | `MessageDigest.isEqual()` — constant-time comparison prevents timing attacks |
-| **Key storage** | 32-byte random secret at `~/.aceclaw/memory/memory.key` (POSIX 600) |
+| **Key storage** | 32-byte random secret at `~/.ace-copilot/memory/memory.key` (POSIX 600) |
 | **Tamper handling** | Corrupted entries silently skipped on load, warning logged |
 | **Mutable field exclusion** | `accessCount` and `lastAccessedAt` are excluded from the signable payload so that read-tracking does not invalidate signatures |
 
@@ -112,7 +112,7 @@ Memory tiers are loaded in strict priority order (100 → 50). Human-authored co
 
 | Threat | Mitigation |
 |--------|------------|
-| **Cross-project leakage** | SHA-256 hashed workspace paths under `~/.aceclaw/workspaces/`. Separate JSONL per project. |
+| **Cross-project leakage** | SHA-256 hashed workspace paths under `~/.ace-copilot/workspaces/`. Separate JSONL per project. |
 | **Unbounded growth** | Journal: 500 lines/day. MEMORY.md: 50KB/file, 500KB/workspace. Consolidator: dedup + merge + prune. |
 | **Path traversal** | `PathResolver.resolve()` normalizes paths. `RuleEngine` and `MarkdownMemoryStore` validate file names (no `/`, `\`, `..`). |
 | **Read-before-write** | `WriteFileTool` requires existing files to be read first, preventing blind overwrites. |
@@ -125,7 +125,7 @@ Memory tiers are loaded in strict priority order (100 → 50). Human-authored co
 
 ## Security Design Principles
 
-| Principle | How AceClaw implements it |
+| Principle | How AceCopilot implements it |
 |-----------|---------------------------|
 | **Defense in depth** | Permission system + UDS isolation + HMAC signing + content budgets |
 | **Fail-safe defaults** | Only READ auto-approved; all writes need explicit approval |

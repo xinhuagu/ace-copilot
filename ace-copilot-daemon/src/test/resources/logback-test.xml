@@ -1,0 +1,17 @@
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Reduce noise in test output -->
+    <logger name="dev.acecopilot.daemon" level="INFO"/>
+    <logger name="dev.acecopilot.core" level="INFO"/>
+    <logger name="dev.acecopilot.tools" level="WARN"/>
+    <logger name="dev.acecopilot.security" level="INFO"/>
+
+    <root level="WARN">
+        <appender-ref ref="STDOUT"/>
+    </root>
+</configuration>

@@ -1,0 +1,96 @@
+<mxGraphModel>
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+
+    <!-- White background -->
+    <mxCell id="bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="0" y="0" width="720" height="560" as="geometry"/>
+    </mxCell>
+
+    <!-- Title -->
+    <mxCell id="title" value="AceCopilot: Self-Learning Daemon Architecture" style="text;html=1;fontSize=16;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+      <mxGeometry x="100" y="10" width="500" height="30" as="geometry"/>
+    </mxCell>
+
+    <!-- CLI / REPL bar -->
+    <mxCell id="cli" value="CLI / REPL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;align=center;" vertex="1" parent="1">
+      <mxGeometry x="100" y="50" width="500" height="35" as="geometry"/>
+    </mxCell>
+
+    <!-- UDS label -->
+    <mxCell id="uds" value="UDS only (no network surface)" style="text;html=1;fontSize=10;align=center;fillColor=none;strokeColor=none;fontColor=#888888;" vertex="1" parent="1">
+      <mxGeometry x="200" y="87" width="300" height="18" as="geometry"/>
+    </mxCell>
+
+    <!-- Arrow CLI to Daemon -->
+    <mxCell id="arrow1" value="" style="endArrow=classic;startArrow=classic;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="cli" target="daemon">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Persistent JVM Daemon container -->
+    <mxCell id="daemon" value="Persistent JVM Daemon" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;fontStyle=1;align=center;verticalAlign=top;spacingTop=5;container=0;" vertex="1" parent="1">
+      <mxGeometry x="40" y="110" width="620" height="400" as="geometry"/>
+    </mxCell>
+
+    <!-- Row 1: Plan → Execute → Replan -->
+    <mxCell id="plan-box" value="&lt;b&gt;Plan → Execute → Replan&lt;/b&gt;&lt;br&gt;&lt;span style=&quot;font-size:10px&quot;&gt;complexity estimation → task plan → sequential execution → adaptive replan → checkpoint&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="80" y="145" width="540" height="45" as="geometry"/>
+    </mxCell>
+
+    <!-- Row 2: ReAct Loop -->
+    <mxCell id="react" value="&lt;b&gt;ReAct Loop&lt;/b&gt;&lt;br&gt;&lt;span style=&quot;font-size:10px&quot;&gt;reason → act → observe → reason&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;align=center;" vertex="1" parent="1">
+      <mxGeometry x="80" y="205" width="540" height="45" as="geometry"/>
+    </mxCell>
+
+    <!-- Arrow Plan to ReAct -->
+    <mxCell id="arrow-plan-react" value="executes each step via" style="endArrow=classic;html=1;strokeColor=#d6b656;strokeWidth=1.5;fontSize=9;fontColor=#999999;" edge="1" parent="1" source="plan-box" target="react">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Row 3: Behavior Detectors -->
+    <mxCell id="detectors" value="&lt;b&gt;Behavior Detectors&lt;/b&gt;&lt;br&gt;&lt;span style=&quot;font-size:10px&quot;&gt;errors • recoveries • patterns • user corrections&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=center;" vertex="1" parent="1">
+      <mxGeometry x="80" y="270" width="540" height="45" as="geometry"/>
+    </mxCell>
+
+    <!-- Row 4: Self-Learning Engine -->
+    <mxCell id="learning" value="&lt;b&gt;Self-Learning Engine&lt;/b&gt;&lt;br&gt;&lt;span style=&quot;font-size:10px&quot;&gt;score → promote → inject → validate&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;align=center;" vertex="1" parent="1">
+      <mxGeometry x="80" y="335" width="540" height="45" as="geometry"/>
+    </mxCell>
+
+    <!-- Governed Memory -->
+    <mxCell id="memory" value="&lt;b&gt;Governed Memory&lt;/b&gt;&lt;br&gt;&lt;span style=&quot;font-size:10px&quot;&gt;8-tier hierarchy&lt;br&gt;HMAC-signed&lt;br&gt;promote / rollback&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=center;" vertex="1" parent="1">
+      <mxGeometry x="80" y="400" width="255" height="65" as="geometry"/>
+    </mxCell>
+
+    <!-- Validated Skills -->
+    <mxCell id="skills" value="&lt;b&gt;Validated Skills&lt;/b&gt;&lt;br&gt;&lt;span style=&quot;font-size:10px&quot;&gt;shadow → canary → active&lt;br&gt;auto-rollback&lt;br&gt;rollback if regression&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=center;" vertex="1" parent="1">
+      <mxGeometry x="365" y="400" width="255" height="65" as="geometry"/>
+    </mxCell>
+
+    <!-- Security footer inside daemon -->
+    <mxCell id="security" value="4-level permissions • workspace isolation • HMAC integrity" style="text;html=1;fontSize=10;align=center;fillColor=none;strokeColor=none;fontColor=#666666;" vertex="1" parent="1">
+      <mxGeometry x="100" y="480" width="500" height="20" as="geometry"/>
+    </mxCell>
+
+    <!-- Arrows between rows -->
+    <mxCell id="a2" value="" style="endArrow=classic;html=1;strokeColor=#999999;strokeWidth=1;" edge="1" parent="1" source="react" target="detectors">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="a3" value="" style="endArrow=classic;html=1;strokeColor=#999999;strokeWidth=1;" edge="1" parent="1" source="detectors" target="learning">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="a4" value="" style="endArrow=classic;html=1;strokeColor=#999999;strokeWidth=1;" edge="1" parent="1" source="learning" target="memory">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="a5" value="" style="endArrow=classic;html=1;strokeColor=#999999;strokeWidth=1;" edge="1" parent="1" source="learning" target="skills">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Bottom footer -->
+    <mxCell id="footer" value="Sealed local daemon • JVM • UDS-only • zero network surface • security-first" style="text;html=1;fontSize=10;align=center;fillColor=none;strokeColor=none;fontColor=#888888;fontStyle=2;" vertex="1" parent="1">
+      <mxGeometry x="80" y="520" width="540" height="20" as="geometry"/>
+    </mxCell>
+
+  </root>
+</mxGraphModel>

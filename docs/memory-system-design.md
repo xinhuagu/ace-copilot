@@ -1,4 +1,4 @@
-# AceClaw Memory System Design
+# AceCopilot Memory System Design
 
 > Version 2.2 | 2026-03-14
 
@@ -6,7 +6,7 @@
 
 ![Memory System Architecture](img/memory-architecture.png)
 
-The AceClaw memory system enables **cross-session learning** through an 8-tier hierarchical memory model, HMAC-signed persistent storage, hybrid search, markdown memory files, path-based conditional rules, memory consolidation, and multiple automated extraction pipelines. The agent accumulates knowledge over time — mistakes to avoid, codebase patterns, user preferences, error recovery strategies — and applies them automatically in future sessions.
+The AceCopilot memory system enables **cross-session learning** through an 8-tier hierarchical memory model, HMAC-signed persistent storage, hybrid search, markdown memory files, path-based conditional rules, memory consolidation, and multiple automated extraction pipelines. The agent accumulates knowledge over time — mistakes to avoid, codebase patterns, user preferences, error recovery strategies — and applies them automatically in future sessions.
 
 ---
 
@@ -33,11 +33,11 @@ Priority 100  ┌─────────────────────
               ├──────────────────────────┤
 Priority  90  │   T2: Managed Policy     │  Organization-managed (enterprise)
               ├──────────────────────────┤
-Priority  80  │   T3: Workspace          │  {project}/ACECLAW.md
+Priority  80  │   T3: Workspace          │  {project}/ACE_COPILOT.md
               ├──────────────────────────┤
-Priority  70  │   T4: User Memory        │  ~/.aceclaw/ACECLAW.md
+Priority  70  │   T4: User Memory        │  ~/.ace-copilot/ACE_COPILOT.md
               ├──────────────────────────┤
-Priority  65  │   T5: Local Memory       │  ACECLAW.local.md (gitignored)
+Priority  65  │   T5: Local Memory       │  ACE_COPILOT.local.md (gitignored)
               ├──────────────────────────┤
 Priority  60  │   T6: Auto-Memory        │  JSONL + HMAC (agent-written)
               ├──────────────────────────┤
@@ -51,14 +51,14 @@ Priority  50  │   T8: Daily Journal      │  journal/YYYY-MM-DD.md
 
 | Tier | Source File | Scope | Author | Loaded |
 |------|-----------|-------|--------|--------|
-| **Soul** | `SOUL.md` (workspace `.aceclaw/` or global `~/.aceclaw/`) | Identity | Human | Always (if exists) |
-| **Managed Policy** | `~/.aceclaw/managed-policy.md` | Organization | IT Admin | Always (if exists) |
-| **Workspace Memory** | `{project}/ACECLAW.md` + `{project}/.aceclaw/ACECLAW.md` | Project team | Human | Always (if exists) |
-| **User Memory** | `~/.aceclaw/ACECLAW.md` | Personal global | Human | Always (if exists) |
-| **Local Memory** | `{project}/ACECLAW.local.md` | Per-developer | Human | Always (if exists, gitignored) |
-| **Auto-Memory** | `~/.aceclaw/memory/{project-hash}.jsonl` + `global.jsonl` | Per-project | Agent | Always |
-| **Markdown Memory** | `~/.aceclaw/workspaces/{hash}/memory/MEMORY.md` + topic files | Per-project | Agent | First 200 lines of MEMORY.md |
-| **Daily Journal** | `~/.aceclaw/workspaces/{hash}/memory/journal/YYYY-MM-DD.md` | Per-project | Agent + System | Today + yesterday |
+| **Soul** | `SOUL.md` (workspace `.ace-copilot/` or global `~/.ace-copilot/`) | Identity | Human | Always (if exists) |
+| **Managed Policy** | `~/.ace-copilot/managed-policy.md` | Organization | IT Admin | Always (if exists) |
+| **Workspace Memory** | `{project}/ACE_COPILOT.md` + `{project}/.ace-copilot/ACE_COPILOT.md` | Project team | Human | Always (if exists) |
+| **User Memory** | `~/.ace-copilot/ACE_COPILOT.md` | Personal global | Human | Always (if exists) |
+| **Local Memory** | `{project}/ACE_COPILOT.local.md` | Per-developer | Human | Always (if exists, gitignored) |
+| **Auto-Memory** | `~/.ace-copilot/memory/{project-hash}.jsonl` + `global.jsonl` | Per-project | Agent | Always |
+| **Markdown Memory** | `~/.ace-copilot/workspaces/{hash}/memory/MEMORY.md` + topic files | Per-project | Agent | First 200 lines of MEMORY.md |
+| **Daily Journal** | `~/.ace-copilot/workspaces/{hash}/memory/journal/YYYY-MM-DD.md` | Per-project | Agent + System | Today + yesterday |
 
 ### Implementation: `MemoryTier.java`
 
@@ -92,7 +92,7 @@ The central memory persistence engine. Thread-safe via `CopyOnWriteArrayList`.
 - `query(category, tags, limit)` — Filter-based retrieval (recency-ordered), increments access count
 - `remove(id, projectPath)` — Delete with file rewrite
 - `formatForPrompt(projectPath, maxEntries, queryHint)` — Format entries grouped by category for system prompt injection
-- `forWorkspace(aceclawHome, workspacePath)` — Factory that initializes workspace-scoped store + `DailyJournal`
+- `forWorkspace(ace-copilotHome, workspacePath)` — Factory that initializes workspace-scoped store + `DailyJournal`
 - `entries()` — Unmodifiable view for consolidator access
 - `replaceEntries(newEntries, projectPath)` — Atomic replacement (used by consolidator)
 
@@ -147,7 +147,7 @@ public record MemoryEntry(
 | `STRATEGY` | Approaches that worked/failed | "Run tests after every edit to catch regressions" |
 | `WORKFLOW` | Multi-step processes | "Deploy: build -> test -> push -> tag" |
 | `ENVIRONMENT` | Environment-specific config | "CI uses JDK 21.0.2 on Ubuntu 22.04" |
-| `RELATIONSHIP` | Component/module relationships | "aceclaw-tools depends on aceclaw-memory" |
+| `RELATIONSHIP` | Component/module relationships | "ace-copilot-tools depends on ace-copilot-memory" |
 | `TERMINOLOGY` | Domain abbreviations | "BOM = Bill of Materials (Gradle platform)" |
 | `CONSTRAINT` | Explicit limitations | "Never commit files under research/" |
 | `DECISION` | Design rationale | "No framework - plain Java for min startup time" |
@@ -155,7 +155,7 @@ public record MemoryEntry(
 | `COMMUNICATION` | Communication preferences | "User prefers Chinese for conversations" |
 | `CONTEXT` | Carried-forward context | "Working on P2 multi-provider feature" |
 | `CORRECTION` | User corrections | "Use ConcurrentHashMap, not HashMap" |
-| `BOOKMARK` | Quick references | "Key config file: ~/.aceclaw/config.json" |
+| `BOOKMARK` | Quick references | "Key config file: ~/.ace-copilot/config.json" |
 | `SESSION_SUMMARY` | Session key actions/outcomes | "Implemented 8-tier memory system in 11 tasks" |
 | `ERROR_RECOVERY` | Error + resolution | "Jackson readTree('') returns null, check isObject()" |
 | `SUCCESSFUL_STRATEGY` | Proven strategies | "3-pass consolidation: dedup, merge, prune" |
@@ -184,7 +184,7 @@ Final Score = 0.50 * TF-IDF + 0.35 * Recency + 0.15 * Frequency
 
 HMAC-SHA256 signing with per-installation secret key.
 
-- **Key:** 32-byte random secret at `~/.aceclaw/memory/memory.key` (POSIX 600 permissions)
+- **Key:** 32-byte random secret at `~/.ace-copilot/memory/memory.key` (POSIX 600 permissions)
 - **Signing:** `HMAC-SHA256(id|category|content|tags|createdAt|source)` — mutable fields (accessCount, lastAccessedAt) intentionally excluded
 - **Verification:** Constant-time comparison via `MessageDigest.isEqual()` (prevents timing attacks)
 - **On tamper:** Entry silently skipped during load, warning logged
@@ -196,7 +196,7 @@ Workspace isolation via SHA-256 hashing:
 ```
 Input:  /Users/xinhua.gu/Documents/project/github/Chelava
 Hash:   SHA-256 → first 12 hex chars → "a1b2c3d4e5f6"
-Output: ~/.aceclaw/workspaces/a1b2c3d4e5f6/memory/
+Output: ~/.ace-copilot/workspaces/a1b2c3d4e5f6/memory/
 ```
 
 - **Marker file:** `workspace-path.txt` records original path for human reference
@@ -207,7 +207,7 @@ Output: ~/.aceclaw/workspaces/a1b2c3d4e5f6/memory/
 Append-only daily activity log stored as markdown:
 
 ```
-~/.aceclaw/workspaces/{hash}/memory/journal/2026-02-18.md
+~/.ace-copilot/workspaces/{hash}/memory/journal/2026-02-18.md
 ```
 
 - **Format:** `- [2026-02-18T10:30:00Z] Session abc12345 ended: 15 messages, 3 memories extracted`
@@ -221,7 +221,7 @@ Manages persistent markdown memory files per workspace — inspired by Claude Co
 
 **Storage layout:**
 ```
-~/.aceclaw/workspaces/{hash}/memory/
+~/.ace-copilot/workspaces/{hash}/memory/
   MEMORY.md          — always injected into system prompt (first 200 lines)
   debugging.md       — topic file (agent reads on demand)
   patterns.md        — topic file
@@ -244,7 +244,7 @@ Manages persistent markdown memory files per workspace — inspired by Claude Co
 
 ### 3.8 PathBasedRule + RuleEngine
 
-Conditional rules triggered by file glob patterns. Rules are loaded from `{project}/.aceclaw/rules/*.md`.
+Conditional rules triggered by file glob patterns. Rules are loaded from `{project}/.ace-copilot/rules/*.md`.
 
 **Rule file format:**
 ```markdown
@@ -270,7 +270,7 @@ public record PathBasedRule(
 ```
 
 **RuleEngine key methods:**
-- `loadRules(projectPath)` — scans `{project}/.aceclaw/rules/*.md`, parses YAML frontmatter
+- `loadRules(projectPath)` — scans `{project}/.ace-copilot/rules/*.md`, parses YAML frontmatter
 - `matchRules(filePath)` — returns all rules whose glob patterns match a given file path
 - `formatForPrompt(filePaths)` — formats matching rules for system prompt injection
 - `rules()` — returns all loaded rules (unmodifiable list)
@@ -308,14 +308,14 @@ Central orchestrator that discovers, loads, and assembles all 8 tiers:
 ```java
 // Loading
 LoadResult result = MemoryTierLoader.loadAll(
-    aceclawHome, workspacePath, memoryStore, journal, markdownStore);
+    ace-copilotHome, workspacePath, memoryStore, journal, markdownStore);
 
 // Assembly for system prompt
 String memorySection = MemoryTierLoader.assembleForSystemPrompt(
     result, memoryStore, workspacePath, 50);
 ```
 
-**SOUL.md resolution:** Workspace `.aceclaw/SOUL.md` takes precedence over global `~/.aceclaw/SOUL.md`.
+**SOUL.md resolution:** Workspace `.ace-copilot/SOUL.md` takes precedence over global `~/.ace-copilot/SOUL.md`.
 
 **New tiers in assembly:**
 - `LocalMemory` → injected with header "# Local Memory (Per-Developer)"
@@ -389,14 +389,14 @@ This prevents memory pollution from accumulating duplicate or stale entries over
 
 ### 4.5 Correction Rule Promotion (CorrectionRulePromoter)
 
-When the agent makes the same mistake 2+ times across sessions, `CorrectionRulePromoter` automatically elevates those corrections from Tier 6 (auto-memory JSONL) to Tier 3 (workspace `.aceclaw/ACECLAW.md`). This closes the self-learning loop — repeated corrections become permanent rules visible in every system prompt.
+When the agent makes the same mistake 2+ times across sessions, `CorrectionRulePromoter` automatically elevates those corrections from Tier 6 (auto-memory JSONL) to Tier 3 (workspace `.ace-copilot/ACE_COPILOT.md`). This closes the self-learning loop — repeated corrections become permanent rules visible in every system prompt.
 
 - **Trigger:** Runs as step 2 of the deferred learning maintenance pipeline
 - **Input:** `CORRECTION` and `MISTAKE` category entries from `AutoMemoryStore`
 - **Grouping:** Jaccard token similarity >= 0.50 (looser than consolidation's 0.80)
 - **Threshold:** 2+ similar entries required before promotion
-- **Dedup:** SHA-256 fingerprint comments in ACECLAW.md prevent duplicate rules across runs
-- **Output:** Appends rules under `## Auto-Promoted Rules` section in `.aceclaw/ACECLAW.md`
+- **Dedup:** SHA-256 fingerprint comments in ACE_COPILOT.md prevent duplicate rules across runs
+- **Output:** Appends rules under `## Auto-Promoted Rules` section in `.ace-copilot/ACE_COPILOT.md`
 
 ---
 
@@ -438,7 +438,7 @@ Memory tiers are injected as markdown sections:
 - Jackson readTree("") returns null in 2.18.2 — check isObject() [jackson, api]
 
 # Persistent Memory Notes
-## AceClaw Project Memory
+## AceCopilot Project Memory
 ...
 
 # Daily Journal
@@ -482,9 +482,9 @@ This complements auto-memory by providing a human-readable, editable knowledge b
 ## 6. Storage Layout
 
 ```
-~/.aceclaw/
+~/.ace-copilot/
   SOUL.md                              # T1: Core identity (global)
-  ACECLAW.md                           # T4: User preferences (global)
+  ACE_COPILOT.md                           # T4: User preferences (global)
   managed-policy.md                    # T2: Organization policy (enterprise)
   memory/
     memory.key                         # 32-byte HMAC secret (POSIX 600)
@@ -504,10 +504,10 @@ This complements auto-memory by providing a human-readable, editable knowledge b
           2026-02-18.md                # Today's journal
 
 {project}/
-  ACECLAW.md                           # T3: Project instructions
-  ACECLAW.local.md                     # T5: Per-developer overrides (gitignored)
-  .aceclaw/
-    ACECLAW.md                         # T3: Additional project instructions
+  ACE_COPILOT.md                           # T3: Project instructions
+  ACE_COPILOT.local.md                     # T5: Per-developer overrides (gitignored)
+  .ace-copilot/
+    ACE_COPILOT.md                         # T3: Additional project instructions
     SOUL.md                            # T1: Project-specific identity override
     config.json                        # Project config override
     rules/                             # Path-based conditional rules
@@ -536,7 +536,7 @@ This complements auto-memory by providing a human-readable, editable knowledge b
 
 ## 8. System Prompt Size Budget
 
-The system prompt budget is implemented today. AceClaw assembles memory tiers, path-based rules, environment context, tool guidance, and runtime learning sections, then applies a character budget before the request is sent.
+The system prompt budget is implemented today. AceCopilot assembles memory tiers, path-based rules, environment context, tool guidance, and runtime learning sections, then applies a character budget before the request is sent.
 
 ### 8.1 Current Budget Model
 
@@ -557,7 +557,7 @@ When a tier exceeds its cap, or the total assembled prompt exceeds the global ca
 - truncation keeps a 70/20/10 split of head / tail / marker
 - `Soul` and `Managed Policy` remain the hardest tiers to displace
 
-This is an intentionally simple character-budget model. AceClaw does not require exact token accounting for every tier before assembly.
+This is an intentionally simple character-budget model. AceCopilot does not require exact token accounting for every tier before assembly.
 
 ### 8.3 Context-Aware Compaction Boundary
 
@@ -565,23 +565,23 @@ This is an intentionally simple character-budget model. AceClaw does not require
 
 ---
 
-## 9. AceClaw vs OpenClaw
+## 9. AceCopilot vs OpenClaw
 
-This section compares AceClaw's current memory-and-learning design with OpenClaw's currently documented default path. It is not a claim that OpenClaw cannot support richer behavior through plugins or alternative context engines.
+This section compares AceCopilot's current memory-and-learning design with OpenClaw's currently documented default path. It is not a claim that OpenClaw cannot support richer behavior through plugins or alternative context engines.
 
 ### 9.1 High-Level Difference
 
-![Architecture Comparison](img/architecture_comparison_openclaw_vs_aceclaw_1.drawio.png)
+![Architecture Comparison](img/architecture_comparison_openclaw_vs_ace-copilot_1.drawio.png)
 
-OpenClaw is stronger as a broader context and retrieval product. AceClaw is stronger as a behavior-centric learning kernel.
+OpenClaw is stronger as a broader context and retrieval product. AceCopilot is stronger as a behavior-centric learning kernel.
 
 In practice:
 - OpenClaw emphasizes explicit memory, retrieval, context observability, and platform breadth.
-- AceClaw emphasizes governed memory, behavior-derived insights, rule promotion, and long-running learning loops.
+- AceCopilot emphasizes governed memory, behavior-derived insights, rule promotion, and long-running learning loops.
 
 ### 9.2 Comparison Table
 
-| Dimension | AceClaw today | OpenClaw documented core path |
+| Dimension | AceCopilot today | OpenClaw documented core path |
 |-----------|---------------|-------------------------------|
 | **Primary focus** | Learn from runtime behavior and feed it back into future runs | Persist, retrieve, and inspect durable memory/context |
 | **Memory model** | 8-tier hierarchy with policy vs learned-memory separation | Disk-backed memory plus platform context surfaces |
@@ -592,9 +592,9 @@ In practice:
 | **Governance** | Confidence thresholds, consolidation, candidate bridge, rule promotion, validation/rollback around adaptive skills | Strong context/runtime product controls; learning governance depends more on extensions |
 | **Platform breadth** | Local daemon + CLI + coding-first workflow | Wider channels, broader platform surface, larger ecosystem |
 
-### 9.3 Where AceClaw is Stronger
+### 9.3 Where AceCopilot is Stronger
 
-AceClaw is stronger in the places that matter most for long-running task execution:
+AceCopilot is stronger in the places that matter most for long-running task execution:
 
 1. **Behavior-derived memory** — learnings come from failures, recoveries, repeated sequences, and user corrections, not only from explicit note writing.
 2. **Governed promotion** — confidence thresholds, consolidation, correction-rule promotion, candidate bridging, and skill validation reduce the chance of learning raw noise.
@@ -606,11 +606,11 @@ OpenClaw is still stronger in several context-engineering areas:
 
 1. **Retrieval maturity** — its documented default path is richer in retrieval tooling and operator-facing memory inspection.
 2. **Context observability** — OpenClaw exposes a clearer product surface for prompt composition and compaction behavior.
-3. **Platform surface** — it reaches more channels and product scenarios than AceClaw currently does.
+3. **Platform surface** — it reaches more channels and product scenarios than AceCopilot currently does.
 
 ### 9.5 The Design Tradeoff
 
-AceClaw is intentionally narrower. It treats memory as one layer of a larger long-running learning system:
+AceCopilot is intentionally narrower. It treats memory as one layer of a larger long-running learning system:
 
 ```text
 behavior -> typed insight -> persisted memory -> promoted rule/candidate -> future run
@@ -622,7 +622,7 @@ OpenClaw's documented default path is closer to:
 write memory -> index memory -> retrieve memory -> reuse memory
 ```
 
-Both are valid. AceClaw's design matters if the goal is not just to remember more, but to improve behavior over time under governance.
+Both are valid. AceCopilot's design matters if the goal is not just to remember more, but to improve behavior over time under governance.
 
 ---
 
@@ -685,23 +685,23 @@ SystemPromptLoader
   ├── uses MemoryTierLoader (8-tier assembly)
   └── uses RuleEngine (path-based rules)
 
-MemoryTool (aceclaw-tools)
+MemoryTool (ace-copilot-tools)
   └── uses AutoMemoryStore (23 categories)
 
-SessionEndExtractor (aceclaw-daemon)
+SessionEndExtractor (ace-copilot-daemon)
   └── produces entries → AutoMemoryStore.add()
   └── 6 extraction types (corrections, preferences, files, errors, strategies, feedback)
 
-MemoryConsolidator (aceclaw-memory)
+MemoryConsolidator (ace-copilot-memory)
   └── runs in deferred learning maintenance → dedup/merge/prune
 
-CorrectionRulePromoter (aceclaw-memory)
+CorrectionRulePromoter (ace-copilot-memory)
   ├── scans AutoMemoryStore for CORRECTION/MISTAKE entries
   ├── groups by Jaccard similarity (>= 0.50)
   ├── generates rules for groups with 2+ occurrences
-  └── appends to .aceclaw/ACECLAW.md (Tier 6 → Tier 3 promotion)
+  └── appends to .ace-copilot/ACE_COPILOT.md (Tier 6 → Tier 3 promotion)
 
-MessageCompactor (aceclaw-core)
+MessageCompactor (ace-copilot-core)
   └── Phase 0 extractContextItems → persisted via StreamingAgentHandler
 ```
 
@@ -745,7 +745,7 @@ MessageCompactor (aceclaw-core)
 | P1 | PathBasedRule + RuleEngine (conditional rules per file type) | **Done** |
 | P1 | MemoryConsolidator (dedup + merge + prune) | **Done** |
 | P1 | Access tracking (accessCount, lastAccessedAt) | **Done** |
-| P1 | Local Memory tier (ACECLAW.local.md, gitignored) | **Done** |
+| P1 | Local Memory tier (ACE_COPILOT.local.md, gitignored) | **Done** |
 | P1 | System prompt budget (150K char cap, per-tier 20K cap, 70/20/10 truncation) | **Done** |
 | P1 | Context-aware effective window / prompt-budget-aware compaction | **Done** |
 | P2 | Dynamic rule matching during tool execution (per-file injection) | Planned |

@@ -5,8 +5,8 @@
 - Environment: local macOS development machine
 - Branch: main (collection run)
 - Commit: `90fd421`
-- Collector command: `./scripts/collect-continuous-learning-baseline.sh --run-tests --output /tmp/aceclaw-baseline-with-tests.json`
-- Output JSON path: `/tmp/aceclaw-baseline-with-tests.json`
+- Collector command: `./scripts/collect-continuous-learning-baseline.sh --run-tests --output /tmp/ace-copilot-baseline-with-tests.json`
+- Output JSON path: `/tmp/ace-copilot-baseline-with-tests.json`
 
 ## Summary
 - Overall baseline status: partial (measurement schema established; multiple metrics pending instrumentation)
