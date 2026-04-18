@@ -480,8 +480,20 @@ public final class AceCopilotDaemon {
                 + "To opt in explicitly, add \"copilotRuntimeAcceptUnsandboxed\": true to your active profile. "
                 + "See issue #3.");
         }
+        // The session runtime launches a Node.js sidecar, which is not a
+        // prerequisite of the ace-copilot installer. Preflight node on PATH
+        // so misconfigured users see the problem at startup rather than at
+        // the first agent.prompt.
+        String effectiveRuntime = config.effectiveCopilotRuntime();
+        if ("session".equalsIgnoreCase(effectiveRuntime) && !isNodeAvailable()) {
+            log.error(
+                "copilotRuntime='session' requires Node.js on PATH (the sidecar runs under `node`), "
+                + "but `node --version` did not succeed. Refusing to enter session mode; falling back to 'chat'. "
+                + "Install Node.js 20+ from https://nodejs.org/ (or your package manager) and restart the daemon.");
+            effectiveRuntime = "chat";
+        }
         agentHandler.setCopilotRuntimeConfig(
-                config.effectiveCopilotRuntime(),
+                effectiveRuntime,
                 resolveCopilotGithubToken(config),
                 resolveCopilotSidecarDir());
         agentHandler.setMcpInitFuture(mcpInitFuture);
@@ -2556,6 +2568,31 @@ public final class AceCopilotDaemon {
                             + ", mining=" + (errorChains + stableWorkflows + convergingStrategies + degradationSignals)
                             + ", trends=" + trends
                             + ", bridge=" + candidateObservations + "/" + candidateTransitions + "/" + candidatePromoted);
+        }
+    }
+
+    /**
+     * Checks whether {@code node} is available on {@code PATH}. The session
+     * runtime spawns a Node.js sidecar; without {@code node} the first
+     * {@code agent.prompt} would fail with a generic IOException from
+     * {@link ProcessBuilder}. Preflight lets the daemon log a pointed
+     * error at startup and fall back to the chat runtime.
+     */
+    private static boolean isNodeAvailable() {
+        try {
+            var pb = new ProcessBuilder("node", "--version").redirectErrorStream(true);
+            var p = pb.start();
+            p.getInputStream().readAllBytes();
+            if (!p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return false;
+            }
+            return p.exitValue() == 0;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (Exception e) {
+            return false;
         }
     }
 

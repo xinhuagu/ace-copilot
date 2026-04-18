@@ -101,7 +101,15 @@ public final class CopilotAcpClient implements AutoCloseable {
                 .directory(sidecarDir.toFile())
                 .redirectErrorStream(false);
         log.info("Launching Copilot sidecar: {}", script);
-        this.sidecar = pb.start();
+        try {
+            this.sidecar = pb.start();
+        } catch (IOException e) {
+            throw new IOException(
+                    "Failed to launch Copilot sidecar: " + e.getMessage()
+                    + ". copilotRuntime=session requires Node.js on PATH — install Node.js 20+"
+                    + " (https://nodejs.org/) and restart the daemon, or set copilotRuntime back to 'chat'.",
+                    e);
+        }
 
         this.readerThread = new Thread(this::readLoop, "copilot-sidecar-reader");
         readerThread.setDaemon(true);

@@ -11,6 +11,8 @@
 #   4. Creates ace-copilot, ace-copilot-tui, ace-copilot-restart, ace-copilot-update commands
 #
 # No build tools required — only Java 21 runtime.
+# Optional: Node.js 20+ on PATH if you opt into copilotRuntime="session" (issue #3)
+# for GitHub Copilot. The default copilotRuntime="chat" does not need Node.
 # Supports: macOS, Linux, Windows (Git Bash / WSL)
 set -e
 
