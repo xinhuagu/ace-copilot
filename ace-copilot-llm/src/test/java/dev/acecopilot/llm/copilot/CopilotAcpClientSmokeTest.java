@@ -79,8 +79,8 @@ class CopilotAcpClientSmokeTest {
         assertThat(result.lastUsage().initiator()).isEqualTo("agent");
         assertThat(result.lastUsage().premiumUsed()).isEqualTo(43L);
 
-        assertThat(result.premiumDelta())
-                .as("delta = last - first, same field Phase 1 verification relies on")
+        assertThat(result.intraTurnPremiumDelta())
+                .as("diagnostic: subtraction inside a single turn — honest cross-turn delta lives on the daemon")
                 .isEqualTo(1L);
     }
 

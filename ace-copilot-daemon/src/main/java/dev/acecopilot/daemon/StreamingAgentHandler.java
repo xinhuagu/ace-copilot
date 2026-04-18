@@ -179,6 +179,19 @@ public final class StreamingAgentHandler {
     // session on model change; see sidecar.mjs).
     private final ConcurrentHashMap<String, String> sessionLastModel =
             new ConcurrentHashMap<>();
+    // Same idea for the tool catalog: the sidecar recreates its SDK session
+    // when the registered tool set changes signature. Tracking on the Java
+    // side lets us emit the stream.warning BEFORE sending the next prompt,
+    // instead of only after the affected turn has already run against a
+    // fresh remote session.
+    private final ConcurrentHashMap<String, String> sessionLastToolSignature =
+            new ConcurrentHashMap<>();
+    // Cross-turn premium baseline: last observed premium_interactions.usedRequests
+    // for this session, used to compute an honest delta for the next turn.
+    // Intra-turn event math is unreliable (the SDK's first assistant.usage
+    // snapshot is not guaranteed to be pre-billing).
+    private final ConcurrentHashMap<String, Long> sessionLastPremiumUsed =
+            new ConcurrentHashMap<>();
     private volatile String copilotRuntime = "chat";
     private volatile String copilotGithubToken;
     private volatile Path copilotSidecarDir;
@@ -312,7 +325,8 @@ public final class StreamingAgentHandler {
             // — those integrate in Phase 2+ (issues #4, #5).
             if ("session".equalsIgnoreCase(copilotRuntime) && "copilot".equalsIgnoreCase(provider)) {
                 return handlePromptViaCopilotSession(
-                        sessionId, session, prompt, cancelContext, cancellationToken);
+                        sessionId, session, prompt, cancelContext, cancellationToken,
+                        permissionAwareRegistry);
             }
 
             // Check for resumable plan checkpoint before planning or execution
@@ -1805,8 +1819,82 @@ public final class StreamingAgentHandler {
         closeSessionSidecar(sessionId);
     }
 
+    private List<CopilotAcpClient.ToolDescriptor> buildCopilotToolDescriptors(ToolRegistry registry) {
+        var list = new ArrayList<CopilotAcpClient.ToolDescriptor>();
+        for (var tool : registry.all()) {
+            list.add(new CopilotAcpClient.ToolDescriptor(
+                    tool.name(), tool.description(), tool.inputSchema()));
+        }
+        return list;
+    }
+
+    /**
+     * Deterministic signature of a tool descriptor list. Must match the
+     * sidecar's {@code toolSignature()} (see {@code sidecar.mjs}) so the
+     * Java-side pre-warn agrees with the sidecar's post-hoc
+     * {@code toolsReset} flag.
+     */
+    private static String computeToolSignature(List<CopilotAcpClient.ToolDescriptor> tools) {
+        if (tools == null || tools.isEmpty()) return "empty";
+        var sorted = new ArrayList<>(tools);
+        sorted.sort(java.util.Comparator.comparing(CopilotAcpClient.ToolDescriptor::name));
+        var sb = new StringBuilder();
+        for (var t : sorted) {
+            sb.append(t.name()).append('|')
+              .append(t.description() == null ? "" : t.description()).append('|')
+              .append(t.inputSchema() == null ? "{}" : t.inputSchema().toString())
+              .append('\n');
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Dispatches a {@code tool.invoke} RPC from the sidecar to the given
+     * permission-aware tool registry. {@link PermissionAwareTool} wraps each
+     * tool so {@link PermissionManager} gates execution and routes
+     * {@code NeedsUserApproval} decisions through the existing TUI
+     * {@code permission.request} flow attached to the active
+     * {@link CancelAwareStreamContext}.
+     */
+    private JsonNode handleCopilotToolInvoke(JsonNode params, ToolRegistry registry) {
+        String name = params.path("name").asText("");
+        JsonNode args = params.has("arguments") ? params.get("arguments") : objectMapper.createObjectNode();
+
+        var toolOpt = registry.get(name);
+        if (toolOpt.isEmpty()) {
+            var err = objectMapper.createObjectNode();
+            err.put("isError", true);
+            err.put("content", "Unknown tool: " + name);
+            return err;
+        }
+        String inputJson;
+        try {
+            inputJson = objectMapper.writeValueAsString(args);
+        } catch (IOException e) {
+            var err = objectMapper.createObjectNode();
+            err.put("isError", true);
+            err.put("content", "Invalid tool arguments: " + e.getMessage());
+            return err;
+        }
+        try {
+            var result = toolOpt.get().execute(inputJson);
+            var node = objectMapper.createObjectNode();
+            node.put("isError", result.isError());
+            node.put("content", result.output() != null ? result.output() : "");
+            return node;
+        } catch (Exception e) {
+            log.warn("tool.invoke {} failed: {}", name, e.getMessage());
+            var err = objectMapper.createObjectNode();
+            err.put("isError", true);
+            err.put("content", "Tool execution failed: " + e.getMessage());
+            return err;
+        }
+    }
+
     private void closeSessionSidecar(String sessionId) {
         sessionLastModel.remove(sessionId);
+        sessionLastToolSignature.remove(sessionId);
+        sessionLastPremiumUsed.remove(sessionId);
         var client = sessionSidecars.remove(sessionId);
         if (client == null) return;
         try {
@@ -1839,7 +1927,8 @@ public final class StreamingAgentHandler {
                                                  AgentSession session,
                                                  String prompt,
                                                  CancelAwareStreamContext cancelContext,
-                                                 CancellationToken cancellationToken)
+                                                 CancellationToken cancellationToken,
+                                                 ToolRegistry permissionAwareRegistry)
             throws Exception {
         if (copilotSidecarDir == null) {
             throw new IllegalStateException(
@@ -1851,6 +1940,18 @@ public final class StreamingAgentHandler {
 
         String model = getModelForSession(sessionId);
         if (model == null || model.isBlank()) model = "claude-haiku-4.5";
+
+        // Phase 2 (#4): register ace-copilot's tools with the SDK so the agent
+        // uses them instead of the built-in filesystem/shell tools. Tool
+        // handlers on the sidecar proxy back to us via `tool.invoke`.
+        //
+        // Tools are resolved *per-prompt* against the live permission-aware
+        // registry (which reflects the current tool set, including
+        // async-registered MCP tools) and passed into sendAndWait — the
+        // sidecar signature-compares and recreates the SDK session if the
+        // catalog shifted. See review P2 on #9.
+        final List<CopilotAcpClient.ToolDescriptor> toolDescriptors = buildCopilotToolDescriptors(permissionAwareRegistry);
+        final String currentToolSignature = computeToolSignature(toolDescriptors);
 
         var client = sessionSidecars.computeIfAbsent(sessionId, _ -> {
             try {
@@ -1883,11 +1984,49 @@ public final class StreamingAgentHandler {
             }
         }
 
+        // Pre-warn on tool-catalog change so the user sees the context
+        // reset before the affected turn runs — not after. The sidecar
+        // independently detects the same condition via its own signature
+        // check and echoes back toolsReset for a cross-check (asserted
+        // below).
+        var previousToolSignature = sessionLastToolSignature.put(sessionId, currentToolSignature);
+        boolean toolsResetExpected = previousToolSignature != null
+                && !previousToolSignature.equals(currentToolSignature);
+        if (toolsResetExpected) {
+            String msg = "Copilot session context will reset: tool catalog changed since last turn. "
+                    + "Prior conversation is retained locally but the remote Copilot session will start "
+                    + "fresh with the updated tool set.";
+            log.warn(msg);
+            try {
+                var p = objectMapper.createObjectNode();
+                p.put("level", "warning");
+                p.put("message", msg);
+                p.put("reason", "tool_catalog_changed");
+                cancelContext.sendNotification("stream.warning", p);
+            } catch (IOException e) {
+                log.debug("Failed to send pre-warn stream.warning for toolsReset: {}", e.getMessage());
+            }
+        }
+
+        // Install a per-prompt RequestHandler that dispatches incoming RPCs
+        // from the sidecar. Phase 2 supports tool.invoke (the SDK agent
+        // calling one of ace-copilot's tools). PermissionAwareTool in the
+        // registry takes care of PermissionManager checks and — for
+        // WRITE/EXECUTE that requires explicit user approval — the TUI
+        // permission.request round-trip via cancelContext.
+        client.setRequestHandler((method, params) -> {
+            if ("tool.invoke".equals(method)) {
+                return handleCopilotToolInvoke(params, permissionAwareRegistry);
+            }
+            log.warn("Unhandled sidecar RPC: {}", method);
+            throw new IllegalArgumentException("unsupported method: " + method);
+        });
+
         var started = System.currentTimeMillis();
         var textBuf = new StringBuilder();
         CopilotAcpClient.SendResult r;
         try {
-            r = client.sendAndWait(model, prompt, (delta) -> {
+            r = client.sendAndWait(model, prompt, toolDescriptors, (delta) -> {
                 if (delta == null || delta.isEmpty()) return;
                 textBuf.append(delta);
                 try {
@@ -1901,11 +2040,21 @@ public final class StreamingAgentHandler {
         } catch (IOException e) {
             closeSessionSidecar(sessionId);
             throw new IllegalStateException("Copilot session runtime failed: " + e.getMessage(), e);
+        } finally {
+            client.setRequestHandler(null);
         }
 
         String responseText = r.content() != null ? r.content() : textBuf.toString();
         if (responseText != null && !responseText.isBlank()) {
             session.addMessage(new AgentSession.ConversationMessage.Assistant(responseText));
+        }
+
+        if (r.toolsReset() != toolsResetExpected) {
+            // Should never happen: sidecar signature math ≈ Java's. If they
+            // disagree, log loudly — almost certainly a bug in this diff.
+            log.warn("Tool-reset mismatch: sidecar toolsReset={}, java expected={}. "
+                    + "Investigate signature computation drift.",
+                    r.toolsReset(), toolsResetExpected);
         }
 
         sendCancelledNotificationIfNeeded(cancellationToken, cancelContext, sessionId);
@@ -1931,7 +2080,26 @@ public final class StreamingAgentHandler {
         // exposed as a diagnostic under `copilot` rather than masquerading
         // as `llmRequests` (which the CLI renders as the billing indicator).
         usageNode.put("llmRequests", 1);
-        // Phase 1 diagnostics: expose the per-session premium counter so the TUI /
+
+        // Cross-turn premium delta: diff the earliest premium sample of
+        // THIS turn against the last sample we saw on the PREVIOUS turn,
+        // per-session. Intra-turn subtraction is unreliable because the
+        // SDK's first assistant.usage event is not guaranteed to be a
+        // pre-billing baseline (see SendResult.intraTurnPremiumDelta
+        // javadoc). Cross-turn is the honest number.
+        Long previousSessionPremium = sessionLastPremiumUsed.get(sessionId);
+        long crossTurnPremiumDelta = -1;
+        if (previousSessionPremium != null
+                && first != null && first.premiumUsed() != null) {
+            crossTurnPremiumDelta = first.premiumUsed() - previousSessionPremium;
+        }
+        if (last != null && last.premiumUsed() != null) {
+            sessionLastPremiumUsed.put(sessionId, last.premiumUsed());
+        } else if (first != null && first.premiumUsed() != null) {
+            sessionLastPremiumUsed.put(sessionId, first.premiumUsed());
+        }
+
+        // Diagnostics: expose the per-session premium counter so the TUI /
         // logs make the 1-request-per-sendAndWait claim observable.
         var copilotNode = objectMapper.createObjectNode();
         copilotNode.put("runtime", "session");
@@ -1944,17 +2112,22 @@ public final class StreamingAgentHandler {
             copilotNode.put("premiumUsedAfter", last.premiumUsed());
             copilotNode.put("initiatorLast", last.initiator());
         }
-        copilotNode.put("premiumDelta", r.premiumDelta());
+        if (previousSessionPremium != null) {
+            copilotNode.put("previousTurnPremiumUsed", previousSessionPremium);
+        }
+        copilotNode.put("premiumDeltaSinceLastTurn", crossTurnPremiumDelta);
+        copilotNode.put("intraTurnPremiumDelta", r.intraTurnPremiumDelta());
         copilotNode.put("wallMs", System.currentTimeMillis() - started);
         usageNode.set("copilot", copilotNode);
         result.set("usage", usageNode);
 
         log.info(
-                "Copilot session turn: sessionId={}, model={}, premiumUsed={}->{} (delta={}), usageEvents={}, wallMs={}",
+                "Copilot session turn: sessionId={}, model={}, premiumUsed={}->{} " +
+                        "(sinceLastTurn={}, intraTurn={}), usageEvents={}, wallMs={}",
                 sessionId, model,
                 first != null && first.premiumUsed() != null ? first.premiumUsed() : "?",
                 last != null && last.premiumUsed() != null ? last.premiumUsed() : "?",
-                r.premiumDelta(), r.usageEventCount(),
+                crossTurnPremiumDelta, r.intraTurnPremiumDelta(), r.usageEventCount(),
                 System.currentTimeMillis() - started);
 
         return result;

@@ -8,12 +8,13 @@ import java.lang.reflect.Field;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Truth-table coverage for the {@link AceCopilotConfig#effectiveCopilotRuntime()}
- * safety gate (Phase 1, issue #3). The gate must collapse misconfigured
- * session-without-ack back to {@code "chat"}; this is the only thing
- * standing between a mistyped config and a PermissionManager bypass, so
- * it is worth a unit test even though the rest of the session runtime
- * is covered by integration tests.
+ * Coverage for {@link AceCopilotConfig#effectiveCopilotRuntime()}.
+ *
+ * <p>Phase 1 (#3) gated session activation on an extra
+ * {@code copilotRuntimeAcceptUnsandboxed} ack flag because the sidecar
+ * auto-approved every SDK permission request. Phase 2 (#4) replaced that
+ * with a real permission bridge, so the gate is no longer needed and the
+ * ack field is now ignored (kept only for backward compat).
  */
 class CopilotRuntimeGateTest {
 
@@ -21,24 +22,21 @@ class CopilotRuntimeGateTest {
     void defaultsToChat() throws Exception {
         var config = blankConfig();
         assertThat(config.copilotRuntime()).isEqualTo("chat");
-        assertThat(config.copilotRuntimeAcceptUnsandboxed()).isFalse();
         assertThat(config.effectiveCopilotRuntime()).isEqualTo("chat");
     }
 
     @Test
-    void sessionWithoutAckFallsBackToChat() throws Exception {
+    void sessionActivates() throws Exception {
         var config = blankConfig();
         setField(config, "copilotRuntime", "session");
-        setField(config, "copilotRuntimeAcceptUnsandboxed", false);
 
-        assertThat(config.copilotRuntime()).isEqualTo("session");
         assertThat(config.effectiveCopilotRuntime())
-                .as("session mode must refuse to activate without explicit ack")
-                .isEqualTo("chat");
+                .as("Phase 2 removed the Phase 1 ack gate; session = session")
+                .isEqualTo("session");
     }
 
     @Test
-    void ackWithoutSessionStillChat() throws Exception {
+    void ackFlagIgnored() throws Exception {
         var config = blankConfig();
         setField(config, "copilotRuntime", "chat");
         setField(config, "copilotRuntimeAcceptUnsandboxed", true);
@@ -49,23 +47,19 @@ class CopilotRuntimeGateTest {
     }
 
     @Test
-    void sessionPlusAckActivates() throws Exception {
-        var config = blankConfig();
-        setField(config, "copilotRuntime", "session");
-        setField(config, "copilotRuntimeAcceptUnsandboxed", true);
-
-        assertThat(config.effectiveCopilotRuntime())
-                .as("both flags true is the one combination that activates session")
-                .isEqualTo("session");
-    }
-
-    @Test
     void sessionLiteralIsCaseInsensitive() throws Exception {
         var config = blankConfig();
         setField(config, "copilotRuntime", "SESSION");
-        setField(config, "copilotRuntimeAcceptUnsandboxed", true);
 
         assertThat(config.effectiveCopilotRuntime()).isEqualTo("session");
+    }
+
+    @Test
+    void unknownRuntimeFallsBackToChat() throws Exception {
+        var config = blankConfig();
+        setField(config, "copilotRuntime", "nonsense");
+
+        assertThat(config.effectiveCopilotRuntime()).isEqualTo("chat");
     }
 
     /**

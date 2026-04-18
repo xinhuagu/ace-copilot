@@ -85,13 +85,11 @@ public final class CopilotAcpClientMain {
                 System.out.println("  last usage initiator:   " + result.lastUsage().initiator());
                 System.out.println("  last usage premium:     " + result.lastUsage().premiumUsed());
             }
-            System.out.println("  premium delta (session):" + result.premiumDelta());
+            System.out.println("  intra-turn premium delta (diagnostic): " + result.intraTurnPremiumDelta());
             System.out.println("  wall clock:             " + (System.currentTimeMillis() - started) + "ms");
-            if (result.premiumDelta() == 0 && result.usageEventCount() > 1) {
-                System.out.println("  note: delta 0 across multiple usage events is expected when");
-                System.out.println("        the first reported count is post-increment (see probe-usage.mjs).");
-                System.out.println("        Run twice back-to-back to see the between-sessions +1.");
-            }
+            System.out.println("  note: intra-turn delta is unreliable (first assistant.usage may be");
+            System.out.println("        post-billing). Run twice back-to-back and watch firstUsage/premiumUsed");
+            System.out.println("        advance by 1 across invocations for the real billing signal.");
         }
     }
 

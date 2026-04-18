@@ -14,11 +14,14 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
@@ -49,6 +52,19 @@ public final class CopilotAcpClient implements AutoCloseable {
     /** Notification emitted by the sidecar during {@code session.sendAndWait}. */
     public record NotificationEvent(String method, JsonNode params) {}
 
+    /**
+     * Handles incoming RPC requests from the sidecar (sidecar → Java). Used
+     * by Phase 2 (#4) for {@code tool.invoke} and {@code permission.request}.
+     *
+     * <p>Return a {@link JsonNode} to send back as {@code result}; throw to
+     * send an {@code error}. Handlers run on a dedicated executor so they
+     * don't block the reader thread.
+     */
+    @FunctionalInterface
+    public interface RequestHandler {
+        JsonNode handle(String method, JsonNode params) throws Exception;
+    }
+
     /** Single {@code assistant.usage} sample. */
     public record UsageSnapshot(
             String model,
@@ -66,10 +82,24 @@ public final class CopilotAcpClient implements AutoCloseable {
             String stopReason,
             UsageSnapshot firstUsage,
             UsageSnapshot lastUsage,
-            int usageEventCount
+            int usageEventCount,
+            boolean toolsReset
     ) {
-        /** Change in {@code premium_interactions.usedRequests} across this turn. */
-        public long premiumDelta() {
+        /**
+         * Intra-turn subtraction (last − first) of
+         * {@code premium_interactions.usedRequests} reported inside this
+         * {@code sendAndWait}.
+         *
+         * <p><b>Diagnostic only — do not use as an authoritative billing
+         * delta.</b> The SDK does not guarantee that {@link #firstUsage()}
+         * is a pre-billing baseline: the counter may already be incremented
+         * in the first event (→ reports 0 for a billable turn) or update
+         * mid-stream (→ reports an inflated value). Compute true per-turn
+         * billing by diffing against the previous turn's
+         * {@link #lastUsage()} held at the caller (e.g. the daemon's
+         * per-session last-known-premium map).
+         */
+        public long intraTurnPremiumDelta() {
             if (firstUsage == null || lastUsage == null) return -1;
             if (firstUsage.premiumUsed == null || lastUsage.premiumUsed == null) return -1;
             return lastUsage.premiumUsed - firstUsage.premiumUsed;
@@ -81,11 +111,37 @@ public final class CopilotAcpClient implements AutoCloseable {
     private final AtomicLong nextId = new AtomicLong(1);
     private final ConcurrentMap<Long, CompletableFuture<JsonNode>> pending = new ConcurrentHashMap<>();
     private final Thread readerThread;
+    private final ExecutorService requestExecutor;
     private volatile Consumer<NotificationEvent> notificationHandler;
+    private volatile RequestHandler requestHandler;
+
+    /**
+     * Tool definition registered with the SDK via {@code defineTool}. The
+     * name must match the tool ID our {@code ToolRegistry} dispatches on;
+     * the sidecar's {@code onPreToolUse} allowlist uses the same name.
+     *
+     * @param name        tool identifier (e.g. {@code read_file})
+     * @param description human-readable description passed to the SDK agent
+     * @param inputSchema JSON Schema describing {@code arguments}; rendered as
+     *                    {@code parameters} on the SDK side. {@code null}
+     *                    defaults to {@code {"type":"object","properties":{}}}.
+     */
+    public record ToolDescriptor(String name, String description, JsonNode inputSchema) {
+        public ToolDescriptor {
+            Objects.requireNonNull(name, "name");
+        }
+    }
 
     /**
      * Launches the sidecar located at {@code sidecarDir/sidecar.mjs} and
      * completes the {@code initialize} handshake.
+     *
+     * <p>Tool descriptors are passed into each {@link #sendAndWait} call
+     * rather than at construction so that tools registered asynchronously
+     * by the daemon (e.g. MCP tools arriving after the first prompt) can
+     * reach the SDK agent on subsequent turns. The sidecar signature-
+     * compares the set per turn and recreates the underlying SDK session
+     * when it changes — same lifecycle as a model switch.
      *
      * @param sidecarDir  directory containing {@code sidecar.mjs} and installed
      *                    {@code node_modules} (typically {@code ace-copilot-sidecar/})
@@ -111,6 +167,12 @@ public final class CopilotAcpClient implements AutoCloseable {
                     e);
         }
 
+        this.requestExecutor = Executors.newCachedThreadPool(r -> {
+            var t = new Thread(r, "copilot-sidecar-request");
+            t.setDaemon(true);
+            return t;
+        });
+
         this.readerThread = new Thread(this::readLoop, "copilot-sidecar-reader");
         readerThread.setDaemon(true);
         readerThread.start();
@@ -135,7 +197,7 @@ public final class CopilotAcpClient implements AutoCloseable {
                 initParams.put("githubToken", githubToken);
             }
             JsonNode init = request("initialize", initParams).get(30, TimeUnit.SECONDS);
-            log.info("Sidecar initialized, protocolVersion={}", init.path("protocolVersion").asText());
+            log.info("Sidecar initialized: protocolVersion={}", init.path("protocolVersion").asText());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             destroy();
@@ -146,18 +208,33 @@ public final class CopilotAcpClient implements AutoCloseable {
         }
     }
 
+    /** Phase-1-compatible overload with no tools (SDK built-ins). */
+    public SendResult sendAndWait(String model, String prompt, Consumer<String> textDelta) throws IOException {
+        return sendAndWait(model, prompt, List.of(), textDelta);
+    }
+
     /**
      * Issues a single agent turn to the Copilot SDK and blocks until it
      * completes. Text deltas and usage snapshots emitted during the turn are
-     * forwarded to the supplied consumers.
+     * forwarded to the supplied consumers. The tool set is evaluated by the
+     * sidecar per turn — if it differs from the previous turn the remote
+     * SDK session is disconnected and recreated with the new catalog, and
+     * {@link SendResult#toolsReset()} is {@code true}. This keeps tools
+     * discovered asynchronously after the first prompt (notably MCP) from
+     * being stuck out of the SDK session for its entire lifetime.
      *
      * @param model     model identifier to pass to {@code createSession}
      * @param prompt    user prompt text
+     * @param tools     current ace-copilot tool catalog; may be empty to
+     *                  run without custom tools (Phase 1 behavior)
      * @param textDelta optional consumer invoked for each text delta chunk;
      *                  may be {@code null} to drop text
-     * @return final assistant content, stop reason, and first/last usage snapshots
+     * @return final assistant content, stop reason, first/last usage snapshots,
+     *         and whether the SDK session was reset due to tool-catalog change
      */
-    public SendResult sendAndWait(String model, String prompt, Consumer<String> textDelta) throws IOException {
+    public SendResult sendAndWait(String model, String prompt,
+                                  List<ToolDescriptor> tools,
+                                  Consumer<String> textDelta) throws IOException {
         Objects.requireNonNull(model, "model");
         Objects.requireNonNull(prompt, "prompt");
 
@@ -190,10 +267,20 @@ public final class CopilotAcpClient implements AutoCloseable {
             ObjectNode params = mapper.createObjectNode();
             params.put("model", model);
             params.put("prompt", prompt);
+            if (tools != null && !tools.isEmpty()) {
+                var arr = params.putArray("tools");
+                for (var t : tools) {
+                    var node = arr.addObject();
+                    node.put("name", t.name());
+                    if (t.description() != null) node.put("description", t.description());
+                    if (t.inputSchema() != null) node.set("parameters", t.inputSchema());
+                }
+            }
             JsonNode resp = request("session.sendAndWait", params).get(10, TimeUnit.MINUTES);
             String content = resp.path("content").isNull() ? null : resp.path("content").asText(null);
             String stopReason = resp.path("stopReason").isNull() ? null : resp.path("stopReason").asText(null);
-            return new SendResult(content, stopReason, accum.firstUsage, accum.lastUsage, accum.usageCount);
+            boolean toolsReset = resp.path("toolsReset").asBoolean(false);
+            return new SendResult(content, stopReason, accum.firstUsage, accum.lastUsage, accum.usageCount, toolsReset);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("sendAndWait interrupted", e);
@@ -306,7 +393,9 @@ public final class CopilotAcpClient implements AutoCloseable {
     }
 
     private void handleIncoming(JsonNode msg) {
-        if (msg.has("id") && (msg.has("result") || msg.has("error"))) {
+        boolean hasId = msg.has("id") && !msg.get("id").isNull();
+        boolean hasMethod = msg.has("method");
+        if (hasId && (msg.has("result") || msg.has("error"))) {
             long id = msg.get("id").asLong();
             var fut = pending.remove(id);
             if (fut == null) {
@@ -319,7 +408,11 @@ public final class CopilotAcpClient implements AutoCloseable {
             } else {
                 fut.complete(msg.get("result"));
             }
-        } else if (msg.has("method")) {
+        } else if (hasId && hasMethod) {
+            // Incoming RPC request from sidecar → dispatch to handler, send response.
+            dispatchIncomingRequest(msg);
+        } else if (hasMethod) {
+            // Notification (no id).
             var h = notificationHandler;
             if (h != null) {
                 try {
@@ -333,6 +426,57 @@ public final class CopilotAcpClient implements AutoCloseable {
         }
     }
 
+    private void dispatchIncomingRequest(JsonNode msg) {
+        long id = msg.get("id").asLong();
+        String method = msg.get("method").asText();
+        JsonNode params = msg.has("params") ? msg.get("params") : mapper.createObjectNode();
+        RequestHandler h = requestHandler;
+        if (h == null) {
+            sendErrorResponse(id, -32601, "no RequestHandler registered for method: " + method);
+            return;
+        }
+        requestExecutor.submit(() -> {
+            try {
+                JsonNode result = h.handle(method, params);
+                sendResultResponse(id, result != null ? result : mapper.nullNode());
+            } catch (Exception e) {
+                log.debug("RequestHandler threw for method {}: {}", method, e.getMessage());
+                sendErrorResponse(id, -32000, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            }
+        });
+    }
+
+    private void sendResultResponse(long id, JsonNode result) {
+        ObjectNode resp = mapper.createObjectNode();
+        resp.put("jsonrpc", "2.0");
+        resp.put("id", id);
+        resp.set("result", result);
+        try {
+            writeMessage(resp);
+        } catch (IOException e) {
+            log.warn("failed to send response for id={}: {}", id, e.getMessage());
+        }
+    }
+
+    private void sendErrorResponse(long id, int code, String message) {
+        ObjectNode resp = mapper.createObjectNode();
+        resp.put("jsonrpc", "2.0");
+        resp.put("id", id);
+        var err = resp.putObject("error");
+        err.put("code", code);
+        err.put("message", message != null ? message : "(no message)");
+        try {
+            writeMessage(resp);
+        } catch (IOException e) {
+            log.warn("failed to send error response for id={}: {}", id, e.getMessage());
+        }
+    }
+
+    /** Registers a handler for incoming RPC requests from the sidecar. */
+    public void setRequestHandler(RequestHandler handler) {
+        this.requestHandler = handler;
+    }
+
     @Override
     public void close() {
         try {
@@ -344,6 +488,7 @@ public final class CopilotAcpClient implements AutoCloseable {
     }
 
     private void destroy() {
+        requestExecutor.shutdownNow();
         if (sidecar.isAlive()) {
             sidecar.destroy();
             try {
