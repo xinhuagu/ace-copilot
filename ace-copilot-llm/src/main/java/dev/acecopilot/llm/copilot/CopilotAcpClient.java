@@ -40,10 +40,10 @@ import java.util.function.Consumer;
  * its own internal ReAct loop inside one call, whereas {@code LlmClient} is
  * request-response at the LLM layer.
  *
- * <p>This is the Phase 1 skeleton (issue #3): no tool registration, no
- * {@code respondToUserInput} routing, no {@code LlmClientFactory} wiring.
- * It is callable from Java but not yet reached by a user prompt through the
- * daemon agent loop.
+ * <p>Phase 2 (#4) wired tool registration + permission bridge and
+ * {@code StreamingAgentHandler} now routes {@code copilotRuntime=session}
+ * prompts through this client end-to-end.
+ * {@code respondToUserInput} routing is the Phase 3 follow-up (#5).
  */
 public final class CopilotAcpClient implements AutoCloseable {
 
@@ -54,7 +54,8 @@ public final class CopilotAcpClient implements AutoCloseable {
 
     /**
      * Handles incoming RPC requests from the sidecar (sidecar → Java). Used
-     * by Phase 2 (#4) for {@code tool.invoke} and {@code permission.request}.
+     * by Phase 2 (#4) for {@code tool.invoke}; Phase 3 (#5) may add
+     * {@code user_input.request} alongside once respondToUserInput lands.
      *
      * <p>Return a {@link JsonNode} to send back as {@code result}; throw to
      * send an {@code error}. Handlers run on a dedicated executor so they
@@ -113,6 +114,7 @@ public final class CopilotAcpClient implements AutoCloseable {
     private final Thread readerThread;
     private final ExecutorService requestExecutor;
     private volatile Consumer<NotificationEvent> notificationHandler;
+    private volatile Consumer<NotificationEvent> extraNotificationHandler;
     private volatile RequestHandler requestHandler;
 
     /**
@@ -259,7 +261,17 @@ public final class CopilotAcpClient implements AutoCloseable {
                     accum.lastUsage = u;
                     accum.usageCount++;
                 }
-                default -> log.debug("ignored notification: {}", n.method());
+                default -> {
+                    // Let callers handle anything we don't know about
+                    // (elicitation declines, tool reset signals, etc.).
+                    var extra = extraNotificationHandler;
+                    if (extra != null) {
+                        try { extra.accept(n); }
+                        catch (RuntimeException e) { log.warn("extra notification handler threw", e); }
+                    } else {
+                        log.debug("ignored notification: {}", n.method());
+                    }
+                }
             }
         };
 
@@ -475,6 +487,17 @@ public final class CopilotAcpClient implements AutoCloseable {
     /** Registers a handler for incoming RPC requests from the sidecar. */
     public void setRequestHandler(RequestHandler handler) {
         this.requestHandler = handler;
+    }
+
+    /**
+     * Registers a handler for notifications beyond the built-in
+     * {@code session/text} and {@code session/usage} streams (e.g.
+     * {@code session/elicitation_declined}). Only fires during an active
+     * {@link #sendAndWait}. Reset to null between turns — the caller
+     * should re-register if it wants per-turn state.
+     */
+    public void setNotificationHandler(Consumer<NotificationEvent> handler) {
+        this.extraNotificationHandler = handler;
     }
 
     @Override
