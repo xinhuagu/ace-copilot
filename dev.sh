@@ -64,7 +64,7 @@ elif [ "$BENCH_MODE" = "auto" ]; then
         BASELINE_MATCH=""
         while IFS= read -r f; do
             case "$f" in
-                aceclaw-memory/*)                                  BASELINE_MATCH=1 ;;
+                ace-copilot-memory/*)                                  BASELINE_MATCH=1 ;;
                 scripts/generate-replay-report.sh)                 BASELINE_MATCH=1 ;;
                 scripts/replay-quality-gate.sh)                    BASELINE_MATCH=1 ;;
                 scripts/collect-continuous-learning-baseline.sh)   BASELINE_MATCH=1 ;;
@@ -86,7 +86,7 @@ EOF
 fi
 
 # Export bench mode so the CLI can display it in the status line
-export ACECLAW_BENCH_MODE="${BENCH_MODE:-none}"
+export ACE_COPILOT_BENCH_MODE="${BENCH_MODE:-none}"
 
 # Run benchmark steps if requested
 if [ "$BENCH_MODE" = "check" ]; then
@@ -96,18 +96,18 @@ elif [ "$BENCH_MODE" = "baseline" ]; then
     echo ">> Running local benchmark check + baseline export..."
     ./gradlew preMergeCheck -PreplayGateStrict=false
     ./scripts/export-injection-audit-summary.sh
-    ./scripts/collect-continuous-learning-baseline.sh --output .aceclaw/metrics/continuous-learning/baseline.json
+    ./scripts/collect-continuous-learning-baseline.sh --output .ace-copilot/metrics/continuous-learning/baseline.json
 fi
 
 # ---------------------------------------------------------------------------
 # Build + restart
 # ---------------------------------------------------------------------------
 echo ">> Building CLI..."
-./gradlew :aceclaw-cli:installDist -q
+./gradlew :ace-copilot-cli:installDist -q
 
 # Stop old daemon (best-effort) — warn about active sessions
-CLI_BIN=./aceclaw-cli/build/install/aceclaw-cli/bin/aceclaw-cli
-if [ -S ~/.aceclaw/aceclaw.sock ]; then
+CLI_BIN=./ace-copilot-cli/build/install/ace-copilot-cli/bin/ace-copilot-cli
+if [ -S ~/.ace-copilot/ace-copilot.sock ]; then
     ACTIVE_SESSIONS=$("$CLI_BIN" daemon status 2>/dev/null | sed -n 's/.*Active Sessions: *//p' || echo "0")
     if [ "$ACTIVE_SESSIONS" -gt 0 ] 2>/dev/null; then
         echo ">> WARNING: Restarting daemon with $ACTIVE_SESSIONS active session(s)"
@@ -117,8 +117,8 @@ if [ -S ~/.aceclaw/aceclaw.sock ]; then
     sleep 0.5
 fi
 # Kill by PID if still alive
-if [ -f ~/.aceclaw/aceclaw.pid ]; then
-    kill "$(cat ~/.aceclaw/aceclaw.pid)" 2>/dev/null || true
+if [ -f ~/.ace-copilot/ace-copilot.pid ]; then
+    kill "$(cat ~/.ace-copilot/ace-copilot.pid)" 2>/dev/null || true
     sleep 0.3
 fi
 
@@ -128,9 +128,9 @@ if [ -n "$PROVIDER" ]; then
         *" $PROVIDER "*) ;;
         *) echo "Invalid provider: $PROVIDER"; echo "Valid: $VALID_PROVIDERS"; exit 1 ;;
     esac
-    export ACECLAW_PROVIDER="$PROVIDER"
+    export ACE_COPILOT_PROVIDER="$PROVIDER"
     echo "Provider: $PROVIDER"
 fi
 
-echo ">> Launching AceClaw..."
-exec ./aceclaw-cli/build/install/aceclaw-cli/bin/aceclaw-cli
+echo ">> Launching AceCopilot..."
+exec ./ace-copilot-cli/build/install/ace-copilot-cli/bin/ace-copilot-cli

@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.ACECLAW_RELEASE_TOKEN }}
+          token: ${{ secrets.ACE_COPILOT_RELEASE_TOKEN }}
 
       - name: Configure Git
         run: |
@@ -74,13 +74,13 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
 
-      - run: ./gradlew clean build :aceclaw-cli:distTar :aceclaw-cli:distZip --no-daemon
+      - run: ./gradlew clean build :ace-copilot-cli:distTar :ace-copilot-cli:distZip --no-daemon
 
       - name: Verify artifacts
         run: |
-          ls -la aceclaw-cli/build/distributions/
-          test -n "$(ls aceclaw-cli/build/distributions/*.zip 2>/dev/null)"
-          test -n "$(ls aceclaw-cli/build/distributions/*.tar.gz 2>/dev/null || ls aceclaw-cli/build/distributions/*.tar 2>/dev/null)"
+          ls -la ace-copilot-cli/build/distributions/
+          test -n "$(ls ace-copilot-cli/build/distributions/*.zip 2>/dev/null)"
+          test -n "$(ls ace-copilot-cli/build/distributions/*.tar.gz 2>/dev/null || ls ace-copilot-cli/build/distributions/*.tar 2>/dev/null)"
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -89,7 +89,7 @@ jobs:
           body_path: /tmp/release-body.md
           fail_on_unmatched_files: false
           files: |
-            aceclaw-cli/build/distributions/*
+            ace-copilot-cli/build/distributions/*
 
       - name: Bump to next SNAPSHOT
         run: |

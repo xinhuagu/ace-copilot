@@ -68,7 +68,7 @@ This gate adds execution constraints so repeated non-progressing failures are bl
 Emit machine-readable event:
 - `stream.gate` with action `BLOCK` / `PENALIZE` / `OVERRIDE`
 - Feedback persistence:
-  - `.aceclaw/metrics/continuous-learning/anti-pattern-gate-feedback.json`
+  - `.ace-copilot/metrics/continuous-learning/anti-pattern-gate-feedback.json`
   - tracks blocked count + false-positive count per rule
   - replay report now carries:
     - `anti_pattern_gate_false_positive_rate_weighted`
@@ -113,8 +113,8 @@ Expose in CLI status:
 - `antiPatternGateMinBlockedBeforeRollback` (default `3`)
 - `antiPatternGateMaxFalsePositiveRate` (default `0.50`)
 - env overrides:
-  - `ACECLAW_ANTI_PATTERN_GATE_MIN_BLOCKED_BEFORE_ROLLBACK`
-  - `ACECLAW_ANTI_PATTERN_GATE_MAX_FALSE_POSITIVE_RATE`
+  - `ACE_COPILOT_ANTI_PATTERN_GATE_MIN_BLOCKED_BEFORE_ROLLBACK`
+  - `ACE_COPILOT_ANTI_PATTERN_GATE_MAX_FALSE_POSITIVE_RATE`
 
 ## Implementation Checklist
 - [x] Add anti-pattern rule model and persistence.

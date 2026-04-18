@@ -1,7 +1,7 @@
 {
   "metadata": {
     "collected_at": "2026-03-21T12:00:00Z",
-    "repo": "AceClaw",
+    "repo": "AceCopilot",
     "branch": "main",
     "commit": "36dc2bcabc",
     "collector_version": "v2"
@@ -9,7 +9,7 @@
   "collection": {
     "run_tests": true,
     "tests_status": "passed",
-    "tests_command": "./gradlew :aceclaw-daemon:test :aceclaw-memory:test :aceclaw-core:test --tests dev.aceclaw.daemon.SelfLearningPipelineTest --tests dev.aceclaw.memory.StrategyRefinerTest --tests dev.aceclaw.core.agent.SkillRegistryTest --tests dev.aceclaw.core.agent.SkillContentResolverTest",
+    "tests_command": "./gradlew :ace-copilot-daemon:test :ace-copilot-memory:test :ace-copilot-core:test --tests dev.acecopilot.daemon.SelfLearningPipelineTest --tests dev.acecopilot.memory.StrategyRefinerTest --tests dev.acecopilot.core.agent.SkillRegistryTest --tests dev.acecopilot.core.agent.SkillContentResolverTest",
     "tests_exit_code": 0
   },
   "metrics": {

@@ -1,35 +1,35 @@
-<h1 align="center">AceClaw</h1>
+<h1 align="center">ace-copilot</h1>
 
 <p align="center">A self-learning agent harness for long-running work</p>
 
 <p align="center">
-  <a href="https://github.com/xinhuagu/AceClaw/actions/workflows/ci.yml"><img src="https://github.com/xinhuagu/AceClaw/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/xinhuagu/ace-copilot/actions/workflows/ci.yml"><img src="https://github.com/xinhuagu/ace-copilot/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Java-21-orange?logo=openjdk" alt="Java 21">
   <img src="https://img.shields.io/badge/GraalVM-Native_Image-blue?logo=oracle" alt="GraalVM">
   <img src="https://img.shields.io/badge/Gradle-8.14-02303A?logo=gradle&logoColor=white" alt="Gradle 8.14">
 </p>
 
-> **AceClaw exists because long-running tasks demand learning.**
+> **ace-copilot exists because long-running tasks demand learning.**
 >
 > When an agent runs for minutes or hours, context is not enough. It must absorb experience while it works, reuse what succeeds, and govern what it learns so it does not become noisy or unsafe.
 > The goal is to make an agent behave more like an experienced engineering system over time.
 
 
-An **agent harness** is the orchestration layer that turns LLMs into persistent, self-correcting workers — the loop that reasons, acts, observes, recovers, and remembers. Most harnesses treat each session as a blank slate. **AceClaw doesn't.** It is built for long-running execution, where repeated failures, recoveries, tool sequences, and user corrections must become reusable knowledge instead of disappearing at the end of the session.
+An **agent harness** is the orchestration layer that turns LLMs into persistent, self-correcting workers — the loop that reasons, acts, observes, recovers, and remembers. Most harnesses treat each session as a blank slate. **ace-copilot doesn't.** It is built for long-running execution, where repeated failures, recoveries, tool sequences, and user corrections must become reusable knowledge instead of disappearing at the end of the session.
 
 <p align="center">
-  <img src="docs/img/aceclaw_daemon_architecture.drawio.png" alt="AceClaw Self-Learning Daemon Architecture" width="600">
+  <img src="docs/img/ace-copilot_daemon_architecture.drawio.png" alt="ace-copilot Self-Learning Daemon Architecture" width="600">
 </p>
 
 **[Read the design philosophy: why Java, why no AI framework, and what drives the architecture.](docs/design-philosophy.md)**
 
-AceClaw is a persistent JVM daemon built for workflows that run for hours, not seconds. Pure Java 21, zero network attack surface, built from scratch around one idea:
+ace-copilot is a persistent JVM daemon built for workflows that run for hours, not seconds. Pure Java 21, zero network attack surface, built from scratch around one idea:
 
 **Memory helps an agent remember. Self-learning helps an agent improve.**
 
-That is the spirit of AceClaw, and it drives four key differentiators:
+That is the spirit of ace-copilot, and it drives four key differentiators:
 
-1. **Plan → Execute → Replan** — Most agent harnesses use a flat ReAct loop (think → act → observe, one step at a time). AceClaw generates an **explicit task plan** before execution, runs it step by step with per-step iteration budgets, and **replans inline** when steps fail. Plans are streamed to the user in real time. This gives AceClaw a structural advantage in long-running tasks — the agent has a visible roadmap instead of hoping the model stays on track turn by turn.
+1. **Plan → Execute → Replan** — Most agent harnesses use a flat ReAct loop (think → act → observe, one step at a time). ace-copilot generates an **explicit task plan** before execution, runs it step by step with per-step iteration budgets, and **replans inline** when steps fail. Plans are streamed to the user in real time. This gives ace-copilot a structural advantage in long-running tasks — the agent has a visible roadmap instead of hoping the model stays on track turn by turn.
 2. **Self-Learning** — Zero-cost heuristic detectors and session-end retrospectives turn agent behavior into durable learning signals. The agent evolves its own strategies without extra LLM calls in the hot path.
 3. **Security** — UDS-only communication, sealed 4-level permissions, HMAC-signed memory
 4. **Long-Term Memory** — 8-tier hierarchy, hybrid search, automated consolidation
@@ -37,7 +37,7 @@ That is the spirit of AceClaw, and it drives four key differentiators:
 **What makes this architecture different:**
 
 - **Daemon-first, not CLI-first** — The JVM daemon persists across sessions. No cold start, no re-parsing config, no re-loading memory. The CLI is a thin JSON-RPC client over Unix Domain Socket.
-- **Behavior-centric, not memory-centric** — Most agent memory systems store facts. AceClaw observes *behavior* — error-recovery sequences, tool usage patterns, user corrections — and distills them into typed, confidence-scored insights. The agent doesn't just remember what happened; it learns *how it should act differently next time*.
+- **Behavior-centric, not memory-centric** — Most agent memory systems store facts. ace-copilot observes *behavior* — error-recovery sequences, tool usage patterns, user corrections — and distills them into typed, confidence-scored insights. The agent doesn't just remember what happened; it learns *how it should act differently next time*.
 - **Closed feedback loop** — Detectors emit typed insights → insights accumulate confidence across sessions → high-confidence insights get persisted → persisted memory is injected back into the next run. Repeated corrections auto-promote from auto-memory (Tier 6) to workspace rules (Tier 3).
 - **Everything is sealed** — `Insight` (5 permits), `PermissionDecision` (3 permits), `MemoryTier` (8 permits), `StreamEvent`, `ContentBlock` — the compiler enforces exhaustive handling everywhere. Adding a new variant is a compile error until all switches are updated.
 
@@ -46,7 +46,7 @@ That is the spirit of AceClaw, and it drives four key differentiators:
 
 Most AI coding agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview), [OpenClaw](https://github.com/openclaw), [Codex CLI](https://github.com/openai/codex)) rely on a flat **ReAct loop** — the model reasons and acts one step at a time. While effective for short tasks, this approach offers no explicit plan visibility and no structured failure recovery for long-running work.
 
-AceClaw takes a fundamentally different approach: it **layers an explicit planning pipeline on top of ReAct**. Each individual step is still executed by the same ReAct loop (reason → act → observe), which remains the best mechanism for single-step tool use. The difference is that AceClaw wraps those steps in a higher-order plan that provides direction, budget control, and structured recovery — something a flat ReAct loop cannot do on its own.
+ace-copilot takes a fundamentally different approach: it **layers an explicit planning pipeline on top of ReAct**. Each individual step is still executed by the same ReAct loop (reason → act → observe), which remains the best mechanism for single-step tool use. The difference is that ace-copilot wraps those steps in a higher-order plan that provides direction, budget control, and structured recovery — something a flat ReAct loop cannot do on its own.
 
 ```
 Task → Complexity Estimator → Plan Generation (LLM) → Sequential Execution → Inline Replan
@@ -73,7 +73,7 @@ Task → Complexity Estimator → Plan Generation (LLM) → Sequential Execution
 
 ## Security First
 
-AceClaw defends across five dimensions:
+ace-copilot defends across five dimensions:
 
 - **Zero network surface** — Daemon communicates only via Unix Domain Socket. No HTTP, no REST, no WebSocket.
 - **Sealed permissions** — 4-level hierarchy (`READ`/`WRITE`/`EXECUTE`/`DANGEROUS`) modeled as a sealed interface with compiler-enforced exhaustiveness. Sub-agents receive filtered tool registries to prevent privilege escalation.
@@ -85,7 +85,7 @@ See the [Security Details](docs/security.md) for the full breakdown.
 
 ## Self-Learning
 
-AceClaw learns from its own behavior — no LLM calls required. Every tool execution, error recovery, and user correction is analyzed by heuristic detectors that produce type-safe insights.
+ace-copilot learns from its own behavior — no LLM calls required. Every tool execution, error recovery, and user correction is analyzed by heuristic detectors that produce type-safe insights.
 
 - **Automatic pattern detection** — `ErrorDetector` matches tool failures to subsequent retries. `PatternDetector` identifies repeated sequences, error-correction pairs, and user preferences. `SessionEndExtractor` captures corrections and strategies via regex-based passes at session close.
 - **Cross-session accumulation** — Insights start at 0.4 confidence and gain +0.2 per recurrence. Only patterns reaching 0.7 confidence are persisted.
@@ -101,7 +101,7 @@ See [Self-Learning Pipeline](docs/self-learning.md) for the full architecture.
 8-tier persistent memory hierarchy with HMAC-SHA256 signing, hybrid TF-IDF search, and 3-pass consolidation:
 
 ```
-T1: Soul (identity)  →  T2: Managed Policy (enterprise)  →  T3: Workspace (ACECLAW.md)
+T1: Soul (identity)  →  T2: Managed Policy (enterprise)  →  T3: Workspace (ACE_COPILOT.md)
 T4: User Memory      →  T5: Local Memory (gitignored)     →  T6: Auto-Memory (JSONL+HMAC)
 T7: Markdown Memory  →  T8: Daily Journal
 ```
@@ -109,13 +109,13 @@ T7: Markdown Memory  →  T8: Daily Journal
 - **HMAC-SHA256 integrity** — Every entry is signed. Mutable fields excluded from payload so reads don't invalidate signatures.
 - **23 memory categories** — From `CODEBASE_INSIGHT` and `ERROR_RECOVERY` to `RECOVERY_RECIPE` and `FAILURE_SIGNAL`.
 - **3-pass consolidation** — Dedup, similarity merge (>80% threshold), age prune (90 days, zero access). Triggered by the learning maintenance scheduler after session-close extraction and indexing.
-- **Workspace isolation** — SHA-256 hashed paths under `~/.aceclaw/workspaces/`. No cross-project leakage.
+- **Workspace isolation** — SHA-256 hashed paths under `~/.ace-copilot/workspaces/`. No cross-project leakage.
 
 See [Memory System Design](docs/memory-system-design.md) for the full architecture.
 
 ## Context Engineering
 
-AceClaw actively manages what goes into the context window to keep long-running sessions effective:
+ace-copilot actively manages what goes into the context window to keep long-running sessions effective:
 
 ```
 User query → RequestFocus (symbol/file/plan extraction)
@@ -147,22 +147,22 @@ See [Context Engineering](docs/context-engineering.md) for the full architecture
 ### One-Line Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/xinhuagu/AceClaw/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/xinhuagu/ace-copilot/main/install.sh | sh
 ```
 
-Downloads the latest pre-built release, extracts to `~/.aceclaw/`, and adds commands to your PATH. Only requires Java 21 runtime (no build tools).
+Downloads the latest pre-built release, extracts to `~/.ace-copilot/`, and adds commands to your PATH. Only requires Java 21 runtime (no build tools).
 
 ### Configure & Run
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-api03-..."
-aceclaw                # Start AceClaw (auto-starts daemon)
+ace-copilot                # Start ace-copilot (auto-starts daemon)
 ```
 
 Or use OAuth (auto-discovered from Claude CLI credentials):
 ```bash
 claude                 # Login via Claude CLI first
-aceclaw                # Token auto-refreshes from Keychain
+ace-copilot                # Token auto-refreshes from Keychain
 ```
 
 ### Commands
@@ -171,23 +171,23 @@ All commands installed by `install.sh`. Every command that accepts `[provider]` 
 
 | Command | What it does |
 |---------|-------------|
-| `aceclaw` | Start AceClaw TUI (auto-starts daemon if not running) |
-| `aceclaw-tui [provider]` | Open another TUI window — never restarts daemon, safe for multi-session |
-| `aceclaw-restart [provider]` | Stop daemon + restart with fresh build (warns if sessions active) |
-| `aceclaw-update` | Update to latest release (refuses if sessions active) |
+| `ace-copilot` | Start ace-copilot TUI (auto-starts daemon if not running) |
+| `ace-copilot-tui [provider]` | Open another TUI window — never restarts daemon, safe for multi-session |
+| `ace-copilot-restart [provider]` | Stop daemon + restart with fresh build (warns if sessions active) |
+| `ace-copilot-update` | Update to latest release (refuses if sessions active) |
 
 **Supported providers:** `anthropic` (default), `copilot`, `openai`, `openai-codex`, `ollama`, `groq`, `together`, `mistral`
 
 #### Daemon Management
 
-The daemon is a persistent JVM process that runs in the background. It auto-starts when you run `aceclaw`, but can be managed directly:
+The daemon is a persistent JVM process that runs in the background. It auto-starts when you run `ace-copilot`, but can be managed directly:
 
 ```bash
-aceclaw daemon start              # Start daemon in background
-aceclaw daemon start -p copilot   # Start background daemon with provider override
-aceclaw daemon start --foreground # Start daemon in foreground (for debugging)
-aceclaw daemon stop     # Gracefully stop daemon
-aceclaw daemon status   # Show health, version, model, active sessions
+ace-copilot daemon start              # Start daemon in background
+ace-copilot daemon start -p copilot   # Start background daemon with provider override
+ace-copilot daemon start --foreground # Start daemon in foreground (for debugging)
+ace-copilot daemon stop     # Gracefully stop daemon
+ace-copilot daemon status   # Show health, version, model, active sessions
 ```
 
 #### Switching Providers
@@ -196,12 +196,12 @@ Pass the provider name as an argument to any launch command:
 
 ```bash
 # Release install (symlinked commands)
-aceclaw-restart copilot       # Restart daemon with GitHub Copilot
-aceclaw-tui ollama            # Open TUI against local Ollama (no daemon restart)
-aceclaw-restart anthropic     # Switch back to Anthropic Claude
+ace-copilot-restart copilot       # Restart daemon with GitHub Copilot
+ace-copilot-tui ollama            # Open TUI against local Ollama (no daemon restart)
+ace-copilot-restart anthropic     # Switch back to Anthropic Claude
 
 # Or via environment variable (works with any command)
-ACECLAW_PROVIDER=groq aceclaw
+ACE_COPILOT_PROVIDER=groq ace-copilot
 ```
 
 #### Provider Authentication
@@ -209,25 +209,25 @@ ACECLAW_PROVIDER=groq aceclaw
 ```bash
 # Anthropic — API key or OAuth
 export ANTHROPIC_API_KEY="sk-ant-api03-..."     # API key in env
-# Or add to ~/.aceclaw/config.json: {"apiKey": "sk-ant-api03-..."}
+# Or add to ~/.ace-copilot/config.json: {"apiKey": "sk-ant-api03-..."}
 # Or login via Claude CLI for OAuth token auto-refresh
 
 # GitHub Copilot — uses your existing subscription
-aceclaw-restart copilot                         # No extra key needed
+ace-copilot-restart copilot                         # No extra key needed
 
 # OpenAI / OpenAI Codex
 export OPENAI_API_KEY="sk-..."
-aceclaw-restart openai
+ace-copilot-restart openai
 # Or OAuth for Codex:
-aceclaw models auth login --provider openai-codex
-aceclaw-restart openai-codex
+ace-copilot models auth login --provider openai-codex
+ace-copilot-restart openai-codex
 
 # Ollama (local, offline, no key needed)
-aceclaw-restart ollama
+ace-copilot-restart ollama
 
 # Groq / Together / Mistral
 export OPENAI_API_KEY="gsk_..."                 # Provider-specific key
-aceclaw-restart groq
+ace-copilot-restart groq
 ```
 
 See [Provider Configuration](docs/provider-configuration.md) for full setup details.
@@ -235,9 +235,9 @@ See [Provider Configuration](docs/provider-configuration.md) for full setup deta
 ### Build from Source (Developers)
 
 ```bash
-git clone https://github.com/xinhuagu/AceClaw.git && cd AceClaw
-./gradlew clean build && ./gradlew :aceclaw-cli:installDist
-./aceclaw-cli/build/install/aceclaw-cli/bin/aceclaw-cli
+git clone https://github.com/xinhuagu/ace-copilot.git && cd ace-copilot
+./gradlew clean build && ./gradlew :ace-copilot-cli:installDist
+./ace-copilot-cli/build/install/ace-copilot-cli/bin/ace-copilot-cli
 ```
 
 Development scripts (from git checkout only — same provider argument support):

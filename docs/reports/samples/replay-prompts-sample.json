@@ -30,7 +30,7 @@
     },
     {
       "id": "core-module-boundaries",
-      "prompt": "Summarize the responsibility boundaries among aceclaw-core, aceclaw-daemon, and aceclaw-cli.",
+      "prompt": "Summarize the responsibility boundaries among ace-copilot-core, ace-copilot-daemon, and ace-copilot-cli.",
       "category": "workflow_reuse",
       "owner": "platform-core",
       "risk_level": "medium",
@@ -39,7 +39,7 @@
         "modules"
       ],
       "expect_contains": [
-        "aceclaw-core"
+        "ace-copilot-core"
       ]
     },
     {

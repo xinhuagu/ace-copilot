@@ -1,10 +1,10 @@
-# AceClaw Self-Learning Pipeline
+# ace-copilot Self-Learning Pipeline
 
 > Version 2.0 | 2026-03-13
 
 ## Overview
 
-AceClaw learns from its own behavior across three layers:
+ace-copilot learns from its own behavior across three layers:
 
 1. **Per-turn detectors** capture tool failures, recoveries, and recurring local patterns.
 2. **Session-close retrospectives** summarize what happened in the finished session and append a historical snapshot.
@@ -194,7 +194,7 @@ Target category: `FAILURE_SIGNAL`
 
 ### 1. Error-Correction Detection (`ErrorDetector`)
 
-**Location:** `aceclaw-daemon` module
+**Location:** `ace-copilot-daemon` module
 
 Analyzes a single turn's messages to find error→fix pairs:
 
@@ -262,7 +262,7 @@ AgentLoopConfig
 
 ## SelfImprovementEngine
 
-The `SelfImprovementEngine` is the facade that orchestrates all detectors into a unified post-turn learning pipeline. Located in `aceclaw-daemon`, it runs asynchronously on a virtual thread after each agent turn.
+The `SelfImprovementEngine` is the facade that orchestrates all detectors into a unified post-turn learning pipeline. Located in `ace-copilot-daemon`, it runs asynchronously on a virtual thread after each agent turn.
 
 **Pipeline:**
 ```
@@ -288,7 +288,7 @@ Agent Turn
 
 **Integration points:**
 - `StreamingAgentHandler` — holds engine reference via `setSelfImprovementEngine()`, fires async virtual thread after each turn completes
-- `AceClawDaemon.wireAgentHandler()` — creates `ErrorDetector`, `PatternDetector`, and `SelfImprovementEngine`, wires into handler when `memoryStore` is available
+- `ace-copilotDaemon.wireAgentHandler()` — creates `ErrorDetector`, `PatternDetector`, and `SelfImprovementEngine`, wires into handler when `memoryStore` is available
 
 **Failure isolation:** All exceptions are caught and logged — the engine never propagates errors to the agent session or blocks the response to the user.
 
@@ -345,7 +345,7 @@ Memory entries are deduplicated during deferred 3-pass consolidation:
 
 ### Storage Format
 
-All persisted insights become `MemoryEntry` records stored in HMAC-SHA256 signed JSONL files under `~/.aceclaw/workspaces/{hash}/memory/`. Each entry includes:
+All persisted insights become `MemoryEntry` records stored in HMAC-SHA256 signed JSONL files under `~/.ace-copilot/workspaces/{hash}/memory/`. Each entry includes:
 - Category (from `Insight.targetCategory()`)
 - Tags (from `Insight.tags()`)
 - Content (from `Insight.description()`)
@@ -382,7 +382,7 @@ After session-close extraction and indexing complete, the learning maintenance s
 The maintenance pipeline currently runs six steps in order:
 
 1. **Memory consolidation** — 3-pass dedup/merge/prune via `MemoryConsolidator`
-2. **Correction rule promotion** — `CorrectionRulePromoter` groups similar CORRECTION/MISTAKE entries (Jaccard >= 0.50), promotes groups with 2+ occurrences to `.aceclaw/ACECLAW.md` rules (Tier 6 auto-memory → Tier 3 workspace memory)
+2. **Correction rule promotion** — `CorrectionRulePromoter` groups similar CORRECTION/MISTAKE entries (Jaccard >= 0.50), promotes groups with 2+ occurrences to `.ace-copilot/ACE_COPILOT.md` rules (Tier 6 auto-memory → Tier 3 workspace memory)
 3. **Historical index rebuild** — `HistoricalIndexRebuilder` rebuilds workspace-scoped historical index entries from persisted session snapshots when stale
 4. **Cross-session pattern mining** — `CrossSessionPatternMiner` finds frequent error chains, stable workflows, converging strategies, and degradation signals
 5. **Trend detection** — `TrendDetector` identifies rising/falling/stable trends across sessions
@@ -394,14 +394,14 @@ This keeps session teardown fast while still preserving a self-maintaining memor
 
 ## Correction Rule Auto-Promotion
 
-The `CorrectionRulePromoter` closes the self-learning loop by detecting when the agent makes the same mistake 2+ times across sessions and automatically elevating those corrections from Tier 6 (auto-memory) to Tier 3 (workspace memory in `.aceclaw/ACECLAW.md`).
+The `CorrectionRulePromoter` closes the self-learning loop by detecting when the agent makes the same mistake 2+ times across sessions and automatically elevating those corrections from Tier 6 (auto-memory) to Tier 3 (workspace memory in `.ace-copilot/ACE_COPILOT.md`).
 
 **Lifecycle:**
 1. Scan auto-memory for `CORRECTION` and `MISTAKE` category entries
 2. Group similar entries using Jaccard token similarity (threshold >= 0.50)
 3. For groups with 2+ entries, generate a rule with a deterministic SHA-256 fingerprint
-4. Skip rules whose fingerprint is already present in ACECLAW.md (idempotent)
-5. Append new rules under the `## Auto-Promoted Rules` section in `.aceclaw/ACECLAW.md`
+4. Skip rules whose fingerprint is already present in ACE_COPILOT.md (idempotent)
+5. Append new rules under the `## Auto-Promoted Rules` section in `.ace-copilot/ACE_COPILOT.md`
 
 **Key constants:**
 
@@ -409,10 +409,10 @@ The `CorrectionRulePromoter` closes the self-learning loop by detecting when the
 |----------|-------|-------------|
 | `MIN_OCCURRENCES` | 2 | Minimum similar corrections before promoting |
 | `SIMILARITY_THRESHOLD` | 0.50 | Jaccard similarity for grouping (looser than consolidation's 0.80) |
-| `SECTION_MARKER` | `## Auto-Promoted Rules` | Section header in ACECLAW.md |
+| `SECTION_MARKER` | `## Auto-Promoted Rules` | Section header in ACE_COPILOT.md |
 | `FINGERPRINT_PREFIX` | `<!-- rule-fingerprint: ` | HTML comment prefix for dedup across runs |
 
-**Output format in ACECLAW.md:**
+**Output format in ACE_COPILOT.md:**
 ```markdown
 ## Auto-Promoted Rules
 
@@ -476,4 +476,4 @@ The `FailureSignalDetector` produces normalized runtime failure signals (`Failur
 | #17 | StrategyRefinement — anti-pattern generation and preference strengthening | Done (PR #23) |
 | #18 | E2E integration test for self-learning pipeline | Done (PR #24) |
 | #25 | Self-Learning Gaps (P0-P3): charset, RecoveryRecipe, strategy injection, ErrorClass | Done (PR #26) |
-| #259 | CorrectionRulePromoter — auto-promote repeated corrections to ACECLAW.md rules | Done |
+| #259 | CorrectionRulePromoter — auto-promote repeated corrections to ACE_COPILOT.md rules | Done |

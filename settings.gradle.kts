@@ -1,17 +1,17 @@
-rootProject.name = "aceclaw"
+rootProject.name = "ace-copilot"
 
 include(
-    "aceclaw-bom",
-    "aceclaw-sdk",
-    "aceclaw-infra",
-    "aceclaw-core",
-    "aceclaw-daemon",
-    "aceclaw-llm",
-    "aceclaw-tools",
-    "aceclaw-memory",
-    "aceclaw-security",
-    "aceclaw-mcp",
-    "aceclaw-cli",
-    "aceclaw-server",
-    "aceclaw-test"
+    "ace-copilot-bom",
+    "ace-copilot-sdk",
+    "ace-copilot-infra",
+    "ace-copilot-core",
+    "ace-copilot-daemon",
+    "ace-copilot-llm",
+    "ace-copilot-tools",
+    "ace-copilot-memory",
+    "ace-copilot-security",
+    "ace-copilot-mcp",
+    "ace-copilot-cli",
+    "ace-copilot-server",
+    "ace-copilot-test"
 )

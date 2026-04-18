@@ -1,11 +1,11 @@
-# AceClaw - Product Requirements Document
+# ace-copilot - Product Requirements Document
 
 ## A High-Performance, Secure, Self-Learning AI Coding Agent for Java
 
 **Version**: 1.0
 **Date**: 2026-02-16
 **Status**: Draft
-**Team**: AceClaw PRD Team (Architect, OpenClaw Expert, PO, Security Expert, Engineer, Frontend Developer)
+**Team**: ace-copilot PRD Team (Architect, OpenClaw Expert, PO, Security Expert, Engineer, Frontend Developer)
 
 ---
 
@@ -34,9 +34,9 @@
 
 ## 1. Product Vision
 
-**AceClaw** reimagines the AI coding agent experience by leveraging the Java ecosystem's strengths: type safety, concurrency, enterprise maturity, and GraalVM native compilation.
+**ace-copilot** reimagines the AI coding agent experience by leveraging the Java ecosystem's strengths: type safety, concurrency, enterprise maturity, and GraalVM native compilation.
 
-While existing agents like Claude Code (TypeScript/Node.js) and OpenClaw (TypeScript) have proven the interactive AI coding paradigm, AceClaw delivers the same powerful workflow with the performance characteristics, security guarantees, and operational maturity that enterprise environments demand.
+While existing agents like Claude Code (TypeScript/Node.js) and OpenClaw (TypeScript) have proven the interactive AI coding paradigm, ace-copilot delivers the same powerful workflow with the performance characteristics, security guarantees, and operational maturity that enterprise environments demand.
 
 ### Why Java?
 
@@ -48,7 +48,7 @@ While existing agents like Claude Code (TypeScript/Node.js) and OpenClaw (TypeSc
 
 ### Vision Statement
 
-> AceClaw is a persistent, always-on AI agent that turns your device into an intelligent coding companion. Built on Java with daemon-first architecture, it delivers reliability, security, and speed — running as a system service that learns, acts proactively, and serves all your development tools.
+> ace-copilot is a persistent, always-on AI agent that turns your device into an intelligent coding companion. Built on Java with daemon-first architecture, it delivers reliability, security, and speed — running as a system service that learns, acts proactively, and serves all your development tools.
 
 ---
 
@@ -56,7 +56,7 @@ While existing agents like Claude Code (TypeScript/Node.js) and OpenClaw (TypeSc
 
 Existing AI coding agents have proven the paradigm is powerful, but current implementations have gaps:
 
-| Problem | Current State | AceClaw Solution |
+| Problem | Current State | ace-copilot Solution |
 |---------|--------------|-----------------|
 | Slow startup | Node.js agents take 500-800ms to start | GraalVM native image: <50ms startup |
 | High memory usage | 80-120MB idle, 200-400MB active | 20-30MB idle, 60-120MB active |
@@ -73,17 +73,17 @@ Existing AI coding agents have proven the paradigm is powerful, but current impl
 ### Solo Developer ("Alex")
 - Full-stack developer, freelancer or startup engineer
 - Wants fast AI assistance without heavy IDE plugins
-- **AceClaw Value**: Instant startup, multi-LLM switching, single binary, lightweight resource usage
+- **ace-copilot Value**: Instant startup, multi-LLM switching, single binary, lightweight resource usage
 
 ### Team Lead ("Jordan")
 - Engineering team lead at a mid-size company (20-50 engineers)
 - Needs consistent tooling and coding standard enforcement
-- **AceClaw Value**: Project-level `.aceclaw/` config, hook system for CI/CD, permission model, team-wide policies
+- **ace-copilot Value**: Project-level `.ace-copilot/` config, hook system for CI/CD, permission model, team-wide policies
 
 ### Enterprise Architect ("Morgan")
 - Principal engineer at a Fortune 500 company
 - Security compliance, audit requirements, on-premise LLM deployment
-- **AceClaw Value**: Enterprise-grade security, JVM sandbox, JPMS encapsulation, Micrometer metrics, Ollama support
+- **ace-copilot Value**: Enterprise-grade security, JVM sandbox, JPMS encapsulation, Micrometer metrics, Ollama support
 
 ---
 
@@ -91,19 +91,19 @@ Existing AI coding agents have proven the paradigm is powerful, but current impl
 
 ### 4.0 Daemon-First Architecture — Device as Agent
 
-AceClaw runs as a **persistent system daemon**, turning your device into an always-on AI agent. The CLI, IDE plugins, and other clients are all thin clients that connect to this daemon.
+ace-copilot runs as a **persistent system daemon**, turning your device into an always-on AI agent. The CLI, IDE plugins, and other clients are all thin clients that connect to this daemon.
 
 **Startup Modes**:
 
 | Command | Mode | Description |
 |---------|------|-------------|
-| `aceclaw` | Interactive CLI | Auto-starts daemon if needed, connects via Unix Domain Socket, opens REPL |
-| `aceclaw <prompt>` | One-shot | Sends prompt, waits for response, exits. Daemon stays alive |
-| `aceclaw daemon start` | Explicit daemon | Foreground start (for systemd/launchd) |
-| `aceclaw daemon --background` | Background daemon | Fork and daemonize, write PID to `~/.aceclaw/aceclaw.pid` |
-| `aceclaw daemon stop` | Shutdown | Graceful 15-step shutdown with state persistence |
-| `aceclaw daemon status` | Health check | Shows daemon health, active sessions, memory usage |
-| `aceclaw daemon install` | System service | Register as launchd (macOS) / systemd (Linux) login service |
+| `ace-copilot` | Interactive CLI | Auto-starts daemon if needed, connects via Unix Domain Socket, opens REPL |
+| `ace-copilot <prompt>` | One-shot | Sends prompt, waits for response, exits. Daemon stays alive |
+| `ace-copilot daemon start` | Explicit daemon | Foreground start (for systemd/launchd) |
+| `ace-copilot daemon --background` | Background daemon | Fork and daemonize, write PID to `~/.ace-copilot/ace-copilot.pid` |
+| `ace-copilot daemon stop` | Shutdown | Graceful 15-step shutdown with state persistence |
+| `ace-copilot daemon status` | Health check | Shows daemon health, active sessions, memory usage |
+| `ace-copilot daemon install` | System service | Register as launchd (macOS) / systemd (Linux) login service |
 
 **Client-Daemon Protocol**: JSON-RPC 2.0 over Unix Domain Socket (primary) or WebSocket (IDE/remote).
 
@@ -118,7 +118,7 @@ AceClaw runs as a **persistent system daemon**, turning your device into an alwa
 
 **Proactive Agent Capabilities**:
 - **HEARTBEAT.md**: Periodic agent health-check tasks (with active hours / quiet hours)
-- **Cron jobs**: Persistent scheduled tasks (`~/.aceclaw/cron/jobs.json`) — daily test runs, dependency audits, etc.
+- **Cron jobs**: Persistent scheduled tasks (`~/.ace-copilot/cron/jobs.json`) — daily test runs, dependency audits, etc.
 - **Background memory consolidation**: Deduplication, pruning, skill proposal during idle time
 - **Codebase indexing**: Incremental indexing of active projects during idle periods
 
@@ -219,7 +219,7 @@ Resume behavior for natural-language inputs like `continue` / `resume` must foll
 
 ### 4.5.2 Task Planner (Autonomous Planning & Execution)
 
-For complex, multi-step tasks, AceClaw provides an **autonomous Task Planner** that decomposes user goals into structured, dependency-aware task graphs (DAGs) before execution begins — going beyond step-by-step ReAct reasoning.
+For complex, multi-step tasks, ace-copilot provides an **autonomous Task Planner** that decomposes user goals into structured, dependency-aware task graphs (DAGs) before execution begins — going beyond step-by-step ReAct reasoning.
 
 **Core Capabilities**:
 - **LLM-driven task decomposition**: Analyzes the user's goal and generates a DAG of sub-tasks with dependency ordering, execution strategies, and risk assessment
@@ -260,11 +260,11 @@ The sections above describe the target design. The current codebase has already 
 - **Learning maintenance**: current implementation performs session-close extraction and historical indexing immediately, then runs consolidation, cross-session mining, and trend detection via a deferred maintenance scheduler with time/session-count/size/idle triggers.
 - **Security**: current implementation has permission policy and approval gating. OS-level sandboxing, trust-level content sandboxing, and encryption at rest remain roadmap items.
 
-### 4.6 Project Configuration (.aceclaw/ Directory)
+### 4.6 Project Configuration (.ace-copilot/ Directory)
 
 ```
-.aceclaw/
-  ACECLAW.md          # Project instructions (team-shareable)
+.ace-copilot/
+  ACE_COPILOT.md          # Project instructions (team-shareable)
   config.json         # Model, tool, and behavior settings
   mcp-servers.json    # MCP server configurations
   hooks/              # Pre/post execution hooks
@@ -272,7 +272,7 @@ The sections above describe the target design. The current codebase has already 
   permissions.json    # Tool permission overrides
 ```
 
-Configuration hierarchy: System defaults < Global (~/.aceclaw/) < Project (.aceclaw/) < Environment vars < CLI flags
+Configuration hierarchy: System defaults < Global (~/.ace-copilot/) < Project (.ace-copilot/) < Environment vars < CLI flags
 
 ### 4.7 Permission System
 
@@ -317,7 +317,7 @@ Custom subagent definitions via Markdown + YAML frontmatter. Independent context
 
 ### 4.9.1 Agent Teams (Multi-Agent Orchestration)
 
-Agent Teams enable multiple AceClaw agent instances to work collaboratively on complex tasks. Faithfully ported from Claude Code's agent team design with Java enhancements.
+Agent Teams enable multiple ace-copilot agent instances to work collaboratively on complex tasks. Faithfully ported from Claude Code's agent team design with Java enhancements.
 
 **Architecture** (matching Claude Code):
 - **Team Lead**: Main session that creates team, spawns teammates, coordinates work
@@ -335,14 +335,14 @@ Agent Teams enable multiple AceClaw agent instances to work collaboratively on c
 
 ### 4.10 Adaptive Skills and Slash Commands
 
-- **Skills**: Model-invoked capabilities auto-matched to user requests (`.aceclaw/skills/`), with **adaptive learning**:
+- **Skills**: Model-invoked capabilities auto-matched to user requests (`.ace-copilot/skills/`), with **adaptive learning**:
   - **Skill Learning Loop**: Track execution outcomes (success/failure/user correction) -> auto-memory records insights -> skill refinement engine analyzes -> update SKILL.md -> next invocation is smarter
   - **Auto-Generated Skills**: When auto-memory detects repeated patterns (e.g., user always performs X in a certain way), automatically propose a new skill draft; user approves before activation
   - **Skill Metrics**: Per-skill tracking of invocation count, success rate, user correction rate, average turn count; score-based ranking with time decay for auto-invocation priority
   - **Skill Refinement**: After threshold failures or corrections, trigger LLM-powered refinement that analyzes failure patterns and improves skill instructions; version history supports rollback
   - **Skill Lifecycle**: `Draft -> Active -> Deprecated -> Disabled` (sealed interface states)
   - **Persistence**: SKILL.md (Markdown + YAML frontmatter) + JSON metrics sidecar files
-- **Commands**: User-invoked slash commands (`.aceclaw/commands/`)
+- **Commands**: User-invoked slash commands (`.ace-copilot/commands/`)
 - **Plugins** (post-MVP): Distributable bundles of commands + skills + agents + hooks + MCP configs
 
 ---
@@ -351,7 +351,7 @@ Agent Teams enable multiple AceClaw agent instances to work collaboratively on c
 
 ### 5.1 Performance: GraalVM Native Image
 
-| Metric | Node.js (Claude Code) | AceClaw (GraalVM Native) |
+| Metric | Node.js (Claude Code) | ace-copilot (GraalVM Native) |
 |--------|----------------------|--------------------------|
 | Cold Start | ~500-800ms | **<50ms** |
 | Memory (idle) | ~80-120MB | **~20-30MB** |
@@ -422,45 +422,45 @@ Advanced memory architecture with Java-specific advantages:
 ### 6.1 Module Structure
 
 ```
-aceclaw/
-  aceclaw-bom/              # Bill of Materials (dependency management)
-  aceclaw-daemon/           # Daemon process, boot sequence, lifecycle, instance lock
-  aceclaw-core/             # Agent loop, task planner, tool system, LLM client abstractions
-  aceclaw-infra/            # Gateway, event bus, message queue, health, scheduler, shutdown
-  aceclaw-llm/              # LLM provider implementations
-  aceclaw-tools/            # Built-in tools (file, bash, search, web, git)
-  aceclaw-memory/           # Context management, auto-memory, self-learning
-  aceclaw-security/         # Permission system, sandbox, audit logging
-  aceclaw-mcp/              # MCP protocol client/server
-  aceclaw-cli/              # Thin client: Terminal UI, CLI parsing, REPL (connects to daemon)
-  aceclaw-sdk/              # Extension API for plugins and custom tools
-  aceclaw-server/           # WebSocket listener for IDE/remote clients
-  aceclaw-test/             # Test utilities and fixtures
+ace-copilot/
+  ace-copilot-bom/              # Bill of Materials (dependency management)
+  ace-copilot-daemon/           # Daemon process, boot sequence, lifecycle, instance lock
+  ace-copilot-core/             # Agent loop, task planner, tool system, LLM client abstractions
+  ace-copilot-infra/            # Gateway, event bus, message queue, health, scheduler, shutdown
+  ace-copilot-llm/              # LLM provider implementations
+  ace-copilot-tools/            # Built-in tools (file, bash, search, web, git)
+  ace-copilot-memory/           # Context management, auto-memory, self-learning
+  ace-copilot-security/         # Permission system, sandbox, audit logging
+  ace-copilot-mcp/              # MCP protocol client/server
+  ace-copilot-cli/              # Thin client: Terminal UI, CLI parsing, REPL (connects to daemon)
+  ace-copilot-sdk/              # Extension API for plugins and custom tools
+  ace-copilot-server/           # WebSocket listener for IDE/remote clients
+  ace-copilot-test/             # Test utilities and fixtures
 ```
 
 ### 6.2 Module Dependency Graph
 
 ```
-aceclaw-cli ──> aceclaw-daemon (thin client connects via UDS)
+ace-copilot-cli ──> ace-copilot-daemon (thin client connects via UDS)
                      |
                      v
-              aceclaw-core ──> aceclaw-sdk (API contracts)
+              ace-copilot-core ──> ace-copilot-sdk (API contracts)
                      |                  ^
                      |                  |
                      v                  |
-              aceclaw-llm        aceclaw-tools
+              ace-copilot-llm        ace-copilot-tools
                      |                  |
                      v                  v
-              aceclaw-memory     aceclaw-security
+              ace-copilot-memory     ace-copilot-security
                      |
                      v
-              aceclaw-infra (gateway, events, health, scheduler)
+              ace-copilot-infra (gateway, events, health, scheduler)
                      ^
                      |
-              aceclaw-daemon (orchestrates all components)
+              ace-copilot-daemon (orchestrates all components)
                      |
-              aceclaw-server (WebSocket listener, optional)
-              aceclaw-mcp    (MCP protocol)
+              ace-copilot-server (WebSocket listener, optional)
+              ace-copilot-mcp    (MCP protocol)
 ```
 
 ### 6.3 Core Abstractions
@@ -472,7 +472,7 @@ aceclaw-cli ──> aceclaw-daemon (thin client connects via UDS)
 **Task Planner**: Goal decomposition -> DAG generation -> parallel execution -> replanning on failure
 
 **Key interfaces** (all using sealed types):
-- `AceClawDaemon`, `DaemonLock`, `DaemonConfig`, `SessionManager`, `AgentSession`
+- `ace-copilotDaemon`, `DaemonLock`, `DaemonConfig`, `SessionManager`, `AgentSession`
 - `HeartbeatRunner`, `CronScheduler`, `CronJob`, `CronSchedule` (sealed: Interval, CronExpression, EventTriggered)
 - `BootSystem`, `StateSerializer`, `LifecycleManager`
 - `Agent`, `AgentLoop`, `Turn`, `StopReason`
@@ -488,16 +488,16 @@ aceclaw-cli ──> aceclaw-daemon (thin client connects via UDS)
 - `MemoryStore`, `ConversationContext`, `ContextWindow`, `AutoMemory`
 - `PermissionPolicy`, `PermissionDecision`, `Sandbox`, `AuditEvent`
 
-**Infrastructure interfaces** (aceclaw-infra):
+**Infrastructure interfaces** (ace-copilot-infra):
 - `Gateway`, `ConnectionManager`, `GatewayRequest` (sealed: Agent, Tool, MCP, Health, Admin)
-- `EventBus`, `AceClawEvent` (sealed hierarchy: Agent, Tool, Health, Session, Team, Scheduler, System events)
+- `EventBus`, `ace-copilotEvent` (sealed hierarchy: Agent, Tool, Health, Session, Team, Scheduler, System events)
 - `MessageQueue`, `AgentMessage` (sealed: TaskAssignment, TaskResult, ChatMessage, BroadcastMessage, ShutdownRequest, PlanApproval, HeartbeatPing), `MessageHandler`, `MessageSubscription`
 - `HealthMonitor`, `HealthCheckable`, `HealthStatus` (sealed: Healthy, Degraded, Unhealthy, Unknown)
 - `Scheduler`, `ScheduledTask`, `SchedulePolicy`
 - `CircuitBreaker`, `RetryPolicy`, `FailoverLLMClient`
 - `GracefulShutdownManager`, `ShutdownParticipant`
 
-**Agent team interfaces** (aceclaw-core):
+**Agent team interfaces** (ace-copilot-core):
 - `TeamCommand` (sealed: CreateTeam, SpawnTeammate, ShutdownTeammate, DeleteTeam), `TeamManager`, `TeamHandle`, `TeammateHandle`
 - `TeamMessage` (sealed: DirectMessage, Broadcast, ShutdownRequest, ShutdownResponse, PlanApprovalRequest, PlanApprovalResponse, IdleNotification), `PeerDmSummary`
 - `TeamMessageRouter`, `InProcessMessageTransport`, `FileBasedMessageTransport`, `TeamMessageInjector`
@@ -505,7 +505,7 @@ aceclaw-cli ──> aceclaw-daemon (thin client connects via UDS)
 - `TeamConfig`, `TeamMember`, `TeammateConfig`, `TeammateBackend` (IN_PROCESS, EXTERNAL_PROCESS, TMUX)
 - `TeamContext` (ScopedValues: TEAM_NAME, AGENT_ID, AGENT_NAME, AGENT_TYPE, PLAN_MODE_REQUIRED)
 
-**Adaptive skills interfaces** (aceclaw-memory / aceclaw-core):
+**Adaptive skills interfaces** (ace-copilot-memory / ace-copilot-core):
 - `SkillState` (sealed: Draft, Active, Deprecated, Disabled), `SkillDefinition`, `SkillMetadata`, `SkillMetrics`
 - `SkillRegistry`, `SkillMatch`, `SkillOutcomeTracker`, `SkillOutcome` (sealed: Success, Failure, UserCorrected)
 - `SkillRefinementEngine`, `RefinementDecision` (sealed: NoActionNeeded, RefinementRecommended, DisableRecommended)
@@ -520,7 +520,7 @@ aceclaw-cli ──> aceclaw-daemon (thin client connects via UDS)
 - **ScheduledExecutorService** with virtual thread factory for periodic tasks (health checks, memory consolidation)
 - **Circuit breakers** with virtual thread-safe state machines for external service resilience
 
-> **Virtual Threads over Reactive Streams**: Project Loom eliminates the need for reactive programming patterns (Flow, RxJava, Reactor). AceClaw uses simple blocking code on virtual threads instead. This results in simpler, more debuggable code with natural backpressure via BlockingQueue capacity. Flow API is available for external library interop but is not used internally.
+> **Virtual Threads over Reactive Streams**: Project Loom eliminates the need for reactive programming patterns (Flow, RxJava, Reactor). ace-copilot uses simple blocking code on virtual threads instead. This results in simpler, more debuggable code with natural backpressure via BlockingQueue capacity. Flow API is available for external library interop but is not used internally.
 
 ### 6.4.1 Infrastructure Architecture
 
@@ -539,11 +539,11 @@ Dual-mode build: native image (primary for CLI) + JVM fallback (for plugins).
 
 | Component | Native Image | Rationale |
 |-----------|-------------|-----------|
-| aceclaw-core | Yes | Reflection-free by design (sealed types, records) |
-| aceclaw-tools | Yes | File I/O, process execution - straightforward |
-| aceclaw-llm | Yes | HTTP client + JSON serialization |
-| aceclaw-cli | Yes | Primary distribution mode |
-| aceclaw-sdk (plugins) | No | Plugin classloading requires JVM subprocess |
+| ace-copilot-core | Yes | Reflection-free by design (sealed types, records) |
+| ace-copilot-tools | Yes | File I/O, process execution - straightforward |
+| ace-copilot-llm | Yes | HTTP client + JSON serialization |
+| ace-copilot-cli | Yes | Primary distribution mode |
+| ace-copilot-sdk (plugins) | No | Plugin classloading requires JVM subprocess |
 
 ### 6.6 Plugin System
 
@@ -620,7 +620,7 @@ OpenClaw suffered critical failures within 48 hours of going viral (January 2026
 - Malicious skills containing credential stealers
 - Unrestricted shell command execution
 
-AceClaw addresses all of these with: default-deny permissions, OS-level sandbox, skill/plugin validation, credential isolation, and audit logging.
+ace-copilot addresses all of these with: default-deny permissions, OS-level sandbox, skill/plugin validation, credential isolation, and audit logging.
 
 ---
 
@@ -721,7 +721,7 @@ Incremental rendering with `MarkdownStreamBuffer`:
 
 ### 9.6 IDE Integration (Post-MVP)
 
-Shared `AceClawUiAdapter` interface for all UI targets:
+Shared `ace-copilotUiAdapter` interface for all UI targets:
 - **VS Code**: TypeScript extension via JSON-RPC over stdio
 - **IntelliJ**: Kotlin plugin via Platform SDK
 - **Web Dashboard** (v2): Javalin-based monitoring with WebSocket real-time updates
@@ -747,15 +747,15 @@ Shared `AceClawUiAdapter` interface for all UI targets:
   (conversation)       (session summaries)   (project + auto)
 ```
 
-### 10.2 Project Memory (ACECLAW.md)
+### 10.2 Project Memory (ACE_COPILOT.md)
 
 Analogous to CLAUDE.md - hierarchical project configuration:
 
 | Location | Scope | Loading |
 |----------|-------|---------|
-| `~/.aceclaw/ACECLAW.md` | User-global | Always at launch |
-| `.aceclaw/ACECLAW.md` | Project | Always at launch |
-| `src/.aceclaw/ACECLAW.md` | Subdirectory | On-demand |
+| `~/.ace-copilot/ACE_COPILOT.md` | User-global | Always at launch |
+| `.ace-copilot/ACE_COPILOT.md` | Project | Always at launch |
+| `src/.ace-copilot/ACE_COPILOT.md` | Subdirectory | On-demand |
 
 ### 10.3 Auto-Memory (Self-Learning)
 
@@ -855,7 +855,7 @@ This ensures no insight is lost even if the agent did not actively call `memory 
 | Daemon process (lock, PID, signal handling) | P0 | Foundation — everything else runs inside daemon |
 | Unix Domain Socket listener | P0 | CLI-to-daemon communication |
 | Auto-start daemon from CLI | P0 | Seamless user experience |
-| `aceclaw daemon start/stop/status` | P0 | Daemon lifecycle management |
+| `ace-copilot daemon start/stop/status` | P0 | Daemon lifecycle management |
 | Interactive CLI (thin client) | P0 | Core user experience |
 | Claude API integration | P0 | Primary LLM provider |
 | OpenAI API integration | P0 | Market expectation |
@@ -864,7 +864,7 @@ This ensures no insight is lost even if the agent did not actively call `memory 
 | Bash execution tool | P0 | Run tests, builds, git |
 | Glob/Grep search tools | P0 | Code navigation |
 | Permission system (4-tier) | P0 | Safety-critical |
-| Project config (.aceclaw/) | P0 | Per-project customization |
+| Project config (.ace-copilot/) | P0 | Per-project customization |
 | Conversation management | P0 | Context window handling |
 | Event bus (basic) | P0 | Internal component communication |
 | Graceful shutdown | P0 | Data integrity on exit |
@@ -896,7 +896,7 @@ This ensures no insight is lost even if the agent did not actively call `memory 
 | Token usage tracking | P2 | Cost management |
 | WebSocket listener (IDE/remote) | P2 | IDE plugin and remote client support |
 | JSON-RPC protocol (full method set) | P2 | Standardized client-daemon protocol |
-| `aceclaw daemon install` (launchd/systemd) | P2 | System service registration |
+| `ace-copilot daemon install` (launchd/systemd) | P2 | System service registration |
 | Codebase indexing (idle-time) | P2 | Incremental project indexing |
 | Heartbeat system (teams) | P2 | Agent team liveness |
 
@@ -919,7 +919,7 @@ This ensures no insight is lost even if the agent did not actively call `memory 
 | **Phase 1: Core Agent + Daemon** | Weeks 1-4 | **Daemon process (lock, PID, signal, UDS listener, auto-start)**, agent loop, LLM client (Claude), core tools, CLI thin client, basic permissions, event bus, graceful shutdown, retry policies |
 | **Phase 2: Intelligence** | Weeks 5-8 | **Multi-session daemon, session persistence/resume, heartbeat runner (HEARTBEAT.md), cron scheduler, BOOT.md, background memory consolidation**, memory/compaction, OS-level sandbox, OpenAI/Ollama, hooks, health monitor, circuit breakers, LLM failover, Task Planner (ComplexityEstimator + basic single-branch plans) |
 | **Phase 3: Extensibility** | Weeks 9-12 | **WebSocket listener (IDE), JSON-RPC full method set, codebase indexing**, MCP client, plugin SPI, auto-memory, rich terminal UI, subagents, basic skills system, full event type hierarchy, message queue (point-to-point + pub/sub), adaptive skills (metrics tracking + learning loop), Task Planner (full DAG, parallel execution, replanning, PlanEvent) |
-| **Phase 4: Multi-Agent** | Weeks 13-18 | **`aceclaw daemon install` (launchd/systemd), Agent Teams persistence (survive client disconnect), file watchers, remote access (TLS + auth)**, agent teams (sealed TeamMessage, TeamManager, TaskStore, dual-mode transport, in-process/external teammates, plan approval), message queue (request-reply + DLQ + TTL), skill refinement engine, auto-generated skills, GraalVM native builds, Task Planner (Agent Teams bridge, adaptive plan templates) |
+| **Phase 4: Multi-Agent** | Weeks 13-18 | **`ace-copilot daemon install` (launchd/systemd), Agent Teams persistence (survive client disconnect), file watchers, remote access (TLS + auth)**, agent teams (sealed TeamMessage, TeamManager, TaskStore, dual-mode transport, in-process/external teammates, plan approval), message queue (request-reply + DLQ + TTL), skill refinement engine, auto-generated skills, GraalVM native builds, Task Planner (Agent Teams bridge, adaptive plan templates) |
 
 ---
 
@@ -969,7 +969,7 @@ This ensures no insight is lost even if the agent did not actively call `memory 
 
 ### Competitive Benchmarks
 
-| Benchmark | Claude Code | AceClaw Target |
+| Benchmark | Claude Code | ace-copilot Target |
 |-----------|------------|----------------|
 | Startup time | ~500-800ms | < 50ms (10x faster) |
 | Memory footprint | ~80-120MB idle | < 30MB idle (4x less) |
@@ -991,7 +991,7 @@ This ensures no insight is lost even if the agent did not actively call `memory 
 | **Plugin classloader isolation** | Medium-High | Medium | Hybrid approach (JVM subprocess), extensive testing |
 | **Adoption challenge** | High | High | Clear performance benchmarks, enterprise features, easy migration |
 | **LLM API changes** | Medium | Medium | Abstract provider interface, version pinning, integration tests |
-| **Infrastructure complexity** | Medium | Medium | aceclaw-infra uses zero external dependencies (java.base only); progressive rollout across phases |
+| **Infrastructure complexity** | Medium | Medium | ace-copilot-infra uses zero external dependencies (java.base only); progressive rollout across phases |
 | **Skill refinement quality** | Medium | Medium | Start with simple heuristics (success rate thresholds); LLM refinement with user approval gate; version rollback on regression |
 | **Auto-generated skill noise** | Medium | Low | Require 3+ matching patterns before proposing; user must approve all drafts; clear rejection path |
 | **Message queue ordering edge cases** | Low | Medium | FIFO guaranteed per queue; correlation IDs for request-reply; thorough testing with concurrent producers |
@@ -1014,4 +1014,4 @@ All detailed research is available in the `research/` directory:
 
 ---
 
-*This PRD was compiled from research by the AceClaw PRD Team: Architect, OpenClaw Expert, Product Owner, Security Expert, Java Engineer, and Frontend Developer.*
+*This PRD was compiled from research by the ace-copilot PRD Team: Architect, OpenClaw Expert, Product Owner, Security Expert, Java Engineer, and Frontend Developer.*

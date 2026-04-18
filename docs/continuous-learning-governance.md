@@ -42,8 +42,8 @@ process controls, safety controls, rollback controls, and status event protocol.
   - capture reason code
   - record incident note
   - verify state files updated:
-    - `.aceclaw/metrics/continuous-learning/skill-release-state.json`
-    - `.aceclaw/metrics/continuous-learning/skill-release-audit.jsonl`
+    - `.ace-copilot/metrics/continuous-learning/skill-release-state.json`
+    - `.ace-copilot/metrics/continuous-learning/skill-release-audit.jsonl`
 
 ## 4) Status Event Protocol
 
@@ -56,9 +56,9 @@ Status surfaces are derived from source-of-truth runtime objects/files:
   - source: `PermissionBridge` pending queue
   - rendered fields: `taskId`, `description`, pending count
 - Continuous-learning summary:
-  - replay source: `.aceclaw/metrics/continuous-learning/replay-latest.json`
-  - candidate source: `.aceclaw/memory/candidates.jsonl`
-  - release source: `.aceclaw/metrics/continuous-learning/skill-release-state.json`
+  - replay source: `.ace-copilot/metrics/continuous-learning/replay-latest.json`
+  - candidate source: `.ace-copilot/memory/candidates.jsonl`
+  - release source: `.ace-copilot/metrics/continuous-learning/skill-release-state.json`
 
 Protocol invariants:
 

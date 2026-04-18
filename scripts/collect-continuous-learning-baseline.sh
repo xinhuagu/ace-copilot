@@ -53,7 +53,7 @@ done
 
 if [[ -z "$OUTPUT" ]]; then
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
-  OUTPUT="$PROJECT_ROOT/.aceclaw/metrics/continuous-learning/baseline-$ts.json"
+  OUTPUT="$PROJECT_ROOT/.ace-copilot/metrics/continuous-learning/baseline-$ts.json"
 fi
 
 mkdir -p "$(dirname "$OUTPUT")"
@@ -134,9 +134,9 @@ as_json_value() {
   fi
 }
 
-RUNTIME_METRICS_PATH="$PROJECT_ROOT/.aceclaw/metrics/continuous-learning/runtime-latest.json"
-REPLAY_METRICS_PATH="$PROJECT_ROOT/.aceclaw/metrics/continuous-learning/replay-latest.json"
-INJECTION_SUMMARY_PATH="$PROJECT_ROOT/.aceclaw/metrics/continuous-learning/injection-audit-summary.json"
+RUNTIME_METRICS_PATH="$PROJECT_ROOT/.ace-copilot/metrics/continuous-learning/runtime-latest.json"
+REPLAY_METRICS_PATH="$PROJECT_ROOT/.ace-copilot/metrics/continuous-learning/replay-latest.json"
+INJECTION_SUMMARY_PATH="$PROJECT_ROOT/.ace-copilot/metrics/continuous-learning/injection-audit-summary.json"
 
 # Generic reader: extract a measured metric value from a JSON file with .metrics[$key].{value,status}.
 read_metric_from_file() {
@@ -213,7 +213,7 @@ TESTS_EXIT_CODE="null"
 TESTS_COMMAND=""
 
 if [[ "$RUN_TESTS" -eq 1 ]]; then
-  TESTS_COMMAND="./gradlew :aceclaw-daemon:test :aceclaw-memory:test :aceclaw-core:test --tests dev.aceclaw.daemon.SelfLearningPipelineTest --tests dev.aceclaw.memory.StrategyRefinerTest --tests dev.aceclaw.core.agent.SkillRegistryTest --tests dev.aceclaw.core.agent.SkillContentResolverTest"
+  TESTS_COMMAND="./gradlew :ace-copilot-daemon:test :ace-copilot-memory:test :ace-copilot-core:test --tests dev.acecopilot.daemon.SelfLearningPipelineTest --tests dev.acecopilot.memory.StrategyRefinerTest --tests dev.acecopilot.core.agent.SkillRegistryTest --tests dev.acecopilot.core.agent.SkillContentResolverTest"
 
   set +e
   (cd "$PROJECT_ROOT" && eval "$TESTS_COMMAND")
@@ -265,7 +265,7 @@ metric_keys=(
   echo "{"
   echo "  \"metadata\": {"
   echo "    \"collected_at\": \"$collected_at\"," 
-  echo "    \"repo\": \"AceClaw\"," 
+  echo "    \"repo\": \"AceCopilot\"," 
   echo "    \"branch\": \"$(json_escape "$branch_name")\"," 
   echo "    \"commit\": \"$(json_escape "$commit_sha")\"," 
   echo "    \"collector_version\": \"v2\""

@@ -185,7 +185,7 @@
 - Explicit multi-session support for multiple CLI windows on one daemon (#346)
 - Workspace-first retrieval priority in AutoMemoryStore (#352)
 - One-line install script for cross-platform setup (#358)
-- Add aceclaw-update command for easy pull + rebuild (#359)
+- Add ace-copilot-update command for easy pull + rebuild (#359)
 - Binary distribution via GitHub Releases (#362)
 ## [0.1.0] - 2026-03-05
 
@@ -206,7 +206,7 @@
 - Keep cursor on prompt after async status redraw
 - Redisplay prompt after async status render
 - Close tool status on early exits and clean panel redraw
-- Avoid default profile override when ACECLAW_PROVIDER is set
+- Avoid default profile override when ACE_COPILOT_PROVIDER is set
 - Omit unsupported Responses parameters
 - Scope store=false to codex provider only
 - Avoid null text in user-facing LLM errors
@@ -223,7 +223,7 @@
 - Harden observability panel parsing and null guards
 - Require non-null paths in status parsers
 - Resolve review feedback on bridge tests and docs link
-- Fallback candidates status to ~/.aceclaw memory
+- Fallback candidates status to ~/.ace-copilot memory
 - Address review feedback on baseline and anti-pattern metrics
 - Harden cron tool input handling and tests
 - Null-guard cron status job list
@@ -260,7 +260,7 @@
 - Refresh README positioning copy
 - Add demo GIF to README
 - Replace demo GIF with 2x speed version
-- Reposition AceClaw as enterprise agent harness
+- Reposition ace-copilot as enterprise agent harness
 
 ### Features
 

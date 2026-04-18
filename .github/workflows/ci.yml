@@ -36,14 +36,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Build artifacts
-        run: ./gradlew assemble :aceclaw-cli:distZip --no-daemon
+        run: ./gradlew assemble :ace-copilot-cli:distZip --no-daemon
         shell: bash
 
       - name: Cross-platform smoke tests
         run: >
           ./gradlew
-          :aceclaw-cli:test --tests dev.aceclaw.cli.TerminalMarkdownRendererTest
-          :aceclaw-tools:test --tests dev.aceclaw.tools.BashExecToolTest
+          :ace-copilot-cli:test --tests dev.acecopilot.cli.TerminalMarkdownRendererTest
+          :ace-copilot-tools:test --tests dev.acecopilot.tools.BashExecToolTest
           --no-daemon
         shell: bash
 
@@ -64,7 +64,7 @@ jobs:
             # Windows: skip daemon test module (Gradle test worker JVM crashes when forking
             # tests in a module that references AF_UNIX classes, even with @DisabledOnOs).
             # All other modules run their full test suites on Windows.
-            test-args: "-x :aceclaw-daemon:test -x generateReplayCases -x generateReplayReport -x preMergeCheck -x replayQualityGate -x benchmarkScorecard -x validateReplaySuite -x continuousLearningSmoke"
+            test-args: "-x :ace-copilot-daemon:test -x generateReplayCases -x generateReplayReport -x preMergeCheck -x replayQualityGate -x benchmarkScorecard -x validateReplaySuite -x continuousLearningSmoke"
     runs-on: ${{ matrix.os }}
     # Observational only — failures do not block PRs
     continue-on-error: true
@@ -88,15 +88,15 @@ jobs:
   pre-merge-check:
     runs-on: ubuntu-latest
     env:
-      REPLAY_FULL_MODE: ${{ vars.ACECLAW_REPLAY_FULL_MODE || 'false' }}
-      REPLAY_PROMPTS_PATH: ${{ vars.ACECLAW_REPLAY_PROMPTS_PATH || (vars.ACECLAW_REPLAY_FULL_MODE == 'true' && 'docs/reports/samples/replay-prompts-sample.json' || 'docs/reports/samples/replay-prompts-ci-short.json') }}
+      REPLAY_FULL_MODE: ${{ vars.ACE_COPILOT_REPLAY_FULL_MODE || 'false' }}
+      REPLAY_PROMPTS_PATH: ${{ vars.ACE_COPILOT_REPLAY_PROMPTS_PATH || (vars.ACE_COPILOT_REPLAY_FULL_MODE == 'true' && 'docs/reports/samples/replay-prompts-sample.json' || 'docs/reports/samples/replay-prompts-ci-short.json') }}
       # Structural minimum: 3 = can run. Statistical significance (10) is enforced by BenchmarkScorecard.
-      REPLAY_SUITE_MIN_PER_CATEGORY: ${{ vars.ACECLAW_REPLAY_SUITE_MIN_PER_CATEGORY || '3' }}
-      REPLAY_MAX_TOKEN_ESTIMATION_ERROR_RATIO: ${{ vars.ACECLAW_REPLAY_MAX_TOKEN_ESTIMATION_ERROR_RATIO || '0.65' }}
-      REPLAY_FAIL_ON_LATENCY: ${{ vars.ACECLAW_REPLAY_FAIL_ON_LATENCY || 'false' }}
+      REPLAY_SUITE_MIN_PER_CATEGORY: ${{ vars.ACE_COPILOT_REPLAY_SUITE_MIN_PER_CATEGORY || '3' }}
+      REPLAY_MAX_TOKEN_ESTIMATION_ERROR_RATIO: ${{ vars.ACE_COPILOT_REPLAY_MAX_TOKEN_ESTIMATION_ERROR_RATIO || '0.65' }}
+      REPLAY_FAIL_ON_LATENCY: ${{ vars.ACE_COPILOT_REPLAY_FAIL_ON_LATENCY || 'false' }}
       # Rollout default: collect metric first; enforce only when explicitly enabled.
-      REPLAY_ENFORCE_ANTI_PATTERN_FP_RATE: ${{ vars.ACECLAW_REPLAY_ENFORCE_ANTI_PATTERN_FP_RATE || 'false' }}
-      REPLAY_MAX_ANTI_PATTERN_FP_RATE: ${{ vars.ACECLAW_REPLAY_MAX_ANTI_PATTERN_FP_RATE || '0.50' }}
+      REPLAY_ENFORCE_ANTI_PATTERN_FP_RATE: ${{ vars.ACE_COPILOT_REPLAY_ENFORCE_ANTI_PATTERN_FP_RATE || 'false' }}
+      REPLAY_MAX_ANTI_PATTERN_FP_RATE: ${{ vars.ACE_COPILOT_REPLAY_MAX_ANTI_PATTERN_FP_RATE || '0.50' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -111,27 +111,27 @@ jobs:
         run: >
           ./gradlew generateReplayCases
           -PreplayPromptsInput=${{ env.REPLAY_PROMPTS_PATH }}
-          -PreplayCasesOutput=${{ vars.ACECLAW_REPLAY_INPUT_PATH || '.aceclaw/metrics/continuous-learning/replay-cases.json' }}
-          -PreplayCasesManifestOutput=${{ vars.ACECLAW_REPLAY_MANIFEST_PATH || '.aceclaw/metrics/continuous-learning/replay-cases.manifest.json' }}
+          -PreplayCasesOutput=${{ vars.ACE_COPILOT_REPLAY_INPUT_PATH || '.ace-copilot/metrics/continuous-learning/replay-cases.json' }}
+          -PreplayCasesManifestOutput=${{ vars.ACE_COPILOT_REPLAY_MANIFEST_PATH || '.ace-copilot/metrics/continuous-learning/replay-cases.manifest.json' }}
           -PreplaySuiteMinPerCategory=${{ env.REPLAY_SUITE_MIN_PER_CATEGORY }}
-          -PreplayTimeoutMs=${{ vars.ACECLAW_REPLAY_TIMEOUT_MS || '180000' }}
-          -PreplayAutoApprovePermissions=${{ vars.ACECLAW_REPLAY_AUTO_APPROVE_PERMISSIONS || 'true' }}
+          -PreplayTimeoutMs=${{ vars.ACE_COPILOT_REPLAY_TIMEOUT_MS || '180000' }}
+          -PreplayAutoApprovePermissions=${{ vars.ACE_COPILOT_REPLAY_AUTO_APPROVE_PERMISSIONS || 'true' }}
           --no-daemon
 
       - name: Generate replay report
         run: >
           ./gradlew generateReplayReport
-          -PreplayCasesInput=${{ vars.ACECLAW_REPLAY_INPUT_PATH || '.aceclaw/metrics/continuous-learning/replay-cases.json' }}
-          -PreplayCasesManifestInput=${{ vars.ACECLAW_REPLAY_MANIFEST_PATH || '.aceclaw/metrics/continuous-learning/replay-cases.manifest.json' }}
-          -PreplayAntiPatternFeedbackPath=${{ vars.ACECLAW_ANTI_PATTERN_FEEDBACK_PATH || '.aceclaw/metrics/continuous-learning/anti-pattern-gate-feedback.json' }}
-          -PreplayReport=${{ vars.ACECLAW_REPLAY_REPORT_PATH || '.aceclaw/metrics/continuous-learning/replay-latest.json' }}
+          -PreplayCasesInput=${{ vars.ACE_COPILOT_REPLAY_INPUT_PATH || '.ace-copilot/metrics/continuous-learning/replay-cases.json' }}
+          -PreplayCasesManifestInput=${{ vars.ACE_COPILOT_REPLAY_MANIFEST_PATH || '.ace-copilot/metrics/continuous-learning/replay-cases.manifest.json' }}
+          -PreplayAntiPatternFeedbackPath=${{ vars.ACE_COPILOT_ANTI_PATTERN_FEEDBACK_PATH || '.ace-copilot/metrics/continuous-learning/anti-pattern-gate-feedback.json' }}
+          -PreplayReport=${{ vars.ACE_COPILOT_REPLAY_REPORT_PATH || '.ace-copilot/metrics/continuous-learning/replay-latest.json' }}
           --no-daemon
 
       - name: Pre-merge quality gate
         run: >
           ./gradlew preMergeCheck
           -PreplayGateStrict=true
-          -PreplayReport=${{ vars.ACECLAW_REPLAY_REPORT_PATH || '.aceclaw/metrics/continuous-learning/replay-latest.json' }}
+          -PreplayReport=${{ vars.ACE_COPILOT_REPLAY_REPORT_PATH || '.ace-copilot/metrics/continuous-learning/replay-latest.json' }}
           -PreplayMaxTokenEstimationErrorRatio=${{ env.REPLAY_MAX_TOKEN_ESTIMATION_ERROR_RATIO }}
           -PreplayFailOnLatency=${{ env.REPLAY_FAIL_ON_LATENCY }}
           -PreplayEnforceAntiPatternFalsePositiveRate=${{ env.REPLAY_ENFORCE_ANTI_PATTERN_FP_RATE }}
