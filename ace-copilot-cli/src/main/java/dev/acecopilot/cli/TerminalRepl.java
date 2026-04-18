@@ -64,7 +64,7 @@ public final class TerminalRepl {
     private static final Logger log = LoggerFactory.getLogger(TerminalRepl.class);
 
     private static final Path HISTORY_FILE = Path.of(
-            System.getProperty("user.home"), ".ace-copilot", "history");
+            System.getProperty("user.home"), ".ace-copilot", "cli-history");
 
     private static final String PROMPT_STR = PROMPT + "ace-copilot>" + RESET + " ";
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
