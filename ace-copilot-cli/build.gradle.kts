@@ -42,16 +42,32 @@ application {
 // override via ACE_COPILOT_SIDECAR_DIR. A warning is logged so they know why
 // the session path will not work out of the box.
 val sidecarDir = rootProject.file("ace-copilot-sidecar")
+
+// Cross-platform detection of `npm` on PATH. `sh -c "command -v npm"` doesn't
+// exist on Windows runners, so drive the check directly from the JVM.
+fun isNpmAvailable(): Boolean = try {
+    val probe = ProcessBuilder(if (org.gradle.internal.os.OperatingSystem.current().isWindows) "npm.cmd" else "npm", "--version")
+        .redirectErrorStream(true)
+        .start()
+    probe.inputStream.readAllBytes()
+    probe.waitFor() == 0
+} catch (_: Exception) {
+    false
+}
+
 val installSidecarDeps = tasks.register<Exec>("installSidecarDeps") {
     group = "build"
     description = "Installs @github/copilot-sdk dependencies into ace-copilot-sidecar/node_modules."
     workingDir = sidecarDir
-    commandLine("npm", "install", "--omit=dev", "--no-audit", "--no-fund")
+    commandLine(
+        if (org.gradle.internal.os.OperatingSystem.current().isWindows) "npm.cmd" else "npm",
+        "install", "--omit=dev", "--no-audit", "--no-fund"
+    )
     inputs.file(sidecarDir.resolve("package.json"))
     inputs.file(sidecarDir.resolve("package-lock.json"))
     outputs.dir(sidecarDir.resolve("node_modules"))
     onlyIf {
-        val hasNpm = ProcessBuilder("sh", "-c", "command -v npm >/dev/null 2>&1").start().waitFor() == 0
+        val hasNpm = isNpmAvailable()
         if (!hasNpm) {
             logger.warn(
                 "npm not found on PATH; skipping Copilot sidecar dep install. " +
