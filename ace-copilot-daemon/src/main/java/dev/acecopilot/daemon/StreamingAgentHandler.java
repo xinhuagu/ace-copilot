@@ -1829,6 +1829,42 @@ public final class StreamingAgentHandler {
     }
 
     /**
+     * Honest cross-turn premium delta: diff THIS turn's LAST usage sample
+     * against the PREVIOUS turn's last sample (both end-of-turn values).
+     *
+     * <p>Sampling at the current turn's {@code firstUsage} races with the
+     * backend's eventually-consistent counter: if the +1 lands after the
+     * first {@code assistant.usage} fires but before the last, a billable
+     * turn under (first - prevLast) would report 0. {@code last} always
+     * gives the SDK maximum time to flush, so {@code last - prevLast} is
+     * monotonically non-decreasing and captures the increment regardless
+     * of when inside the turn it landed.
+     *
+     * <p>Returns -1 when no baseline exists (first turn of a session) or
+     * {@code last.premiumUsed} is missing.
+     */
+    static long computeCrossTurnPremiumDelta(Long previousSessionPremium,
+                                             CopilotAcpClient.UsageSnapshot last) {
+        if (previousSessionPremium == null) return -1;
+        if (last == null || last.premiumUsed() == null) return -1;
+        return last.premiumUsed() - previousSessionPremium;
+    }
+
+    /**
+     * Picks the premium-counter value to store as the next turn's baseline.
+     * Prefer the last sample; fall back to the first so a mock or SDK that
+     * only emits one {@code assistant.usage} event still leaves a baseline
+     * behind. Returns {@code null} when neither is available — in that case
+     * the next turn will simply report {@code -1} (no baseline).
+     */
+    static Long resolvePremiumBaseline(CopilotAcpClient.UsageSnapshot last,
+                                       CopilotAcpClient.UsageSnapshot first) {
+        if (last != null && last.premiumUsed() != null) return last.premiumUsed();
+        if (first != null && first.premiumUsed() != null) return first.premiumUsed();
+        return null;
+    }
+
+    /**
      * Deterministic signature of a tool descriptor list. Must match the
      * sidecar's {@code toolSignature()} (see {@code sidecar.mjs}) so the
      * Java-side pre-warn agrees with the sidecar's post-hoc
@@ -2081,22 +2117,11 @@ public final class StreamingAgentHandler {
         // as `llmRequests` (which the CLI renders as the billing indicator).
         usageNode.put("llmRequests", 1);
 
-        // Cross-turn premium delta: diff the earliest premium sample of
-        // THIS turn against the last sample we saw on the PREVIOUS turn,
-        // per-session. Intra-turn subtraction is unreliable because the
-        // SDK's first assistant.usage event is not guaranteed to be a
-        // pre-billing baseline (see SendResult.intraTurnPremiumDelta
-        // javadoc). Cross-turn is the honest number.
         Long previousSessionPremium = sessionLastPremiumUsed.get(sessionId);
-        long crossTurnPremiumDelta = -1;
-        if (previousSessionPremium != null
-                && first != null && first.premiumUsed() != null) {
-            crossTurnPremiumDelta = first.premiumUsed() - previousSessionPremium;
-        }
-        if (last != null && last.premiumUsed() != null) {
-            sessionLastPremiumUsed.put(sessionId, last.premiumUsed());
-        } else if (first != null && first.premiumUsed() != null) {
-            sessionLastPremiumUsed.put(sessionId, first.premiumUsed());
+        long crossTurnPremiumDelta = computeCrossTurnPremiumDelta(previousSessionPremium, last);
+        Long updatedBaseline = resolvePremiumBaseline(last, first);
+        if (updatedBaseline != null) {
+            sessionLastPremiumUsed.put(sessionId, updatedBaseline);
         }
 
         // Diagnostics: expose the per-session premium counter so the TUI /
