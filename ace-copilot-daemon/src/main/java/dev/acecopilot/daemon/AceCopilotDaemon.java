@@ -21,6 +21,7 @@ import dev.acecopilot.infra.event.EventBus;
 import dev.acecopilot.infra.event.SchedulerEvent;
 import dev.acecopilot.infra.health.*;
 import dev.acecopilot.llm.LlmClientFactory;
+import dev.acecopilot.llm.openai.CopilotTokenProvider;
 import dev.acecopilot.memory.AutoMemoryStore;
 import dev.acecopilot.memory.CandidateStateMachine;
 import dev.acecopilot.memory.CandidateStore;
@@ -467,9 +468,21 @@ public final class AceCopilotDaemon {
                 promptBudget,
                 config.braveSearchApiKey() != null,
                 skillRegistry::formatDescriptions);
+        // Phase 1 (#3) safety gate: session runtime only activates when the
+        // operator has explicitly acknowledged that the SDK agent currently
+        // bypasses PermissionManager. Phase 2 (#4) removes this gate when
+        // the permission bridge lands.
+        if ("session".equalsIgnoreCase(config.copilotRuntime()) && !config.copilotRuntimeAcceptUnsandboxed()) {
+            log.error(
+                "copilotRuntime='session' requested but copilotRuntimeAcceptUnsandboxed=false — "
+                + "the Phase 1 sidecar auto-approves every SDK permission request (filesystem, shell, etc.), "
+                + "which bypasses PermissionManager. Refusing to enter session mode; falling back to 'chat'. "
+                + "To opt in explicitly, add \"copilotRuntimeAcceptUnsandboxed\": true to your active profile. "
+                + "See issue #3.");
+        }
         agentHandler.setCopilotRuntimeConfig(
-                config.copilotRuntime(),
-                config.apiKey(),
+                config.effectiveCopilotRuntime(),
+                resolveCopilotGithubToken(config),
                 resolveCopilotSidecarDir());
         agentHandler.setMcpInitFuture(mcpInitFuture);
         agentHandler.setRetryConfig(config.retryConfig());
@@ -2544,6 +2557,17 @@ public final class AceCopilotDaemon {
                             + ", trends=" + trends
                             + ", bridge=" + candidateObservations + "/" + candidateTransitions + "/" + candidatePromoted);
         }
+    }
+
+    /**
+     * Resolves the raw GitHub token to pass to the Copilot SDK sidecar,
+     * using the same priority as {@link CopilotTokenProvider}: cached OAuth
+     * → configured {@code apiKey} → {@code GITHUB_TOKEN} → {@code GH_TOKEN}
+     * → {@code gh auth token}. Returns {@code null} if none resolve, in
+     * which case the sidecar defers to the SDK's {@code useLoggedInUser}.
+     */
+    private static String resolveCopilotGithubToken(AceCopilotConfig config) {
+        return CopilotTokenProvider.firstGithubTokenCandidate(config.apiKey());
     }
 
     /**

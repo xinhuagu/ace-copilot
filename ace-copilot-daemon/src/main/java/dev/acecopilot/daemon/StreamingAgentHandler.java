@@ -173,6 +173,12 @@ public final class StreamingAgentHandler {
     // that takes the session path; torn down in clearSessionMetrics.
     private final ConcurrentHashMap<String, CopilotAcpClient> sessionSidecars =
             new ConcurrentHashMap<>();
+    // Tracks the model the sidecar's SDK session was last asked to use, so we
+    // can surface an explicit warning when a mid-session /model switch causes
+    // the sidecar to drop remote context (the sidecar recreates the SDK
+    // session on model change; see sidecar.mjs).
+    private final ConcurrentHashMap<String, String> sessionLastModel =
+            new ConcurrentHashMap<>();
     private volatile String copilotRuntime = "chat";
     private volatile String copilotGithubToken;
     private volatile Path copilotSidecarDir;
@@ -1800,6 +1806,7 @@ public final class StreamingAgentHandler {
     }
 
     private void closeSessionSidecar(String sessionId) {
+        sessionLastModel.remove(sessionId);
         var client = sessionSidecars.remove(sessionId);
         if (client == null) return;
         try {
@@ -1854,6 +1861,28 @@ public final class StreamingAgentHandler {
             }
         });
 
+        // Surface /model mid-session switches loudly: the sidecar recreates the
+        // underlying SDK session on model change without replaying prior
+        // context, so remote Copilot context is effectively reset. The local
+        // transcript still reads as continuous, which is the footgun.
+        var previousModel = sessionLastModel.put(sessionId, model);
+        if (previousModel != null && !previousModel.equals(model)) {
+            String msg = "Copilot session context reset: model changed "
+                    + previousModel + " -> " + model
+                    + ". Prior conversation is retained locally but the remote Copilot session starts fresh.";
+            log.warn(msg);
+            try {
+                var p = objectMapper.createObjectNode();
+                p.put("level", "warning");
+                p.put("message", msg);
+                p.put("previousModel", previousModel);
+                p.put("currentModel", model);
+                cancelContext.sendNotification("stream.warning", p);
+            } catch (IOException e) {
+                log.debug("Failed to send stream.warning notification: {}", e.getMessage());
+            }
+        }
+
         var started = System.currentTimeMillis();
         var textBuf = new StringBuilder();
         CopilotAcpClient.SendResult r;
@@ -1897,7 +1926,11 @@ public final class StreamingAgentHandler {
                 usageNode.put("totalTokens", last.inputTokens() + last.outputTokens());
             }
         }
-        usageNode.put("llmRequests", r.usageEventCount());
+        // One sendAndWait is a single billable user turn. usageEventCount is
+        // the internal LLM-call count the SDK agent made inside that turn —
+        // exposed as a diagnostic under `copilot` rather than masquerading
+        // as `llmRequests` (which the CLI renders as the billing indicator).
+        usageNode.put("llmRequests", 1);
         // Phase 1 diagnostics: expose the per-session premium counter so the TUI /
         // logs make the 1-request-per-sendAndWait claim observable.
         var copilotNode = objectMapper.createObjectNode();
