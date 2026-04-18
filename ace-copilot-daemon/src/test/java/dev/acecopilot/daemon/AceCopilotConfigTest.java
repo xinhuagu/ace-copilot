@@ -24,11 +24,21 @@ class AceCopilotConfigTest {
     // -- applyKeychainCredential tests --
 
     /**
-     * Creates a config with a dummy provider so that load() does NOT trigger
-     * real Keychain credential discovery. We test applyKeychainCredential() in isolation.
+     * Creates a truly blank config by invoking the private no-arg constructor
+     * directly. We can't use {@code load()} here: it reads the user's real
+     * {@code ~/.ace-copilot/config.json}, which may populate fields like
+     * {@code apiKey} (e.g. users who configured a Copilot gho_ token on the
+     * active profile) and break the assumption that a fresh config has nothing
+     * set. applyKeychainCredential is tested in isolation.
      */
     private static AceCopilotConfig blankConfig() {
-        return AceCopilotConfig.load(null, "test-dummy");
+        try {
+            var ctor = AceCopilotConfig.class.getDeclaredConstructor();
+            ctor.setAccessible(true);
+            return ctor.newInstance();
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError("AceCopilotConfig no-arg constructor changed unexpectedly", e);
+        }
     }
 
     private static KeychainCredentialReader.Credential freshCredential(
