@@ -188,6 +188,19 @@ public final class ForegroundOutputSink implements OutputSink {
     }
 
     @Override
+    public void onWarning(String message) {
+        synchronized (lock) {
+            if (receivedTextOutput) {
+                flushMarkdown();
+            }
+            statusRenderer.hide();
+            out.printf("%s[warning: %s]%s%n", WARNING, message, RESET);
+            out.flush();
+            statusRenderer.refresh();
+        }
+    }
+
+    @Override
     public void onStreamCancelled() {
         synchronized (lock) {
             stopSpinnerInternal();

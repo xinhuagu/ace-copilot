@@ -21,6 +21,7 @@ import dev.acecopilot.infra.event.EventBus;
 import dev.acecopilot.infra.event.SchedulerEvent;
 import dev.acecopilot.infra.health.*;
 import dev.acecopilot.llm.LlmClientFactory;
+import dev.acecopilot.llm.openai.CopilotTokenProvider;
 import dev.acecopilot.memory.AutoMemoryStore;
 import dev.acecopilot.memory.CandidateStateMachine;
 import dev.acecopilot.memory.CandidateStore;
@@ -467,6 +468,34 @@ public final class AceCopilotDaemon {
                 promptBudget,
                 config.braveSearchApiKey() != null,
                 skillRegistry::formatDescriptions);
+        // Phase 1 (#3) safety gate: session runtime only activates when the
+        // operator has explicitly acknowledged that the SDK agent currently
+        // bypasses PermissionManager. Phase 2 (#4) removes this gate when
+        // the permission bridge lands.
+        if ("session".equalsIgnoreCase(config.copilotRuntime()) && !config.copilotRuntimeAcceptUnsandboxed()) {
+            log.error(
+                "copilotRuntime='session' requested but copilotRuntimeAcceptUnsandboxed=false — "
+                + "the Phase 1 sidecar auto-approves every SDK permission request (filesystem, shell, etc.), "
+                + "which bypasses PermissionManager. Refusing to enter session mode; falling back to 'chat'. "
+                + "To opt in explicitly, add \"copilotRuntimeAcceptUnsandboxed\": true to your active profile. "
+                + "See issue #3.");
+        }
+        // The session runtime launches a Node.js sidecar, which is not a
+        // prerequisite of the ace-copilot installer. Preflight node on PATH
+        // so misconfigured users see the problem at startup rather than at
+        // the first agent.prompt.
+        String effectiveRuntime = config.effectiveCopilotRuntime();
+        if ("session".equalsIgnoreCase(effectiveRuntime) && !isNodeAvailable()) {
+            log.error(
+                "copilotRuntime='session' requires Node.js on PATH (the sidecar runs under `node`), "
+                + "but `node --version` did not succeed. Refusing to enter session mode; falling back to 'chat'. "
+                + "Install Node.js 20+ from https://nodejs.org/ (or your package manager) and restart the daemon.");
+            effectiveRuntime = "chat";
+        }
+        agentHandler.setCopilotRuntimeConfig(
+                effectiveRuntime,
+                resolveCopilotGithubToken(config),
+                resolveCopilotSidecarDir());
         agentHandler.setMcpInitFuture(mcpInitFuture);
         agentHandler.setRetryConfig(config.retryConfig());
         agentHandler.setAdaptiveContinuationConfig(
@@ -2539,6 +2568,95 @@ public final class AceCopilotDaemon {
                             + ", mining=" + (errorChains + stableWorkflows + convergingStrategies + degradationSignals)
                             + ", trends=" + trends
                             + ", bridge=" + candidateObservations + "/" + candidateTransitions + "/" + candidatePromoted);
+        }
+    }
+
+    /**
+     * Checks whether {@code node} is available on {@code PATH}. The session
+     * runtime spawns a Node.js sidecar; without {@code node} the first
+     * {@code agent.prompt} would fail with a generic IOException from
+     * {@link ProcessBuilder}. Preflight lets the daemon log a pointed
+     * error at startup and fall back to the chat runtime.
+     */
+    private static boolean isNodeAvailable() {
+        try {
+            var pb = new ProcessBuilder("node", "--version").redirectErrorStream(true);
+            var p = pb.start();
+            p.getInputStream().readAllBytes();
+            if (!p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return false;
+            }
+            return p.exitValue() == 0;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Resolves the raw GitHub token to pass to the Copilot SDK sidecar,
+     * using the same priority as {@link CopilotTokenProvider}: cached OAuth
+     * → configured {@code apiKey} → {@code GITHUB_TOKEN} → {@code GH_TOKEN}
+     * → {@code gh auth token}. Returns {@code null} if none resolve, in
+     * which case the sidecar defers to the SDK's {@code useLoggedInUser}.
+     */
+    private static String resolveCopilotGithubToken(AceCopilotConfig config) {
+        return CopilotTokenProvider.firstGithubTokenCandidate(config.apiKey());
+    }
+
+    /**
+     * Resolves the directory that holds the ace-copilot Copilot SDK sidecar
+     * ({@code sidecar.mjs} + installed {@code node_modules}). Only used when
+     * {@code copilotRuntime} is {@code "session"} (issue #3).
+     *
+     * <p>Resolution order:
+     * <ol>
+     *   <li>{@code ACE_COPILOT_SIDECAR_DIR} env var, if set</li>
+     *   <li>{@code <user.dir>/ace-copilot-sidecar/}, if the script exists
+     *       (source-tree runs via {@code ./gradlew :ace-copilot-daemon:run} or IDE)</li>
+     *   <li>{@code <installRoot>/sidecar/} derived from the location of this
+     *       class's JAR, for Gradle application-plugin installs where the
+     *       sidecar is packaged under {@code <appHome>/sidecar/} (see
+     *       {@code ace-copilot-cli/build.gradle.kts})</li>
+     * </ol>
+     */
+    private static java.nio.file.Path resolveCopilotSidecarDir() {
+        String env = System.getenv("ACE_COPILOT_SIDECAR_DIR");
+        if (env != null && !env.isBlank()) {
+            return java.nio.file.Path.of(env);
+        }
+        var inSourceTree = java.nio.file.Path.of(System.getProperty("user.dir"), "ace-copilot-sidecar");
+        if (java.nio.file.Files.exists(inSourceTree.resolve("sidecar.mjs"))) {
+            return inSourceTree;
+        }
+        var packaged = packagedSidecarDir();
+        if (packaged != null && java.nio.file.Files.exists(packaged.resolve("sidecar.mjs"))) {
+            return packaged;
+        }
+        return inSourceTree;
+    }
+
+    /**
+     * When launched from a Gradle application install, this class's JAR
+     * lives at {@code <appHome>/lib/ace-copilot-daemon-*.jar} and the
+     * packaged sidecar at {@code <appHome>/sidecar/}. Returns {@code null}
+     * for non-JAR or unexpected layouts.
+     */
+    private static java.nio.file.Path packagedSidecarDir() {
+        try {
+            var src = AceCopilotDaemon.class.getProtectionDomain().getCodeSource();
+            if (src == null) return null;
+            var jar = java.nio.file.Path.of(src.getLocation().toURI());
+            if (!jar.getFileName().toString().endsWith(".jar")) return null;
+            var libDir = jar.getParent();
+            if (libDir == null || !"lib".equals(libDir.getFileName().toString())) return null;
+            var appHome = libDir.getParent();
+            return appHome != null ? appHome.resolve("sidecar") : null;
+        } catch (Exception e) {
+            return null;
         }
     }
 }

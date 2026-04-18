@@ -146,18 +146,34 @@ public final class CopilotTokenProvider implements Supplier<String> {
     }
 
     private List<String> collectTokenCandidates() {
+        return collectGithubTokenCandidates(configuredToken);
+    }
+
+    /**
+     * Returns the ordered list of GitHub token candidates using the same
+     * priority as the full Copilot auth resolution: cached OAuth →
+     * configured {@code apiKey} → {@code GITHUB_TOKEN} → {@code GH_TOKEN} →
+     * {@code gh auth token}. Exposed so consumers that need the raw GitHub
+     * token (e.g. the Copilot SDK sidecar, issue #3) can reuse this logic
+     * without triggering Copilot's token-exchange flow.
+     */
+    public static List<String> collectGithubTokenCandidates(String configuredToken) {
         List<String> candidates = new ArrayList<>(5);
-        // 0. Cached OAuth token from device-code flow (highest priority — known to work)
         addIfValid(candidates, CopilotDeviceAuth.loadCachedToken(), "cached OAuth token");
-        // 1. Configured token from config.json
         addIfValid(candidates, configuredToken, "config");
-        // 2. GITHUB_TOKEN env var
         addIfValid(candidates, System.getenv("GITHUB_TOKEN"), "GITHUB_TOKEN");
-        // 3. GH_TOKEN env var
         addIfValid(candidates, System.getenv("GH_TOKEN"), "GH_TOKEN");
-        // 4. gh auth token (GitHub CLI)
         addIfValid(candidates, resolveGhCliToken(), "gh CLI");
         return candidates;
+    }
+
+    /**
+     * Convenience wrapper around {@link #collectGithubTokenCandidates} that
+     * returns the first candidate, or {@code null} if none are available.
+     */
+    public static String firstGithubTokenCandidate(String configuredToken) {
+        var list = collectGithubTokenCandidates(configuredToken);
+        return list.isEmpty() ? null : list.getFirst();
     }
 
     private static void addIfValid(List<String> candidates, String token, String source) {

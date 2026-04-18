@@ -125,6 +125,26 @@ public final class AceCopilotConfig {
     private String apiKey;
     private String refreshToken;
     private String model;
+    /**
+     * Copilot runtime path. {@code "chat"} = existing OpenAI-compat
+     * {@code /chat/completions} route via {@code CopilotRoutingClient}.
+     * {@code "session"} = Copilot SDK sessionful runtime via Node sidecar
+     * (issue #3). Default {@code "chat"} preserves current behavior.
+     *
+     * <p>Selecting {@code "session"} alone is NOT enough — it must be paired
+     * with {@link #copilotRuntimeAcceptUnsandboxed} because the Phase 1
+     * sidecar uses {@code approveAll} for SDK permission requests, which
+     * bypasses {@link dev.acecopilot.security.PermissionManager}. Phase 2
+     * (#4) replaces that with a proper permission bridge.
+     */
+    private String copilotRuntime = "chat";
+    /**
+     * Explicit acknowledgment that {@code copilotRuntime == "session"}
+     * currently auto-approves every SDK permission request. Without this
+     * flag set to {@code true}, the daemon refuses to enter session mode
+     * and stays on {@code "chat"} (logged at ERROR).
+     */
+    private boolean copilotRuntimeAcceptUnsandboxed = false;
     private int maxTokens;
     private int thinkingBudget;
     private int maxTurns;
@@ -679,6 +699,39 @@ public final class AceCopilotConfig {
      */
     public String apiKey() {
         return apiKey;
+    }
+
+    /**
+     * Returns the Copilot runtime path: {@code "chat"} (default) or
+     * {@code "session"}. Only meaningful when {@link #provider()} is
+     * {@code "copilot"}. See issue #3.
+     *
+     * <p>Prefer {@link #effectiveCopilotRuntime()} for code that acts on
+     * the value — it collapses misconfigured session-without-ack back to
+     * {@code "chat"}.
+     */
+    public String copilotRuntime() {
+        return copilotRuntime;
+    }
+
+    /** See {@link #copilotRuntimeAcceptUnsandboxed} — Phase 1 safety gate (#3). */
+    public boolean copilotRuntimeAcceptUnsandboxed() {
+        return copilotRuntimeAcceptUnsandboxed;
+    }
+
+    /**
+     * Returns the runtime path that should actually be used.
+     *
+     * <p>Returns {@code "session"} only when both {@link #copilotRuntime()}
+     * is {@code "session"} AND {@link #copilotRuntimeAcceptUnsandboxed()} is
+     * {@code true}. Otherwise returns {@code "chat"}. The mismatch case is
+     * logged once by {@code AceCopilotDaemon} at startup.
+     */
+    public String effectiveCopilotRuntime() {
+        if ("session".equalsIgnoreCase(copilotRuntime) && copilotRuntimeAcceptUnsandboxed) {
+            return "session";
+        }
+        return "chat";
     }
 
     /**
@@ -1382,6 +1435,17 @@ public final class AceCopilotConfig {
         if (fileConfig.model != null && !fileConfig.model.isBlank()) {
             this.model = fileConfig.model;
         }
+        if (fileConfig.copilotRuntime != null && !fileConfig.copilotRuntime.isBlank()) {
+            String v = fileConfig.copilotRuntime.trim().toLowerCase();
+            if (v.equals("chat") || v.equals("session")) {
+                this.copilotRuntime = v;
+            } else {
+                log.warn("Unknown copilotRuntime '{}' — keeping '{}'", fileConfig.copilotRuntime, this.copilotRuntime);
+            }
+        }
+        if (fileConfig.copilotRuntimeAcceptUnsandboxed != null) {
+            this.copilotRuntimeAcceptUnsandboxed = fileConfig.copilotRuntimeAcceptUnsandboxed;
+        }
         if (fileConfig.maxTokens > 0) {
             this.maxTokens = fileConfig.maxTokens;
         }
@@ -1623,6 +1687,8 @@ public final class AceCopilotConfig {
         public String apiKey;
         public String refreshToken;
         public String model;
+        public String copilotRuntime;
+        public Boolean copilotRuntimeAcceptUnsandboxed;
         public int maxTokens;
         public int thinkingBudget;
         public int maxTurns;

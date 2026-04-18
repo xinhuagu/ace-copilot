@@ -43,6 +43,7 @@ import dev.acecopilot.core.planner.SequentialPlanExecutor;
 import dev.acecopilot.core.planner.StepResult;
 import dev.acecopilot.core.planner.StepStatus;
 import dev.acecopilot.core.planner.TaskPlan;
+import dev.acecopilot.llm.copilot.CopilotAcpClient;
 import dev.acecopilot.memory.AutoMemoryStore;
 import dev.acecopilot.memory.CandidatePromptAssembler;
 import dev.acecopilot.memory.CandidateStore;
@@ -167,6 +168,21 @@ public final class StreamingAgentHandler {
     private final ConcurrentHashMap<String, ReentrantLock> sessionTurnLocks =
             new ConcurrentHashMap<>();
 
+    // --- Copilot SDK sessionful runtime (Phase 1, issue #3) ---------------
+    // One sidecar per ace-copilot session. Lazily created on first prompt
+    // that takes the session path; torn down in clearSessionMetrics.
+    private final ConcurrentHashMap<String, CopilotAcpClient> sessionSidecars =
+            new ConcurrentHashMap<>();
+    // Tracks the model the sidecar's SDK session was last asked to use, so we
+    // can surface an explicit warning when a mid-session /model switch causes
+    // the sidecar to drop remote context (the sidecar recreates the SDK
+    // session on model change; see sidecar.mjs).
+    private final ConcurrentHashMap<String, String> sessionLastModel =
+            new ConcurrentHashMap<>();
+    private volatile String copilotRuntime = "chat";
+    private volatile String copilotGithubToken;
+    private volatile Path copilotSidecarDir;
+
 
     /**
      * Creates a streaming agent handler.
@@ -287,6 +303,17 @@ public final class StreamingAgentHandler {
         try {
             // Start the cancel monitor thread to read from the socket
             cancelContext.startMonitor();
+
+            // Phase 1 (issue #3): Route the entire prompt through the Copilot SDK
+            // sessionful runtime. The SDK agent handles its own ReAct loop inside
+            // one sendAndWait, billing as 1 premium_interactions.usedRequests
+            // regardless of internal tool / LLM iterations. Bypasses this handler's
+            // ReAct loop, planner, compaction, tool registry, and permission model
+            // — those integrate in Phase 2+ (issues #4, #5).
+            if ("session".equalsIgnoreCase(copilotRuntime) && "copilot".equalsIgnoreCase(provider)) {
+                return handlePromptViaCopilotSession(
+                        sessionId, session, prompt, cancelContext, cancellationToken);
+            }
 
             // Check for resumable plan checkpoint before planning or execution
             if (planCheckpointStore != null) {
@@ -1517,6 +1544,25 @@ public final class StreamingAgentHandler {
     }
 
     /**
+     * Configures the Copilot SDK sessionful runtime (issue #3, Phase 1).
+     *
+     * @param runtime      {@code "chat"} (default, legacy {@code /chat/completions} path) or
+     *                     {@code "session"} (route user prompts through Node sidecar → SDK session)
+     * @param githubToken  raw GitHub OAuth/PAT for the SDK to exchange; may be {@code null}
+     *                     to let the SDK discover credentials from the logged-in {@code gh} user
+     * @param sidecarDir   directory containing {@code sidecar.mjs} and installed
+     *                     {@code node_modules} (typically {@code <repo>/ace-copilot-sidecar/})
+     */
+    public void setCopilotRuntimeConfig(String runtime, String githubToken, Path sidecarDir) {
+        this.copilotRuntime = (runtime != null && !runtime.isBlank()) ? runtime : "chat";
+        this.copilotGithubToken = githubToken;
+        this.copilotSidecarDir = sidecarDir;
+        log.info("Copilot runtime: runtime={}, sidecarDir={}, token={}",
+                this.copilotRuntime, sidecarDir,
+                (githubToken != null && !githubToken.isBlank()) ? "(set)" : "(logged-in user)");
+    }
+
+    /**
      * Sets the MCP initialization future so request-time code can await readiness.
      */
     public void setMcpInitFuture(CompletableFuture<Void> mcpInitFuture) {
@@ -1756,6 +1802,162 @@ public final class StreamingAgentHandler {
         sessionProgressDetectors.remove(sessionId);
         sessionPostProcessing.remove(sessionId);
         sessionRuntimePruneScheduled.remove(sessionId);
+        closeSessionSidecar(sessionId);
+    }
+
+    private void closeSessionSidecar(String sessionId) {
+        sessionLastModel.remove(sessionId);
+        var client = sessionSidecars.remove(sessionId);
+        if (client == null) return;
+        try {
+            client.close();
+        } catch (RuntimeException e) {
+            log.warn("Copilot sidecar close failed for session {}: {}", sessionId, e.getMessage());
+        }
+    }
+
+    /**
+     * Phase 1 dispatch for the Copilot SDK sessionful runtime (issue #3).
+     *
+     * <p>Delegates one user prompt to {@link CopilotAcpClient#sendAndWait} on the
+     * per-session sidecar. Streams assistant text to the TUI via {@code stream.text}
+     * notifications. Records the assistant's final message on the session history.
+     *
+     * <p>Known limitations (deferred to later phases):
+     * <ul>
+     *   <li>SDK agent uses its own built-in tools, not ace-copilot's 6 tools (Phase 2, #4)</li>
+     *   <li>SDK agent auto-approves its permissions (sidecar uses {@code approveAll}) —
+     *       filesystem / shell side effects bypass {@link PermissionManager} (Phase 2, #4)</li>
+     *   <li>No {@code respondToUserInput} routing — follow-up messages are new
+     *       {@code sendAndWait} calls (Phase 3, #5)</li>
+     *   <li>No planner / self-improvement / checkpoint / compaction hooks</li>
+     *   <li>Cancellation mid-call is best-effort: the request returns after the
+     *       sendAndWait finishes; cancel has no wire-level interrupt yet</li>
+     * </ul>
+     */
+    private Object handlePromptViaCopilotSession(String sessionId,
+                                                 AgentSession session,
+                                                 String prompt,
+                                                 CancelAwareStreamContext cancelContext,
+                                                 CancellationToken cancellationToken)
+            throws Exception {
+        if (copilotSidecarDir == null) {
+            throw new IllegalStateException(
+                    "copilotRuntime=session requires a sidecar directory. "
+                            + "Set ACE_COPILOT_SIDECAR_DIR or configure at daemon startup.");
+        }
+
+        session.addMessage(new AgentSession.ConversationMessage.User(prompt));
+
+        String model = getModelForSession(sessionId);
+        if (model == null || model.isBlank()) model = "claude-haiku-4.5";
+
+        var client = sessionSidecars.computeIfAbsent(sessionId, _ -> {
+            try {
+                log.info("Launching Copilot sidecar for session {}", sessionId);
+                return new CopilotAcpClient(copilotSidecarDir, copilotGithubToken);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to launch Copilot sidecar: " + e.getMessage(), e);
+            }
+        });
+
+        // Surface /model mid-session switches loudly: the sidecar recreates the
+        // underlying SDK session on model change without replaying prior
+        // context, so remote Copilot context is effectively reset. The local
+        // transcript still reads as continuous, which is the footgun.
+        var previousModel = sessionLastModel.put(sessionId, model);
+        if (previousModel != null && !previousModel.equals(model)) {
+            String msg = "Copilot session context reset: model changed "
+                    + previousModel + " -> " + model
+                    + ". Prior conversation is retained locally but the remote Copilot session starts fresh.";
+            log.warn(msg);
+            try {
+                var p = objectMapper.createObjectNode();
+                p.put("level", "warning");
+                p.put("message", msg);
+                p.put("previousModel", previousModel);
+                p.put("currentModel", model);
+                cancelContext.sendNotification("stream.warning", p);
+            } catch (IOException e) {
+                log.debug("Failed to send stream.warning notification: {}", e.getMessage());
+            }
+        }
+
+        var started = System.currentTimeMillis();
+        var textBuf = new StringBuilder();
+        CopilotAcpClient.SendResult r;
+        try {
+            r = client.sendAndWait(model, prompt, (delta) -> {
+                if (delta == null || delta.isEmpty()) return;
+                textBuf.append(delta);
+                try {
+                    var p = objectMapper.createObjectNode();
+                    p.put("delta", delta);
+                    cancelContext.sendNotification("stream.text", p);
+                } catch (IOException e) {
+                    log.warn("Failed to forward stream.text: {}", e.getMessage());
+                }
+            });
+        } catch (IOException e) {
+            closeSessionSidecar(sessionId);
+            throw new IllegalStateException("Copilot session runtime failed: " + e.getMessage(), e);
+        }
+
+        String responseText = r.content() != null ? r.content() : textBuf.toString();
+        if (responseText != null && !responseText.isBlank()) {
+            session.addMessage(new AgentSession.ConversationMessage.Assistant(responseText));
+        }
+
+        sendCancelledNotificationIfNeeded(cancellationToken, cancelContext, sessionId);
+
+        var result = objectMapper.createObjectNode();
+        result.put("sessionId", sessionId);
+        result.put("response", responseText != null ? responseText : "");
+        result.put("stopReason", r.stopReason() != null ? r.stopReason() : "COMPLETE");
+        if (cancellationToken.isCancelled()) result.put("cancelled", true);
+
+        var usageNode = objectMapper.createObjectNode();
+        var first = r.firstUsage();
+        var last = r.lastUsage();
+        if (last != null) {
+            if (last.inputTokens() != null) usageNode.put("inputTokens", last.inputTokens());
+            if (last.outputTokens() != null) usageNode.put("outputTokens", last.outputTokens());
+            if (last.inputTokens() != null && last.outputTokens() != null) {
+                usageNode.put("totalTokens", last.inputTokens() + last.outputTokens());
+            }
+        }
+        // One sendAndWait is a single billable user turn. usageEventCount is
+        // the internal LLM-call count the SDK agent made inside that turn —
+        // exposed as a diagnostic under `copilot` rather than masquerading
+        // as `llmRequests` (which the CLI renders as the billing indicator).
+        usageNode.put("llmRequests", 1);
+        // Phase 1 diagnostics: expose the per-session premium counter so the TUI /
+        // logs make the 1-request-per-sendAndWait claim observable.
+        var copilotNode = objectMapper.createObjectNode();
+        copilotNode.put("runtime", "session");
+        copilotNode.put("usageEventCount", r.usageEventCount());
+        if (first != null && first.premiumUsed() != null) {
+            copilotNode.put("premiumUsedBefore", first.premiumUsed());
+            copilotNode.put("initiatorFirst", first.initiator());
+        }
+        if (last != null && last.premiumUsed() != null) {
+            copilotNode.put("premiumUsedAfter", last.premiumUsed());
+            copilotNode.put("initiatorLast", last.initiator());
+        }
+        copilotNode.put("premiumDelta", r.premiumDelta());
+        copilotNode.put("wallMs", System.currentTimeMillis() - started);
+        usageNode.set("copilot", copilotNode);
+        result.set("usage", usageNode);
+
+        log.info(
+                "Copilot session turn: sessionId={}, model={}, premiumUsed={}->{} (delta={}), usageEvents={}, wallMs={}",
+                sessionId, model,
+                first != null && first.premiumUsed() != null ? first.premiumUsed() : "?",
+                last != null && last.premiumUsed() != null ? last.premiumUsed() : "?",
+                r.premiumDelta(), r.usageEventCount(),
+                System.currentTimeMillis() - started);
+
+        return result;
     }
 
     public void awaitSessionPostProcessing(String sessionId) {

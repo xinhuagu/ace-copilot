@@ -152,6 +152,8 @@ curl -fsSL https://raw.githubusercontent.com/xinhuagu/ace-copilot/main/install.s
 
 Downloads the latest pre-built release, extracts to `~/.ace-copilot/`, and adds commands to your PATH. Only requires Java 21 runtime (no build tools).
 
+> Optional: Node.js 20+ is required **only** if you opt into the GitHub Copilot sessionful runtime (`copilotRuntime: "session"`, see #3). The default `copilotRuntime: "chat"` path has no Node.js dependency. If Node is missing when `"session"` is selected, the daemon logs an ERROR at startup and falls back to `"chat"`.
+
 ### Configure & Run
 
 ```bash

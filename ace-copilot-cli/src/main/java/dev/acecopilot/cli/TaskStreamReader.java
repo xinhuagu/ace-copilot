@@ -173,6 +173,16 @@ public final class TaskStreamReader implements Runnable {
                     sink.onStreamError(params.get("error").asText());
                 }
             }
+            case "stream.warning" -> {
+                if (params != null) {
+                    String msg = params.path("message").asText("");
+                    if (!msg.isBlank()) {
+                        handle.appendToolEvent("stream", "warn", false, 0, msg);
+                        handle.markActivity("warning");
+                        sink.onWarning(msg);
+                    }
+                }
+            }
             case "stream.heartbeat" -> {
                 String phase = "active";
                 if (params != null) {

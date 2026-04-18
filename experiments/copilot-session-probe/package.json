@@ -1,0 +1,15 @@
+{
+  "name": "copilot-session-probe",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Track A probe for ace-copilot issue #1 — verify Copilot SDK session-internal clarification mechanism",
+  "scripts": {
+    "probe": "node probe.mjs",
+    "probe:usage": "node probe-usage.mjs",
+    "smoke": "node uds-smoke.mjs"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "^0.2.2"
+  }
+}

@@ -45,6 +45,14 @@ public interface OutputSink {
     /** Receives a stream error. */
     void onStreamError(String error);
 
+    /**
+     * Receives a non-fatal warning from the daemon that should be visible to
+     * the user (e.g. remote Copilot session context reset on {@code /model}
+     * switch). Default implementation ignores it — foreground sinks override
+     * to render visibly.
+     */
+    default void onWarning(String message) {}
+
     /** Receives a stream cancellation acknowledgment. */
     void onStreamCancelled();
 

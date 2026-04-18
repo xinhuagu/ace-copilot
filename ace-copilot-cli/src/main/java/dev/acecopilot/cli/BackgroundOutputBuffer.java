@@ -50,6 +50,11 @@ public final class BackgroundOutputBuffer implements OutputSink {
     }
 
     @Override
+    public void onWarning(String message) {
+        events.add(new OutputEvent.Warning(message));
+    }
+
+    @Override
     public void onStreamCancelled() {
         events.add(new OutputEvent.Cancelled());
     }
@@ -124,6 +129,7 @@ public final class BackgroundOutputBuffer implements OutputSink {
                 case OutputEvent.ToolCompleted e -> sink.onToolCompleted(
                         e.toolId(), e.toolName(), e.durationMs(), e.isError(), e.error());
                 case OutputEvent.Error e -> sink.onStreamError(e.error());
+                case OutputEvent.Warning e -> sink.onWarning(e.message());
                 case OutputEvent.Cancelled _ -> sink.onStreamCancelled();
                 case OutputEvent.PlanCreated e -> sink.onPlanCreated(e.params());
                 case OutputEvent.PlanStepStarted e -> sink.onPlanStepStarted(e.params());
@@ -152,6 +158,7 @@ public final class BackgroundOutputBuffer implements OutputSink {
                 switch (event) {
                     case OutputEvent.Text e -> sb.append(e.delta());
                     case OutputEvent.Error e -> sb.append("[error: ").append(e.error()).append("]\n");
+                    case OutputEvent.Warning e -> sb.append("[warning: ").append(e.message()).append("]\n");
                     default -> {} // skip thinking, tool use, lifecycle events
                 }
             }
@@ -177,6 +184,7 @@ public final class BackgroundOutputBuffer implements OutputSink {
         record ToolCompleted(String toolId, String toolName,
                              long durationMs, boolean isError, String error) implements OutputEvent {}
         record Error(String error) implements OutputEvent {}
+        record Warning(String message) implements OutputEvent {}
         record Cancelled() implements OutputEvent {}
         record PlanCreated(JsonNode params) implements OutputEvent {}
         record PlanStepStarted(JsonNode params) implements OutputEvent {}
