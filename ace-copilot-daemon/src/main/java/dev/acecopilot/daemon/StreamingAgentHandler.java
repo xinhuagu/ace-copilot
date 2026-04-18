@@ -1950,8 +1950,11 @@ public final class StreamingAgentHandler {
         result.set("usage", usageNode);
 
         log.info(
-                "Copilot session turn: sessionId={}, model={}, premiumDelta={}, usageEvents={}, wallMs={}",
-                sessionId, model, r.premiumDelta(), r.usageEventCount(),
+                "Copilot session turn: sessionId={}, model={}, premiumUsed={}->{} (delta={}), usageEvents={}, wallMs={}",
+                sessionId, model,
+                first != null && first.premiumUsed() != null ? first.premiumUsed() : "?",
+                last != null && last.premiumUsed() != null ? last.premiumUsed() : "?",
+                r.premiumDelta(), r.usageEventCount(),
                 System.currentTimeMillis() - started);
 
         return result;
