@@ -85,8 +85,21 @@ public final class CopilotAcpClient implements AutoCloseable {
             int usageEventCount,
             boolean toolsReset
     ) {
-        /** Change in {@code premium_interactions.usedRequests} across this turn. */
-        public long premiumDelta() {
+        /**
+         * Intra-turn subtraction (last − first) of
+         * {@code premium_interactions.usedRequests} reported inside this
+         * {@code sendAndWait}.
+         *
+         * <p><b>Diagnostic only — do not use as an authoritative billing
+         * delta.</b> The SDK does not guarantee that {@link #firstUsage()}
+         * is a pre-billing baseline: the counter may already be incremented
+         * in the first event (→ reports 0 for a billable turn) or update
+         * mid-stream (→ reports an inflated value). Compute true per-turn
+         * billing by diffing against the previous turn's
+         * {@link #lastUsage()} held at the caller (e.g. the daemon's
+         * per-session last-known-premium map).
+         */
+        public long intraTurnPremiumDelta() {
             if (firstUsage == null || lastUsage == null) return -1;
             if (firstUsage.premiumUsed == null || lastUsage.premiumUsed == null) return -1;
             return lastUsage.premiumUsed - firstUsage.premiumUsed;
