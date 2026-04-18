@@ -25,6 +25,15 @@
 //                        premiumUsed, premiumLimit }
 //   - Requests from sidecar → daemon (Phase 2, issue #4):
 //       tool.invoke         { name, arguments } → { content, isError? }
+//   - Requests from sidecar → daemon (Phase 3, issue #5):
+//       user_input.request  { requestId, question, choices?, allowFreeform? }
+//                            → { answer: string, wasFreeform: boolean, cancel?: boolean }
+//                            — fired when the SDK agent asks a clarifying
+//                              question. The daemon blocks on this RPC while
+//                              it awaits the user's response (through the TUI
+//                              agent.respondToUserInput path). If the daemon
+//                              returns { cancel: true } the sidecar responds
+//                              to the SDK with a decline-shaped answer.
 //   - Additional notifications (Pre-Phase 3, issue #12):
 //       session/elicitation_declined
 //                            { mode, message, elicitationSource, url }
@@ -195,6 +204,40 @@ async function ensureSession(model, toolDefs) {
     const sessionOpts = {
       model,
       streaming: true,
+      // Phase 3 (#5): the SDK agent can ask a clarifying question
+      // (`ask_user` tool under the hood) — surface it to the daemon via
+      // the long-running user_input.request RPC. The Promise returned
+      // here only resolves when the daemon has the user's answer in
+      // hand, which is what keeps the whole exchange inside a single
+      // billable sendAndWait. If the daemon decides to cancel the
+      // pending question (e.g. the user typed /new), we return a short
+      // decline message so the SDK agent wraps up gracefully.
+      onUserInputRequest: async (req, _invocation) => {
+        try {
+          const r = await request("user_input.request", {
+            requestId: req?.requestId ?? null,
+            question: req?.question ?? "",
+            choices: Array.isArray(req?.choices) ? req.choices : [],
+            allowFreeform: req?.allowFreeform !== false,
+          });
+          if (r?.cancel === true) {
+            return {
+              answer: "(user cancelled this clarification and started a new task)",
+              wasFreeform: true,
+            };
+          }
+          return {
+            answer: typeof r?.answer === "string" ? r.answer : "",
+            wasFreeform: r?.wasFreeform !== false,
+          };
+        } catch (e) {
+          log("user_input bridge failed:", e?.message ?? e);
+          return {
+            answer: "(clarification could not be delivered — please proceed with best-effort assumptions)",
+            wasFreeform: true,
+          };
+        }
+      },
       onPermissionRequest: async (req) => {
         // Custom tools are gated by the daemon's PermissionAwareTool when
         // tool.invoke executes — approve here so the SDK calls our handler
