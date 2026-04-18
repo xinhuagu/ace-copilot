@@ -468,17 +468,22 @@ public final class AceCopilotDaemon {
                 promptBudget,
                 config.braveSearchApiKey() != null,
                 skillRegistry::formatDescriptions);
-        // Phase 1 (#3) safety gate: session runtime only activates when the
-        // operator has explicitly acknowledged that the SDK agent currently
-        // bypasses PermissionManager. Phase 2 (#4) removes this gate when
-        // the permission bridge lands.
-        if ("session".equalsIgnoreCase(config.copilotRuntime()) && !config.copilotRuntimeAcceptUnsandboxed()) {
-            log.error(
-                "copilotRuntime='session' requested but copilotRuntimeAcceptUnsandboxed=false — "
-                + "the Phase 1 sidecar auto-approves every SDK permission request (filesystem, shell, etc.), "
-                + "which bypasses PermissionManager. Refusing to enter session mode; falling back to 'chat'. "
-                + "To opt in explicitly, add \"copilotRuntimeAcceptUnsandboxed\": true to your active profile. "
-                + "See issue #3.");
+        // Phase 2 (#4) lifted the Phase 1 safety gate: the sidecar now
+        // registers ace-copilot's own tools via defineTool + an onPreToolUse
+        // allowlist, and onPermissionRequest lets only the custom-tool
+        // category through — all other kinds (shell / mcp / url / memory
+        // / hook / raw read-write) are denied. Actual permission decisions
+        // happen server-side via PermissionAwareTool + PermissionManager,
+        // the same surface the chat runtime uses.
+        //
+        // The copilotRuntimeAcceptUnsandboxed config key is accepted but
+        // no longer required. It is logged once if set so operators who
+        // copy-paste from old docs can see their ack flag is now a no-op.
+        if (config.copilotRuntimeAcceptUnsandboxed()) {
+            log.info(
+                "copilotRuntimeAcceptUnsandboxed=true has no effect since Phase 2 (#4) — "
+                + "the session runtime now routes permissions through PermissionManager. "
+                + "Safe to remove the key from your config.");
         }
         // The session runtime launches a Node.js sidecar, which is not a
         // prerequisite of the ace-copilot installer. Preflight node on PATH

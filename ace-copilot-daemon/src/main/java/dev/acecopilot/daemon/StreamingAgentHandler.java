@@ -312,7 +312,8 @@ public final class StreamingAgentHandler {
             // — those integrate in Phase 2+ (issues #4, #5).
             if ("session".equalsIgnoreCase(copilotRuntime) && "copilot".equalsIgnoreCase(provider)) {
                 return handlePromptViaCopilotSession(
-                        sessionId, session, prompt, cancelContext, cancellationToken);
+                        sessionId, session, prompt, cancelContext, cancellationToken,
+                        permissionAwareRegistry);
             }
 
             // Check for resumable plan checkpoint before planning or execution
@@ -1805,6 +1806,58 @@ public final class StreamingAgentHandler {
         closeSessionSidecar(sessionId);
     }
 
+    private List<CopilotAcpClient.ToolDescriptor> buildCopilotToolDescriptors(ToolRegistry registry) {
+        var list = new ArrayList<CopilotAcpClient.ToolDescriptor>();
+        for (var tool : registry.all()) {
+            list.add(new CopilotAcpClient.ToolDescriptor(
+                    tool.name(), tool.description(), tool.inputSchema()));
+        }
+        return list;
+    }
+
+    /**
+     * Dispatches a {@code tool.invoke} RPC from the sidecar to the given
+     * permission-aware tool registry. {@link PermissionAwareTool} wraps each
+     * tool so {@link PermissionManager} gates execution and routes
+     * {@code NeedsUserApproval} decisions through the existing TUI
+     * {@code permission.request} flow attached to the active
+     * {@link CancelAwareStreamContext}.
+     */
+    private JsonNode handleCopilotToolInvoke(JsonNode params, ToolRegistry registry) {
+        String name = params.path("name").asText("");
+        JsonNode args = params.has("arguments") ? params.get("arguments") : objectMapper.createObjectNode();
+
+        var toolOpt = registry.get(name);
+        if (toolOpt.isEmpty()) {
+            var err = objectMapper.createObjectNode();
+            err.put("isError", true);
+            err.put("content", "Unknown tool: " + name);
+            return err;
+        }
+        String inputJson;
+        try {
+            inputJson = objectMapper.writeValueAsString(args);
+        } catch (IOException e) {
+            var err = objectMapper.createObjectNode();
+            err.put("isError", true);
+            err.put("content", "Invalid tool arguments: " + e.getMessage());
+            return err;
+        }
+        try {
+            var result = toolOpt.get().execute(inputJson);
+            var node = objectMapper.createObjectNode();
+            node.put("isError", result.isError());
+            node.put("content", result.output() != null ? result.output() : "");
+            return node;
+        } catch (Exception e) {
+            log.warn("tool.invoke {} failed: {}", name, e.getMessage());
+            var err = objectMapper.createObjectNode();
+            err.put("isError", true);
+            err.put("content", "Tool execution failed: " + e.getMessage());
+            return err;
+        }
+    }
+
     private void closeSessionSidecar(String sessionId) {
         sessionLastModel.remove(sessionId);
         var client = sessionSidecars.remove(sessionId);
@@ -1839,7 +1892,8 @@ public final class StreamingAgentHandler {
                                                  AgentSession session,
                                                  String prompt,
                                                  CancelAwareStreamContext cancelContext,
-                                                 CancellationToken cancellationToken)
+                                                 CancellationToken cancellationToken,
+                                                 ToolRegistry permissionAwareRegistry)
             throws Exception {
         if (copilotSidecarDir == null) {
             throw new IllegalStateException(
@@ -1852,10 +1906,16 @@ public final class StreamingAgentHandler {
         String model = getModelForSession(sessionId);
         if (model == null || model.isBlank()) model = "claude-haiku-4.5";
 
+        // Phase 2 (#4): register ace-copilot's tools with the SDK so the agent
+        // uses them instead of the built-in filesystem/shell tools. Tool
+        // handlers on the sidecar proxy back to us via `tool.invoke`.
+        final List<CopilotAcpClient.ToolDescriptor> toolDescriptors = buildCopilotToolDescriptors(permissionAwareRegistry);
+
         var client = sessionSidecars.computeIfAbsent(sessionId, _ -> {
             try {
-                log.info("Launching Copilot sidecar for session {}", sessionId);
-                return new CopilotAcpClient(copilotSidecarDir, copilotGithubToken);
+                log.info("Launching Copilot sidecar for session {} with {} tools",
+                        sessionId, toolDescriptors.size());
+                return new CopilotAcpClient(copilotSidecarDir, copilotGithubToken, toolDescriptors);
             } catch (IOException e) {
                 throw new RuntimeException("Failed to launch Copilot sidecar: " + e.getMessage(), e);
             }
@@ -1883,6 +1943,20 @@ public final class StreamingAgentHandler {
             }
         }
 
+        // Install a per-prompt RequestHandler that dispatches incoming RPCs
+        // from the sidecar. Phase 2 supports tool.invoke (the SDK agent
+        // calling one of ace-copilot's tools). PermissionAwareTool in the
+        // registry takes care of PermissionManager checks and — for
+        // WRITE/EXECUTE that requires explicit user approval — the TUI
+        // permission.request round-trip via cancelContext.
+        client.setRequestHandler((method, params) -> {
+            if ("tool.invoke".equals(method)) {
+                return handleCopilotToolInvoke(params, permissionAwareRegistry);
+            }
+            log.warn("Unhandled sidecar RPC: {}", method);
+            throw new IllegalArgumentException("unsupported method: " + method);
+        });
+
         var started = System.currentTimeMillis();
         var textBuf = new StringBuilder();
         CopilotAcpClient.SendResult r;
@@ -1901,6 +1975,8 @@ public final class StreamingAgentHandler {
         } catch (IOException e) {
             closeSessionSidecar(sessionId);
             throw new IllegalStateException("Copilot session runtime failed: " + e.getMessage(), e);
+        } finally {
+            client.setRequestHandler(null);
         }
 
         String responseText = r.content() != null ? r.content() : textBuf.toString();

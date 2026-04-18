@@ -720,18 +720,19 @@ public final class AceCopilotConfig {
     }
 
     /**
-     * Returns the runtime path that should actually be used.
+     * Returns the runtime path that should actually be used. Returns
+     * {@code "session"} if the config selects it, {@code "chat"} otherwise.
      *
-     * <p>Returns {@code "session"} only when both {@link #copilotRuntime()}
-     * is {@code "session"} AND {@link #copilotRuntimeAcceptUnsandboxed()} is
-     * {@code true}. Otherwise returns {@code "chat"}. The mismatch case is
-     * logged once by {@code AceCopilotDaemon} at startup.
+     * <p>Phase 1 (#3) gated this behind an extra
+     * {@link #copilotRuntimeAcceptUnsandboxed} flag because the sidecar
+     * auto-approved every SDK permission request. Phase 2 (#4) replaced
+     * that with a real permission bridge (PermissionAwareTool +
+     * PermissionManager + onPreToolUse allowlist), so the double-gate
+     * is no longer required. The ack field remains read-only for backward
+     * compatibility and is ignored.
      */
     public String effectiveCopilotRuntime() {
-        if ("session".equalsIgnoreCase(copilotRuntime) && copilotRuntimeAcceptUnsandboxed) {
-            return "session";
-        }
-        return "chat";
+        return "session".equalsIgnoreCase(copilotRuntime) ? "session" : "chat";
     }
 
     /**
