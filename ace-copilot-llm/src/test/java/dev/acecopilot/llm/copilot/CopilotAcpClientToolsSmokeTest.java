@@ -45,7 +45,7 @@ class CopilotAcpClientToolsSmokeTest {
     }
 
     @Test
-    void initializePassesToolDefinitionsAndRoutesToolInvoke(@TempDir Path dir) throws IOException {
+    void sendAndWaitPassesToolDefinitionsAndRoutesToolInvoke(@TempDir Path dir) throws IOException {
         copyResource("/copilot/mock-sidecar-tools.mjs", dir.resolve("sidecar.mjs"));
 
         var mapper = new ObjectMapper();
@@ -58,7 +58,7 @@ class CopilotAcpClientToolsSmokeTest {
 
         var receivedInvoke = new AtomicReference<JsonNode>();
         CopilotAcpClient.SendResult result;
-        try (var client = new CopilotAcpClient(dir, null, tools)) {
+        try (var client = new CopilotAcpClient(dir, null)) {
             client.setRequestHandler((method, params) -> {
                 if ("tool.invoke".equals(method)) {
                     receivedInvoke.set(params);
@@ -69,13 +69,15 @@ class CopilotAcpClientToolsSmokeTest {
                 }
                 throw new IllegalArgumentException("unexpected method: " + method);
             });
-            result = client.sendAndWait("test-model", "read a file please", null);
+            result = client.sendAndWait("test-model", "read a file please", tools, null);
         }
 
         assertThat(receivedInvoke.get())
-                .as("sidecar issued tool.invoke back to Java")
+                .as("sidecar issued tool.invoke back to Java using the per-turn tool catalog")
                 .isNotNull();
-        assertThat(receivedInvoke.get().path("name").asText()).isEqualTo("read_file");
+        assertThat(receivedInvoke.get().path("name").asText())
+                .as("first tool in the catalog was the one invoked (mock picks [0])")
+                .isEqualTo("read_file");
         assertThat(receivedInvoke.get().path("arguments").path("path").asText())
                 .isEqualTo("mock-path.txt");
 
@@ -83,6 +85,43 @@ class CopilotAcpClientToolsSmokeTest {
                 .as("tool result flowed back through the SDK reply")
                 .isEqualTo("tool said: mock file contents");
         assertThat(result.stopReason()).isEqualTo("COMPLETE");
+        assertThat(result.toolsReset())
+                .as("first turn has no prior signature to compare against")
+                .isFalse();
+    }
+
+    @Test
+    void toolCatalogChangeAcrossTurnsFlagsToolsReset(@TempDir Path dir) throws IOException {
+        copyResource("/copilot/mock-sidecar-tools.mjs", dir.resolve("sidecar.mjs"));
+
+        var mapper = new ObjectMapper();
+        var schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        var initialTools = List.of(
+                new CopilotAcpClient.ToolDescriptor("read_file", "Read a file", schema)
+        );
+        var expandedTools = List.of(
+                new CopilotAcpClient.ToolDescriptor("read_file", "Read a file", schema),
+                new CopilotAcpClient.ToolDescriptor("mcp_late_tool", "Async MCP arrival", schema)
+        );
+
+        try (var client = new CopilotAcpClient(dir, null)) {
+            client.setRequestHandler((method, params) -> {
+                var node = mapper.createObjectNode();
+                node.put("isError", false);
+                node.put("content", "ok");
+                return node;
+            });
+            var first = client.sendAndWait("test-model", "turn 1", initialTools, null);
+            var second = client.sendAndWait("test-model", "turn 2", expandedTools, null);
+
+            assertThat(first.toolsReset())
+                    .as("first turn establishes baseline — no reset")
+                    .isFalse();
+            assertThat(second.toolsReset())
+                    .as("tool catalog grew between turns — sidecar must flag reset")
+                    .isTrue();
+        }
     }
 
     private static void copyResource(String cp, Path dest) throws IOException {

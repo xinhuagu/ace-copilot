@@ -7,9 +7,17 @@
 // Wire protocol:
 //   - Framing: LSP-style `Content-Length: N\r\n\r\n<body>` (UTF-8 JSON)
 //   - Requests from daemon → sidecar:
-//       initialize          { githubToken?, tools?: [{name, description, parameters}] }
+//       initialize          { githubToken? }
 //                            → { protocolVersion }
-//       session.sendAndWait { model, prompt }   → { content, stopReason }
+//       session.sendAndWait { model, prompt,
+//                             tools?: [{name, description, parameters}] }
+//                            → { content, stopReason, toolsReset?: boolean }
+//         — tools represent the CURRENT catalog for this turn. If the
+//           signature (names + descriptions) differs from the active
+//           session's snapshot the sidecar disconnects and recreates the
+//           SDK session so async-registered MCP tools etc. can flow in
+//           mid-conversation. toolsReset:true signals the daemon to
+//           surface a context-reset warning to the TUI.
 //       shutdown            null                → null (then exit 0)
 //   - Notifications from sidecar during session.sendAndWait:
 //       session/text   { delta }
@@ -80,8 +88,22 @@ let client = null;
 let session = null;
 let currentModel = null;
 let githubToken = null;
-let toolDefs = [];           // [{ name, description, parameters }] from initialize
+let currentToolSig = null;   // stable signature of the active session's tool set
 let toolAllowlist = null;    // Set of allowed tool names (Phase 2 allowlist hook)
+
+/**
+ * Stable signature of a tool list: sorted name + description pairs, plus
+ * schema serialization. Used to decide whether to recreate the SDK session
+ * because the tool catalog shifted (e.g. async MCP registration).
+ */
+function toolSignature(defs) {
+  if (!Array.isArray(defs) || defs.length === 0) return "empty";
+  const parts = defs
+    .map((t) => ({ n: t.name, d: t.description ?? "", p: t.parameters ?? {} }))
+    .sort((a, b) => (a.n < b.n ? -1 : a.n > b.n ? 1 : 0))
+    .map((t) => `${t.n}|${t.d}|${JSON.stringify(t.p)}`);
+  return parts.join("\n");
+}
 
 // Outgoing request tracking (sidecar → daemon). Pending[id] = { resolve, reject }.
 let nextOutgoingId = 1;
@@ -122,7 +144,7 @@ function attachSessionListeners(s) {
   });
 }
 
-async function ensureSession(model) {
+async function ensureSession(model, toolDefs) {
   if (!client) {
     const opts = {};
     if (githubToken) {
@@ -132,7 +154,11 @@ async function ensureSession(model) {
     client = new CopilotClient(opts);
     log("CopilotClient created", githubToken ? "(with supplied token)" : "(using logged-in user)");
   }
-  if (!session || currentModel !== model) {
+  const newSig = toolSignature(toolDefs);
+  const modelChanged = currentModel !== model;
+  const toolsChanged = currentToolSig !== newSig;
+  const hadPriorSession = session != null;
+  if (!session || modelChanged || toolsChanged) {
     if (session) {
       try {
         await session.disconnect();
@@ -143,7 +169,8 @@ async function ensureSession(model) {
     // Build ace-copilot tools via defineTool. Each handler proxies to the
     // daemon via `tool.invoke` so the real implementation lives in-daemon
     // (ace-copilot-tools), protected by PermissionManager + audit.
-    const aceCopilotTools = toolDefs.map((def) =>
+    const defsForThisSession = Array.isArray(toolDefs) ? toolDefs : [];
+    const aceCopilotTools = defsForThisSession.map((def) =>
       defineTool(def.name, {
         description: def.description ?? "",
         parameters: def.parameters ?? { type: "object", properties: {} },
@@ -187,7 +214,7 @@ async function ensureSession(model) {
       // Phase 2 allowlist hook: block any tool not registered by us so the
       // SDK's built-in filesystem/shell tools (view, write, bash, etc.)
       // cannot fire and bypass PermissionManager.
-      toolAllowlist = new Set(toolDefs.map((t) => t.name));
+      toolAllowlist = new Set(defsForThisSession.map((t) => t.name));
       sessionOpts.hooks = {
         onPreToolUse: async (input) => {
           if (!toolAllowlist.has(input.toolName)) {
@@ -204,10 +231,13 @@ async function ensureSession(model) {
     }
     session = await client.createSession(sessionOpts);
     currentModel = model;
+    currentToolSig = newSig;
     attachSessionListeners(session);
-    log(`session created model=${model} tools=${aceCopilotTools.length}`);
+    log(`session created model=${model} tools=${aceCopilotTools.length}`
+        + (hadPriorSession && toolsChanged && !modelChanged ? " (tool catalog changed)" : ""));
+    return { session, toolsReset: hadPriorSession && toolsChanged && !modelChanged };
   }
-  return session;
+  return { session, toolsReset: false };
 }
 
 async function handleMessage(msg) {
@@ -217,20 +247,21 @@ async function handleMessage(msg) {
     switch (method) {
       case "initialize": {
         githubToken = params?.githubToken ?? null;
-        toolDefs = Array.isArray(params?.tools) ? params.tools : [];
-        result = { protocolVersion: "0.1", toolsRegistered: toolDefs.length };
+        result = { protocolVersion: "0.1" };
         break;
       }
       case "session.sendAndWait": {
         const model = params?.model;
         const prompt = params?.prompt;
+        const tools = Array.isArray(params?.tools) ? params.tools : [];
         if (!model) throw new Error("'model' is required");
         if (!prompt) throw new Error("'prompt' is required");
-        const s = await ensureSession(model);
-        const r = await s.sendAndWait({ prompt });
+        const ens = await ensureSession(model, tools);
+        const r = await ens.session.sendAndWait({ prompt });
         result = {
           content: r?.data?.content ?? null,
           stopReason: r?.data?.stopReason ?? null,
+          toolsReset: ens.toolsReset === true ? true : undefined,
         };
         break;
       }

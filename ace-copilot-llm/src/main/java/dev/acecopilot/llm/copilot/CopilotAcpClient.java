@@ -82,7 +82,8 @@ public final class CopilotAcpClient implements AutoCloseable {
             String stopReason,
             UsageSnapshot firstUsage,
             UsageSnapshot lastUsage,
-            int usageEventCount
+            int usageEventCount,
+            boolean toolsReset
     ) {
         /** Change in {@code premium_interactions.usedRequests} across this turn. */
         public long premiumDelta() {
@@ -118,21 +119,16 @@ public final class CopilotAcpClient implements AutoCloseable {
         }
     }
 
-    /** Convenience constructor with no tools (Phase 1 behavior, SDK built-ins). */
-    public CopilotAcpClient(Path sidecarDir, String githubToken) throws IOException {
-        this(sidecarDir, githubToken, List.of());
-    }
-
     /**
-     * Launches the sidecar located at {@code sidecarDir/sidecar.mjs},
-     * completes the {@code initialize} handshake, and registers
-     * ace-copilot's custom tools with the SDK (Phase 2, issue #4).
+     * Launches the sidecar located at {@code sidecarDir/sidecar.mjs} and
+     * completes the {@code initialize} handshake.
      *
-     * <p>When {@code tools} is non-empty, the sidecar also installs an
-     * {@code onPreToolUse} hook that denies any tool outside the registered
-     * set — this blocks the SDK's built-in filesystem/shell tools so
-     * ace-copilot is the only tool surface and {@code PermissionManager}
-     * stays authoritative.
+     * <p>Tool descriptors are passed into each {@link #sendAndWait} call
+     * rather than at construction so that tools registered asynchronously
+     * by the daemon (e.g. MCP tools arriving after the first prompt) can
+     * reach the SDK agent on subsequent turns. The sidecar signature-
+     * compares the set per turn and recreates the underlying SDK session
+     * when it changes — same lifecycle as a model switch.
      *
      * @param sidecarDir  directory containing {@code sidecar.mjs} and installed
      *                    {@code node_modules} (typically {@code ace-copilot-sidecar/})
@@ -140,12 +136,8 @@ public final class CopilotAcpClient implements AutoCloseable {
      *                    let the SDK discover credentials from the logged-in
      *                    {@code gh} user. Resolve upstream via
      *                    {@code CopilotTokenProvider}.
-     * @param tools       ace-copilot tool descriptors to register via
-     *                    {@code defineTool}. Tool invocations arrive as
-     *                    {@code tool.invoke} RPC via {@link RequestHandler}.
-     *                    Empty list means Phase 1 behavior (SDK built-ins).
      */
-    public CopilotAcpClient(Path sidecarDir, String githubToken, List<ToolDescriptor> tools) throws IOException {
+    public CopilotAcpClient(Path sidecarDir, String githubToken) throws IOException {
         Objects.requireNonNull(sidecarDir, "sidecarDir");
         var script = sidecarDir.resolve("sidecar.mjs").toAbsolutePath();
         var pb = new ProcessBuilder("node", script.toString())
@@ -191,19 +183,8 @@ public final class CopilotAcpClient implements AutoCloseable {
             if (githubToken != null && !githubToken.isBlank()) {
                 initParams.put("githubToken", githubToken);
             }
-            if (tools != null && !tools.isEmpty()) {
-                var arr = initParams.putArray("tools");
-                for (var t : tools) {
-                    var node = arr.addObject();
-                    node.put("name", t.name());
-                    if (t.description() != null) node.put("description", t.description());
-                    if (t.inputSchema() != null) node.set("parameters", t.inputSchema());
-                }
-            }
             JsonNode init = request("initialize", initParams).get(30, TimeUnit.SECONDS);
-            int toolsRegistered = init.path("toolsRegistered").asInt(0);
-            log.info("Sidecar initialized: protocolVersion={}, toolsRegistered={}",
-                    init.path("protocolVersion").asText(), toolsRegistered);
+            log.info("Sidecar initialized: protocolVersion={}", init.path("protocolVersion").asText());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             destroy();
@@ -214,18 +195,33 @@ public final class CopilotAcpClient implements AutoCloseable {
         }
     }
 
+    /** Phase-1-compatible overload with no tools (SDK built-ins). */
+    public SendResult sendAndWait(String model, String prompt, Consumer<String> textDelta) throws IOException {
+        return sendAndWait(model, prompt, List.of(), textDelta);
+    }
+
     /**
      * Issues a single agent turn to the Copilot SDK and blocks until it
      * completes. Text deltas and usage snapshots emitted during the turn are
-     * forwarded to the supplied consumers.
+     * forwarded to the supplied consumers. The tool set is evaluated by the
+     * sidecar per turn — if it differs from the previous turn the remote
+     * SDK session is disconnected and recreated with the new catalog, and
+     * {@link SendResult#toolsReset()} is {@code true}. This keeps tools
+     * discovered asynchronously after the first prompt (notably MCP) from
+     * being stuck out of the SDK session for its entire lifetime.
      *
      * @param model     model identifier to pass to {@code createSession}
      * @param prompt    user prompt text
+     * @param tools     current ace-copilot tool catalog; may be empty to
+     *                  run without custom tools (Phase 1 behavior)
      * @param textDelta optional consumer invoked for each text delta chunk;
      *                  may be {@code null} to drop text
-     * @return final assistant content, stop reason, and first/last usage snapshots
+     * @return final assistant content, stop reason, first/last usage snapshots,
+     *         and whether the SDK session was reset due to tool-catalog change
      */
-    public SendResult sendAndWait(String model, String prompt, Consumer<String> textDelta) throws IOException {
+    public SendResult sendAndWait(String model, String prompt,
+                                  List<ToolDescriptor> tools,
+                                  Consumer<String> textDelta) throws IOException {
         Objects.requireNonNull(model, "model");
         Objects.requireNonNull(prompt, "prompt");
 
@@ -258,10 +254,20 @@ public final class CopilotAcpClient implements AutoCloseable {
             ObjectNode params = mapper.createObjectNode();
             params.put("model", model);
             params.put("prompt", prompt);
+            if (tools != null && !tools.isEmpty()) {
+                var arr = params.putArray("tools");
+                for (var t : tools) {
+                    var node = arr.addObject();
+                    node.put("name", t.name());
+                    if (t.description() != null) node.put("description", t.description());
+                    if (t.inputSchema() != null) node.set("parameters", t.inputSchema());
+                }
+            }
             JsonNode resp = request("session.sendAndWait", params).get(10, TimeUnit.MINUTES);
             String content = resp.path("content").isNull() ? null : resp.path("content").asText(null);
             String stopReason = resp.path("stopReason").isNull() ? null : resp.path("stopReason").asText(null);
-            return new SendResult(content, stopReason, accum.firstUsage, accum.lastUsage, accum.usageCount);
+            boolean toolsReset = resp.path("toolsReset").asBoolean(false);
+            return new SendResult(content, stopReason, accum.firstUsage, accum.lastUsage, accum.usageCount, toolsReset);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("sendAndWait interrupted", e);

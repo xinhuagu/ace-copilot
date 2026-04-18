@@ -8,9 +8,15 @@
 //   - bidirectional JSON-RPC (sidecar → Java request) works
 //   - Java-side RequestHandler dispatches tool.invoke correctly
 
-let lastInitParams = null;
 let nextOutId = 1;
 const pendingOut = new Map();
+let sendCount = 0;
+let lastToolSig = null;
+
+function toolSig(tools) {
+  if (!Array.isArray(tools) || tools.length === 0) return "empty";
+  return tools.map((t) => t.name).sort().join(",");
+}
 
 function writeMessage(obj) {
   const body = JSON.stringify(obj);
@@ -60,16 +66,21 @@ async function handle(msg) {
     let result;
     switch (method) {
       case "initialize":
-        lastInitParams = params;
-        result = {
-          protocolVersion: "0.1",
-          toolsRegistered: Array.isArray(params?.tools) ? params.tools.length : 0,
-        };
+        result = { protocolVersion: "0.1" };
         break;
       case "session.sendAndWait": {
-        // Call back into the Java daemon with a tool.invoke.
+        sendCount++;
+        const sig = toolSig(params?.tools);
+        const toolsReset = lastToolSig !== null && lastToolSig !== sig;
+        lastToolSig = sig;
+
+        // Call back into the Java daemon with a tool.invoke, using the
+        // first tool advertised this turn (so the test can assert the
+        // current catalog actually made it through).
+        const firstTool = Array.isArray(params?.tools) && params.tools.length > 0
+            ? params.tools[0].name : "read_file";
         const toolResp = await request("tool.invoke", {
-          name: "read_file",
+          name: firstTool,
           arguments: { path: "mock-path.txt" },
         });
         const toolContent = toolResp?.content ?? "(no content)";
@@ -84,11 +95,15 @@ async function handle(msg) {
           params: {
             model: "test-model",
             initiator: "user",
-            premiumUsed: 100,
+            premiumUsed: 100 + sendCount,
             premiumLimit: 200,
           },
         });
-        result = { content: `tool said: ${toolContent}`, stopReason: "COMPLETE" };
+        result = {
+          content: `tool said: ${toolContent}`,
+          stopReason: "COMPLETE",
+          toolsReset: toolsReset || undefined,
+        };
         break;
       }
       case "shutdown":

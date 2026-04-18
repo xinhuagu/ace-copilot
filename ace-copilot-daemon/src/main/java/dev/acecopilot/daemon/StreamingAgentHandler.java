@@ -1909,13 +1909,18 @@ public final class StreamingAgentHandler {
         // Phase 2 (#4): register ace-copilot's tools with the SDK so the agent
         // uses them instead of the built-in filesystem/shell tools. Tool
         // handlers on the sidecar proxy back to us via `tool.invoke`.
+        //
+        // Tools are resolved *per-prompt* against the live permission-aware
+        // registry (which reflects the current tool set, including
+        // async-registered MCP tools) and passed into sendAndWait — the
+        // sidecar signature-compares and recreates the SDK session if the
+        // catalog shifted. See review P2 on #9.
         final List<CopilotAcpClient.ToolDescriptor> toolDescriptors = buildCopilotToolDescriptors(permissionAwareRegistry);
 
         var client = sessionSidecars.computeIfAbsent(sessionId, _ -> {
             try {
-                log.info("Launching Copilot sidecar for session {} with {} tools",
-                        sessionId, toolDescriptors.size());
-                return new CopilotAcpClient(copilotSidecarDir, copilotGithubToken, toolDescriptors);
+                log.info("Launching Copilot sidecar for session {}", sessionId);
+                return new CopilotAcpClient(copilotSidecarDir, copilotGithubToken);
             } catch (IOException e) {
                 throw new RuntimeException("Failed to launch Copilot sidecar: " + e.getMessage(), e);
             }
@@ -1961,7 +1966,7 @@ public final class StreamingAgentHandler {
         var textBuf = new StringBuilder();
         CopilotAcpClient.SendResult r;
         try {
-            r = client.sendAndWait(model, prompt, (delta) -> {
+            r = client.sendAndWait(model, prompt, toolDescriptors, (delta) -> {
                 if (delta == null || delta.isEmpty()) return;
                 textBuf.append(delta);
                 try {
@@ -1982,6 +1987,22 @@ public final class StreamingAgentHandler {
         String responseText = r.content() != null ? r.content() : textBuf.toString();
         if (responseText != null && !responseText.isBlank()) {
             session.addMessage(new AgentSession.ConversationMessage.Assistant(responseText));
+        }
+
+        if (r.toolsReset()) {
+            String msg = "Copilot session context reset: tool catalog changed since last turn. "
+                    + "Prior conversation is retained locally but the remote Copilot session starts fresh "
+                    + "with the updated tool set.";
+            log.warn(msg);
+            try {
+                var p = objectMapper.createObjectNode();
+                p.put("level", "warning");
+                p.put("message", msg);
+                p.put("reason", "tool_catalog_changed");
+                cancelContext.sendNotification("stream.warning", p);
+            } catch (IOException e) {
+                log.debug("Failed to send stream.warning for toolsReset: {}", e.getMessage());
+            }
         }
 
         sendCancelledNotificationIfNeeded(cancellationToken, cancelContext, sessionId);
