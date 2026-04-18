@@ -201,9 +201,10 @@ public final class StreamingAgentHandler {
 
     /**
      * Snapshot of a pending {@code user_input.request} the SDK agent is
-     * blocked on inside a {@code sendAndWait}. {@link #future} is completed
-     * by {@code agent.respondToUserInput} (with an answer) or by
-     * timeout / session teardown (with a cancel).
+     * blocked on inside a {@code sendAndWait}. {@link #future} is owned by
+     * the active {@link CancelAwareStreamContext} — completing it from
+     * elsewhere (e.g. session teardown) unblocks the sidecar-facing
+     * handler thread with a synthetic cancel response.
      */
     record PendingUserInput(
             String sessionId,
@@ -211,11 +212,8 @@ public final class StreamingAgentHandler {
             String question,
             List<String> choices,
             boolean allowFreeform,
-            CompletableFuture<UserInputAnswer> future,
+            CompletableFuture<JsonNode> future,
             long createdAtMs) {}
-
-    /** The user's resolution of a pending {@code user_input.requested}. */
-    record UserInputAnswer(String answer, boolean wasFreeform, boolean cancel) {}
     private volatile String copilotRuntime = "chat";
     private volatile String copilotGithubToken;
     private volatile Path copilotSidecarDir;
@@ -248,52 +246,6 @@ public final class StreamingAgentHandler {
      */
     public void register(RequestRouter router) {
         router.registerStreaming("agent.prompt", this::handlePrompt);
-        router.register("agent.respondToUserInput", this::handleRespondToUserInput);
-    }
-
-    /**
-     * Phase 3 (#5). Resolves a pending {@code user_input.requested} for the
-     * given session so the SDK agent (waiting inside a currently-executing
-     * {@code sendAndWait}) can continue without incurring a new premium
-     * request. Returns quickly — the actual agent work happens in-session.
-     *
-     * <p>Params:
-     * <ul>
-     *   <li>{@code sessionId} — required</li>
-     *   <li>{@code requestId} — required, must match the pending request</li>
-     *   <li>{@code answer} — free-form or choice string; required unless
-     *       {@code cancel} is true</li>
-     *   <li>{@code wasFreeform} — optional, defaults to true</li>
-     *   <li>{@code cancel} — optional; true discards the pending
-     *       question (the SDK agent receives a short decline message so
-     *       it can wrap up the current turn). The caller is responsible
-     *       for any subsequent {@code agent.prompt}.</li>
-     * </ul>
-     */
-    private Object handleRespondToUserInput(JsonNode params) {
-        String sessionId = requireString(params, "sessionId");
-        String requestId = requireString(params, "requestId");
-        boolean cancel = params.path("cancel").asBoolean(false);
-        String answer = params.path("answer").asText("");
-        boolean wasFreeform = params.path("wasFreeform").asBoolean(true);
-
-        var pending = pendingUserInput.get(sessionId);
-        if (pending == null) {
-            throw new IllegalStateException("No pending user_input for session " + sessionId);
-        }
-        if (!pending.requestId().equals(requestId)) {
-            throw new IllegalStateException(
-                    "Stale requestId " + requestId + " for session " + sessionId
-                            + "; current pending requestId is " + pending.requestId());
-        }
-        pendingUserInput.remove(sessionId);
-        pending.future().complete(new UserInputAnswer(answer, wasFreeform, cancel));
-
-        var result = objectMapper.createObjectNode();
-        result.put("sessionId", sessionId);
-        result.put("requestId", requestId);
-        result.put("resolved", cancel ? "cancelled" : "answered");
-        return result;
     }
 
     private Object handlePrompt(JsonNode params, StreamContext context) throws Exception {
@@ -2033,10 +1985,10 @@ public final class StreamingAgentHandler {
     private JsonNode handleSidecarUserInputRequest(JsonNode params,
                                                     CancelAwareStreamContext cancelContext,
                                                     String sessionId) throws Exception {
-        String requestId = params.path("requestId").asText(null);
-        if (requestId == null || requestId.isBlank()) {
-            requestId = UUID.randomUUID().toString();
-        }
+        String incomingRequestId = params.path("requestId").asText(null);
+        final String requestId = (incomingRequestId == null || incomingRequestId.isBlank())
+                ? UUID.randomUUID().toString()
+                : incomingRequestId;
         String question = params.path("question").asText("");
         boolean allowFreeform = params.path("allowFreeform").asBoolean(true);
         List<String> choices = new ArrayList<>();
@@ -2046,16 +1998,11 @@ public final class StreamingAgentHandler {
             });
         }
 
-        var future = new CompletableFuture<UserInputAnswer>();
-        var existing = pendingUserInput.putIfAbsent(sessionId,
-                new PendingUserInput(sessionId, requestId, question, choices,
-                        allowFreeform, future, System.currentTimeMillis()));
-        if (existing != null) {
-            // Should not happen — the SDK serializes questions — but surface
-            // it rather than corrupting state by silently overwriting.
-            throw new IllegalStateException(
-                    "user_input.request collided with an existing pending question for session " + sessionId);
-        }
+        var responseFuture = cancelContext.registerUserInputRequest(requestId);
+        var metaFuture = responseFuture; // alias for cleanup path below
+        pendingUserInput.put(sessionId, new PendingUserInput(
+                sessionId, requestId, question, List.copyOf(choices),
+                allowFreeform, responseFuture, System.currentTimeMillis()));
 
         try {
             var notif = objectMapper.createObjectNode();
@@ -2068,34 +2015,43 @@ public final class StreamingAgentHandler {
             cancelContext.sendNotification("user_input.requested", notif);
         } catch (IOException e) {
             pendingUserInput.remove(sessionId);
+            cancelContext.unregisterUserInputRequest(requestId);
             throw new RuntimeException("Failed to emit user_input.requested: " + e.getMessage(), e);
         }
 
-        UserInputAnswer resolution;
+        JsonNode response;
         try {
-            // Block until the TUI (or a timeout) resolves the future.
-            // The request-dispatch executor is cached / unbounded so
-            // sitting on this thread is acceptable. Phase 3 c5 will add
-            // a configurable timeout here.
-            resolution = future.get();
+            // Block until the TUI's user_input.response notification is
+            // routed to us (or session teardown cancels the future).
+            // Request-dispatch executor is cached, so parking this thread
+            // is acceptable. Phase 3 c5 adds a configurable timeout.
+            response = metaFuture.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             pendingUserInput.remove(sessionId);
+            cancelContext.unregisterUserInputRequest(requestId);
             throw new IOException("Interrupted while awaiting user_input answer", e);
         } catch (ExecutionException e) {
             pendingUserInput.remove(sessionId);
             throw new IOException("user_input future failed: " + e.getMessage(), e);
+        } finally {
+            pendingUserInput.remove(sessionId);
         }
+
+        var respParams = response.path("params");
+        boolean cancel = respParams.path("cancel").asBoolean(false);
+        String answer = respParams.path("answer").asText("");
+        boolean wasFreeform = respParams.path("wasFreeform").asBoolean(true);
 
         var result = objectMapper.createObjectNode();
         result.put("requestId", requestId);
-        if (resolution.cancel()) {
+        if (cancel) {
             result.put("cancel", true);
             result.put("answer", "");
             result.put("wasFreeform", true);
         } else {
-            result.put("answer", resolution.answer() != null ? resolution.answer() : "");
-            result.put("wasFreeform", resolution.wasFreeform());
+            result.put("answer", answer);
+            result.put("wasFreeform", wasFreeform);
         }
         return result;
     }
@@ -2134,13 +2090,19 @@ public final class StreamingAgentHandler {
         sessionLastPremiumUsed.remove(sessionId);
         // Release any sidecar-side RequestHandler thread still blocked on
         // the CompletableFuture for a pending question so it doesn't wedge
-        // the sidecar during teardown.
+        // the sidecar during teardown. Completes with a synthetic
+        // user_input.response shape matching what the monitor would have
+        // routed — cancel=true with no answer.
         var stalePending = pendingUserInput.remove(sessionId);
-        if (stalePending != null) {
-            stalePending.future().complete(
-                    new UserInputAnswer(
-                            "(session ended before the clarification was answered)",
-                            true, true));
+        if (stalePending != null && !stalePending.future().isDone()) {
+            var synthetic = objectMapper.createObjectNode();
+            synthetic.put("method", "user_input.response");
+            var p = synthetic.putObject("params");
+            p.put("requestId", stalePending.requestId());
+            p.put("cancel", true);
+            p.put("answer", "");
+            p.put("wasFreeform", true);
+            stalePending.future().complete(synthetic);
         }
         var client = sessionSidecars.remove(sessionId);
         if (client == null) return;
@@ -3752,6 +3714,7 @@ public final class StreamingAgentHandler {
         private final SocketChannel channel;
         private final StringBuilder lineBuilder;
         private final ConcurrentHashMap<String, CompletableFuture<JsonNode>> pendingPermissions = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<String, CompletableFuture<JsonNode>> pendingUserInputs = new ConcurrentHashMap<>();
         private final BlockingQueue<JsonNode> unmatchedResponses = new LinkedBlockingQueue<>();
         private final Object permissionLifecycleLock = new Object();
         private volatile boolean stopped = false;
@@ -3804,6 +3767,41 @@ public final class StreamingAgentHandler {
             CompletableFuture<JsonNode> future;
             synchronized (permissionLifecycleLock) {
                 future = pendingPermissions.remove(requestId);
+            }
+            if (future != null && !future.isDone()) {
+                future.cancel(false);
+            }
+        }
+
+        /**
+         * Phase 3 (#5). Registers a pending {@code user_input.requested}
+         * keyed by requestId. Returns a future completed when the matching
+         * {@code user_input.response} notification arrives on this
+         * connection's monitor thread.
+         */
+        CompletableFuture<JsonNode> registerUserInputRequest(String requestId) {
+            Objects.requireNonNull(requestId, "requestId");
+            var future = new CompletableFuture<JsonNode>();
+            synchronized (permissionLifecycleLock) {
+                if (stopped) {
+                    future.cancel(false);
+                    return future;
+                }
+                var previous = pendingUserInputs.putIfAbsent(requestId, future);
+                if (previous != null) {
+                    future.cancel(false);
+                    throw new IllegalStateException("Duplicate user_input requestId: " + requestId);
+                }
+            }
+            return future;
+        }
+
+        /** Cancels + unregisters a pending user_input future (e.g. on session teardown). */
+        void unregisterUserInputRequest(String requestId) {
+            Objects.requireNonNull(requestId, "requestId");
+            CompletableFuture<JsonNode> future;
+            synchronized (permissionLifecycleLock) {
+                future = pendingUserInputs.remove(requestId);
             }
             if (future != null && !future.isDone()) {
                 future.cancel(false);
@@ -3910,6 +3908,21 @@ public final class StreamingAgentHandler {
                                         }
                                     } else {
                                         log.warn("Cancel monitor: permission.response missing requestId, dropping message");
+                                    }
+                                } else if ("user_input.response".equals(method)) {
+                                    log.debug("Cancel monitor: routing user_input.response");
+                                    var respParams = message.get("params");
+                                    var rid = respParams != null && respParams.has("requestId")
+                                            ? respParams.get("requestId").asText() : null;
+                                    if (rid != null) {
+                                        var future = pendingUserInputs.remove(rid);
+                                        if (future != null) {
+                                            future.complete(message);
+                                        } else {
+                                            log.warn("Cancel monitor: no pending user_input for requestId={}, dropping", rid);
+                                        }
+                                    } else {
+                                        log.warn("Cancel monitor: user_input.response missing requestId, dropping message");
                                     }
                                 } else if ("resume.response".equals(method)) {
                                     log.debug("Cancel monitor: routing resume.response to fallback");
