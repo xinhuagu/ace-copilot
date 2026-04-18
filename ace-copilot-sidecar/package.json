@@ -1,0 +1,14 @@
+{
+  "name": "ace-copilot-sidecar",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Long-running Node subprocess that bridges the Java ace-copilot daemon to @github/copilot-sdk over LSP-framed JSON-RPC on stdio.",
+  "main": "sidecar.mjs",
+  "scripts": {
+    "start": "node sidecar.mjs"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "^0.2.2"
+  }
+}

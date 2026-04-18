@@ -467,6 +467,10 @@ public final class AceCopilotDaemon {
                 promptBudget,
                 config.braveSearchApiKey() != null,
                 skillRegistry::formatDescriptions);
+        agentHandler.setCopilotRuntimeConfig(
+                config.copilotRuntime(),
+                config.apiKey(),
+                resolveCopilotSidecarDir());
         agentHandler.setMcpInitFuture(mcpInitFuture);
         agentHandler.setRetryConfig(config.retryConfig());
         agentHandler.setAdaptiveContinuationConfig(
@@ -2540,5 +2544,37 @@ public final class AceCopilotDaemon {
                             + ", trends=" + trends
                             + ", bridge=" + candidateObservations + "/" + candidateTransitions + "/" + candidatePromoted);
         }
+    }
+
+    /**
+     * Resolves the directory that holds the ace-copilot Copilot SDK sidecar
+     * ({@code sidecar.mjs} + installed {@code node_modules}). Only used when
+     * {@code copilotRuntime} is {@code "session"} (issue #3).
+     *
+     * <p>Resolution order:
+     * <ol>
+     *   <li>{@code ACE_COPILOT_SIDECAR_DIR} env var, if set</li>
+     *   <li>{@code <user.dir>/ace-copilot-sidecar/}, if the script exists there
+     *       (source-tree runs via {@code ./gradlew :ace-copilot-daemon:run} or IDE)</li>
+     *   <li>{@code <app.home>/sidecar/}, if set (reserved for future installDist packaging)</li>
+     * </ol>
+     */
+    private static java.nio.file.Path resolveCopilotSidecarDir() {
+        String env = System.getenv("ACE_COPILOT_SIDECAR_DIR");
+        if (env != null && !env.isBlank()) {
+            return java.nio.file.Path.of(env);
+        }
+        var inSourceTree = java.nio.file.Path.of(System.getProperty("user.dir"), "ace-copilot-sidecar");
+        if (java.nio.file.Files.exists(inSourceTree.resolve("sidecar.mjs"))) {
+            return inSourceTree;
+        }
+        String appHome = System.getProperty("app.home");
+        if (appHome != null && !appHome.isBlank()) {
+            var packaged = java.nio.file.Path.of(appHome, "sidecar");
+            if (java.nio.file.Files.exists(packaged.resolve("sidecar.mjs"))) {
+                return packaged;
+            }
+        }
+        return inSourceTree;
     }
 }

@@ -125,6 +125,13 @@ public final class AceCopilotConfig {
     private String apiKey;
     private String refreshToken;
     private String model;
+    /**
+     * Copilot runtime path. {@code "chat"} = existing OpenAI-compat
+     * {@code /chat/completions} route via {@code CopilotRoutingClient}.
+     * {@code "session"} = Copilot SDK sessionful runtime via Node sidecar
+     * (issue #3). Default {@code "chat"} preserves current behavior.
+     */
+    private String copilotRuntime = "chat";
     private int maxTokens;
     private int thinkingBudget;
     private int maxTurns;
@@ -679,6 +686,15 @@ public final class AceCopilotConfig {
      */
     public String apiKey() {
         return apiKey;
+    }
+
+    /**
+     * Returns the Copilot runtime path: {@code "chat"} (default) or
+     * {@code "session"}. Only meaningful when {@link #provider()} is
+     * {@code "copilot"}. See issue #3.
+     */
+    public String copilotRuntime() {
+        return copilotRuntime;
     }
 
     /**
@@ -1382,6 +1398,14 @@ public final class AceCopilotConfig {
         if (fileConfig.model != null && !fileConfig.model.isBlank()) {
             this.model = fileConfig.model;
         }
+        if (fileConfig.copilotRuntime != null && !fileConfig.copilotRuntime.isBlank()) {
+            String v = fileConfig.copilotRuntime.trim().toLowerCase();
+            if (v.equals("chat") || v.equals("session")) {
+                this.copilotRuntime = v;
+            } else {
+                log.warn("Unknown copilotRuntime '{}' — keeping '{}'", fileConfig.copilotRuntime, this.copilotRuntime);
+            }
+        }
         if (fileConfig.maxTokens > 0) {
             this.maxTokens = fileConfig.maxTokens;
         }
@@ -1623,6 +1647,7 @@ public final class AceCopilotConfig {
         public String apiKey;
         public String refreshToken;
         public String model;
+        public String copilotRuntime;
         public int maxTokens;
         public int thinkingBudget;
         public int maxTurns;
