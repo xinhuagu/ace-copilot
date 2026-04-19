@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.20] - 2026-04-19
+
+### Documentation
+
+- Back the "Copilot trims Claude context" claim with citations
+- Link opening thesis to the billing-facts evidence section
 ## [0.3.19] - 2026-04-19
 
 ### Bug Fixes
