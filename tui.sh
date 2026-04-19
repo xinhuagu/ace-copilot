@@ -4,9 +4,11 @@
 #
 # Can be run from any directory — paths resolve relative to the AceCopilot repo.
 #
-# Usage: ./tui.sh [provider]
-#   provider: anthropic (default), openai, openai-codex, ollama, copilot, groq
-#   Example: ./tui.sh ollama
+# Usage: ./tui.sh [profile-or-provider]
+#   Any profile name from ~/.ace-copilot/config.json works:
+#     claude, copilot, copilot-sonnet, copilot-haiku, ollama, ...
+#   Bare provider names also work for backward compatibility.
+#   Example: ./tui.sh copilot-sonnet
 set -e
 
 # Resolve symlinks to find the real script location (not the symlink dir)
@@ -18,11 +20,11 @@ while [ -L "$SELF" ]; do
 done
 SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 
-# Parse optional provider
-PROVIDER=""
+# Parse optional profile or provider name
+PROFILE=""
 for arg in "$@"; do
     case "$arg" in
-        *) PROVIDER="$arg" ;;
+        *) PROFILE="$arg" ;;
     esac
 done
 
@@ -47,13 +49,14 @@ if [ ! -x "$CLI_BIN" ]; then
     CLI_BIN="$SCRIPT_DIR/ace-copilot-cli/build/install/ace-copilot-cli/bin/ace-copilot-cli"
 fi
 
-# Validate and set provider via env if specified
-if [ -n "$PROVIDER" ]; then
+# Export ACE_COPILOT_PROFILE so the daemon's config precedence picks it
+# up. If the arg is also a plain provider name, export
+# ACE_COPILOT_PROVIDER too for backward compat.
+if [ -n "$PROFILE" ]; then
+    export ACE_COPILOT_PROFILE="$PROFILE"
     case " $VALID_PROVIDERS " in
-        *" $PROVIDER "*) ;;
-        *) echo "Invalid provider: $PROVIDER"; echo "Valid: $VALID_PROVIDERS"; exit 1 ;;
+        *" $PROFILE "*) export ACE_COPILOT_PROVIDER="$PROFILE" ;;
     esac
-    export ACE_COPILOT_PROVIDER="$PROVIDER"
 fi
 
 # No bench mode for TUI sessions

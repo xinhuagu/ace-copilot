@@ -6,16 +6,18 @@
 #   --baseline : run benchmark check + baseline export before launching
 #   --auto     : auto-select --check or --baseline based on changed files
 #   --no-bench : skip benchmarks even on feature branches
-#   provider   : anthropic (default), openai, openai-codex, ollama, copilot, groq
-#   Example: ./dev.sh ollama          # auto-detect if on feature branch
+#   profile    : any profile from ~/.ace-copilot/config.json (e.g. claude,
+#                copilot, copilot-sonnet, copilot-haiku, ollama). Bare
+#                provider names also accepted for backward compatibility.
+#   Example: ./dev.sh copilot-sonnet  # use the copilot-sonnet profile
 #   Example: ./dev.sh --no-bench      # quick restart, skip benchmarks
 set -e
 
 # ---------------------------------------------------------------------------
-# Parse arguments: flags first, then positional provider
+# Parse arguments: flags first, then positional profile/provider name
 # ---------------------------------------------------------------------------
 BENCH_MODE=""
-PROVIDER=""
+PROFILE=""
 
 for arg in "$@"; do
     case "$arg" in
@@ -23,10 +25,12 @@ for arg in "$@"; do
         --baseline) BENCH_MODE="baseline" ;;
         --auto)     BENCH_MODE="auto" ;;
         --no-bench) BENCH_MODE="none" ;;
-        *)          PROVIDER="$arg" ;;
+        *)          PROFILE="$arg" ;;
     esac
 done
 
+# Known provider keywords — if the arg matches one of these we also set
+# ACE_COPILOT_PROVIDER for backward compatibility with older usage.
 VALID_PROVIDERS="anthropic openai openai-codex ollama copilot groq"
 
 # ---------------------------------------------------------------------------
@@ -122,14 +126,15 @@ if [ -f ~/.ace-copilot/ace-copilot.pid ]; then
     sleep 0.3
 fi
 
-# Validate and set provider via env if specified
-if [ -n "$PROVIDER" ]; then
+# Export ACE_COPILOT_PROFILE so the daemon's config precedence picks it
+# up. If the arg is also a plain provider name, export
+# ACE_COPILOT_PROVIDER too for backward compat.
+if [ -n "$PROFILE" ]; then
+    export ACE_COPILOT_PROFILE="$PROFILE"
     case " $VALID_PROVIDERS " in
-        *" $PROVIDER "*) ;;
-        *) echo "Invalid provider: $PROVIDER"; echo "Valid: $VALID_PROVIDERS"; exit 1 ;;
+        *" $PROFILE "*) export ACE_COPILOT_PROVIDER="$PROFILE" ;;
     esac
-    export ACE_COPILOT_PROVIDER="$PROVIDER"
-    echo "Provider: $PROVIDER"
+    echo "Profile: $PROFILE"
 fi
 
 echo ">> Launching AceCopilot..."

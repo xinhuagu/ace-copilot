@@ -2,8 +2,11 @@
 # Quick daemon restart: rebuild CLI, stop old daemon, launch CLI.
 # No benchmarks, no checks — just restart as fast as possible.
 #
-# Usage: ./restart.sh [provider]
-#   provider: anthropic (default), openai, openai-codex, ollama, copilot, groq
+# Usage: ./restart.sh [profile-or-provider]
+#   Any profile name from ~/.ace-copilot/config.json works:
+#     claude, copilot, copilot-sonnet, copilot-haiku, ollama, ...
+#   Bare provider names (anthropic, openai, ollama, copilot, ...) also work
+#   for backward compatibility.
 set -e
 
 # Resolve symlinks to find the real script location (not the symlink dir)
@@ -15,14 +18,19 @@ while [ -L "$SELF" ]; do
 done
 SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 
-# Parse optional provider
-PROVIDER=""
+# Parse optional profile or provider name
+PROFILE=""
 for arg in "$@"; do
     case "$arg" in
-        *) PROVIDER="$arg" ;;
+        *) PROFILE="$arg" ;;
     esac
 done
 
+# Known provider keywords (for backward-compat with the old provider-only
+# switch). If the arg matches one of these, we also export
+# ACE_COPILOT_PROVIDER so config logic falls through to that provider's
+# default profile. Otherwise we treat the arg as a profile name and let
+# the daemon resolve it against config.json.
 VALID_PROVIDERS="anthropic openai openai-codex ollama copilot groq"
 
 # Auto-detect JAVA_HOME if not set — require exact Java 21
@@ -60,13 +68,15 @@ if [ -f ~/.ace-copilot/ace-copilot.pid ]; then
     sleep 0.3
 fi
 
-# Validate and set provider via env if specified
-if [ -n "$PROVIDER" ]; then
+# Export ACE_COPILOT_PROFILE so the daemon's config precedence picks it
+# up. If the arg also happens to be a plain provider name, export
+# ACE_COPILOT_PROVIDER too so backward-compat users who passed a
+# provider name keep working.
+if [ -n "$PROFILE" ]; then
+    export ACE_COPILOT_PROFILE="$PROFILE"
     case " $VALID_PROVIDERS " in
-        *" $PROVIDER "*) ;;
-        *) echo "Invalid provider: $PROVIDER"; echo "Valid: $VALID_PROVIDERS"; exit 1 ;;
+        *" $PROFILE "*) export ACE_COPILOT_PROVIDER="$PROFILE" ;;
     esac
-    export ACE_COPILOT_PROVIDER="$PROVIDER"
 fi
 
 # No benchmarks
