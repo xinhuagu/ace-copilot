@@ -172,10 +172,11 @@ public final class AceCopilotMain implements Runnable {
             CopilotDeviceAuth.authenticate();
         } catch (RuntimeException e) {
             System.err.println("Copilot authentication failed: " + e.getMessage());
-            System.err.println("Workarounds:");
-            System.err.println("  - run `gh auth login` then retry, or");
-            System.err.println("  - set GITHUB_TOKEN to a PAT with the `copilot` scope, or");
-            System.err.println("  - put `apiKey` in the copilot profile in ~/.ace-copilot/config.json");
+            System.err.println("To retry, do one of:");
+            System.err.println("  - run `gh auth login` (with the `read:user` scope), then re-run ace-copilot, or");
+            System.err.println("  - re-run ace-copilot to attempt the device-code flow again.");
+            System.err.println("Note: GITHUB_TOKEN, GH_TOKEN, and config apiKey are usable at runtime");
+            System.err.println("but cannot satisfy the first-time login pre-flight by design.");
             System.exit(1);
         }
     }
