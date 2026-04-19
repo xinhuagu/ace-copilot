@@ -1,12 +1,16 @@
-# Phase 4 LLM call-site audit (#6, PR A)
+# Phase 4 LLM call-site audit (#6)
 
-This is the first half of issue #6 — an inventory of every place the
+This is the audit half of issue #6 — an inventory of every place the
 daemon issues an LLM request outside the main user-prompt turn, plus
-a per-site proposal for Phase 4 PR B to act on.
+per-site decisions for the Phase 4 "savings-first, Copilot-only" policy.
 
-**Rule of the game:** a simple user prompt should cost exactly **1**
-premium request end-to-end. Anything extra is either (a) accepted with
-open eyes, (b) moved off the Copilot premium bill, or (c) removed.
+**Rule of the game:** a simple session-mode prompt must still cost
+exactly **1** Copilot premium request. Any subsystem that would add
+extra Copilot work has to earn its keep — otherwise it stays skipped.
+
+**Constraint (locked by #6):** no provider switch in this phase.
+ace-copilot is Copilot-only. A subsystem cannot be moved to Anthropic
+or Ollama just to avoid premium.
 
 ## Call-site inventory
 
@@ -27,39 +31,42 @@ every `ace-copilot-*` module.
 | 9 | `DynamicSkillGenerator.proposeDraft:396` | post-turn-learning | `schedulePostRequestLearning` fires (chat path only) | chat | **not tagged** |
 | 10 | `SessionSkillPacker.pack:164` | post-turn-learning | `schedulePostRequestLearning` fires (chat path only) | chat | **not tagged** |
 
-## Key finding — the chat vs session asymmetry
+## Chat vs session — intentional asymmetry
 
 `handlePrompt`'s dispatch at line 380 routes to
-`handlePromptViaCopilotSession` **before** any of the
-chat-path-only subsystems have a chance to fire. The concrete
-consequences:
+`handlePromptViaCopilotSession` **before** the chat-path subsystems
+get a chance to fire. Under the Phase 4 savings-first + Copilot-only
+policy this is the intended behaviour for three of the four subsystems
+below:
 
 | Subsystem | Chat mode behaviour | Session mode behaviour |
 | --- | --- | --- |
-| Upfront planner | Fires on complex prompts → +1 premium | **Silently skipped.** SDK agent plans internally if it decides to |
-| Fallback / replan | Fires on plan-step failure → +N premium | **Silently skipped.** No plan exists |
-| Compaction summary | Fires mid-turn if context overflows → +1 premium | **Silently skipped.** SDK manages context itself |
-| Post-turn learning (skill refine / generate / pack) | Fires after every turn → +1-3 premium and background work | **Silently skipped.** No learning happens on session prompts |
+| Upfront planner | Fires on complex prompts → +1 premium | **Replaced by in-session prompt steering** (c4 preamble) — agent plans inside the same `sendAndWait` if the task warrants it |
+| Fallback / replan | Fires on plan-step failure → +N premium | **Not applicable** — no separate plan object exists; agent recovers inside the turn |
+| Compaction summary | Fires mid-turn if context overflows → +1 premium | **Dropped by decision.** SDK manages context internally; no our-side summary |
+| Post-turn learning (skill refine / generate / pack) | Fires after every turn → +1-3 premium and background work | **Kept skipped by decision.** Under the Copilot-only savings-first policy, restoring it would re-add premium the project has chosen not to pay. Telemetry (`usage.copilot.subsystemsSkipped`) flags this clearly |
 
-Phase 3's 1-premium-per-turn claim is therefore accurate for session
-mode, but the user also silently loses four capabilities that chat
-mode exercises. The project's real target ("one simple prompt pays
-the premium it should, and the learning pipeline still runs") is not
-yet met end-to-end; it just pays less than chat did.
+Phase 3's 1-premium-per-session-turn claim holds, and the gaps relative
+to chat mode are now documented product decisions rather than silent
+skips. No subsystem is "missing" by accident.
 
-## Per-site proposal for PR B
+## Locked decisions (PR B)
 
-Options from #6 scope: **(a) in-session**, **(b) separate SDK session**,
-**(c) non-Copilot provider**, **(d) drop**. Proposed here; decisions
-locked in PR B after discussion.
+Options under the Copilot-only + savings-first policy: **(a) in-session**,
+**(b) separate Copilot session**, **(d) drop / keep skipped**. The
+earlier draft of this doc listed a fourth option — **(c) route to a
+non-Copilot provider** — which is out of scope once the Copilot-only
+constraint is in force, and has been removed.
 
-| Site | Proposal | Rationale |
+| Site | Decision | Rationale |
 | --- | --- | --- |
-| Planner (4, 5, 6) | **(a) in-session** via the c4 prompt-steering preamble — already partly done. Extend steering so that for complex prompts the SDK agent explicitly produces a plan before executing. Zero extra premium. | The SDK agent is capable enough in practice; explicit planning is mostly about nudging. Keeps context in one turn |
-| Compaction (7) | **(d) drop** on session path; SDK handles context internally. Document the tradeoff: long sessions may see SDK-side context pressure before the chat path would compact. Revisit if operators report turn truncation | SDK has its own sliding-context mechanism; re-summarising from our side is double work |
-| Post-turn learning (8, 9, 10) | **(c) non-Copilot provider** — run against Anthropic / Ollama (existing `LlmClient` factories still work for those). Learning is post-turn and not latency-sensitive, so a different model is acceptable. Zero Copilot premium spend on learning | Preserves the learning pipeline, costs 0 Copilot premium. Per-step prompt quality is already tolerant to model differences |
+| Planner (4, 5, 6) | **(a) in-session** via the c4 prompt-steering preamble — already live. Extend the steering as needed so that for complex prompts the SDK agent explicitly produces a plan before executing, all within the same `sendAndWait`. Zero extra premium. | The SDK agent is capable enough in practice; explicit planning is mostly about nudging. Keeps context in one turn. |
+| Compaction (7) | **(d) drop** on session path. The SDK manages its own context; re-summarising from our side is double work. Document the tradeoff: long conversations may see SDK-side context pressure before the chat path would compact — revisit if operators report turn truncation. | SDK has its own sliding-context mechanism. Our summary would burn premium with no clear upside. |
+| Post-turn learning (8, 9, 10) | **(d) keep skipped for now.** Restoring learning while staying Copilot-only would add +1–3 premium requests to every session turn (one per learning component that fires). That directly undercuts Phase 3's savings; the capability is not worth that cost at this time. | Learning was historically valuable on chat mode, but was bundled with chat's higher per-turn premium cost. Under a savings-first Copilot-only policy, running it again per turn re-introduces exactly the overhead we removed. Keep off; reconsider if we get a low-cost path (e.g. if the SDK ever lets a sub-task run inside the same sendAndWait). |
 
-All three proposals preserve the 1-premium-per-user-prompt target.
+All three decisions preserve the 1-premium-per-session-turn target and
+leave no silent subsystem skips — every skip below is documented and
+intentional, not a regression.
 
 ## Instrumentation delta in this PR
 
@@ -86,22 +93,33 @@ All three proposals preserve the 1-premium-per-user-prompt target.
   `CopilotSessionBySourceShapeTest` which pins the field name and key
   casing.
 - Same path emits `usage.copilot.subsystemsSkipped = "planner,compaction,post_turn_learning"`
-  (a session-only regression signal, deliberately **not** on the
-  shared attribution map) so grep / dashboards can flag any future
-  change that quietly wires a billable subsystem back in.
+  (a session-only signal, deliberately **not** on the shared
+  attribution map). With the Phase 4 decisions locked, all three
+  entries are intentional and permanent. The marker is kept as a
+  regression signal: a future change that tries to wire one of these
+  subsystems back onto session mode (and silently rebills the user)
+  would need to drop the corresponding entry, which is a visible
+  string diff in logs / dashboards.
 - No change to chat-path attribution — it already tags every call site
   per `RequestSource` (verified above).
 
-## Out of scope for PR A
+## Out of scope for this phase
 
-- Actually implementing any of the (a)/(c)/(d) decisions.
-- Rewriting the learning algorithms.
-- Deciding the fate of the chat path — this audit and the decisions
-  apply to session mode. Chat mode stays as-is (it's the default and
-  the fallback).
+- Rewriting the learning algorithms themselves.
+- Reintroducing learning on session mode under the current
+  Copilot-only policy. If a future phase finds a 0-premium path
+  (e.g. an SDK change that lets a sub-task run inside the same
+  `sendAndWait`), revisit with an explicit follow-up.
+- Deciding the fate of chat mode — this audit and the decisions apply
+  to session mode. Chat mode stays as-is (it is the default and the
+  fallback).
 
-## Closes nothing yet
+## Closure
 
-Issue #6 stays open. PR B, informed by this audit, either changes the
-code per the decision table above or closes it with a documented
-"keep as-is" rationale. No production change until PR B.
+- Decision table above is locked unless reopened.
+- Session path already reflects the decisions: planner is handled by
+  c4 steering, compaction is dropped, learning is skipped.
+- `usage.copilot.subsystemsSkipped` telemetry makes every skip visible
+  to anyone grepping the daemon output or driving a dashboard.
+- Issue #6 closes on the PR that lands this doc update + records the
+  decision table back into the issue body.
