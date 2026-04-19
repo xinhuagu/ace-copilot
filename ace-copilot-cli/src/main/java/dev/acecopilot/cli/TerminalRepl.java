@@ -1402,8 +1402,48 @@ public final class TerminalRepl {
                               + formatTokenCount(sessionInfo.contextWindowTokens())
                             : "",
                     RESET);
+
+            // Phase 3 (#5): surface the Copilot session runtime's honest
+            // per-turn billing signal so users can tell when a plain
+            // follow-up became a new billable turn (B-path) vs a
+            // 0-premium clarification answer (A-path). Only rendered
+            // for session-runtime turns, not legacy /chat/completions.
+            var copilot = usage.path("copilot");
+            if (copilot.isObject() && "session".equals(copilot.path("runtime").asText(""))) {
+                renderCopilotBillingLine(out, copilot);
+            }
             out.flush();
         }
+    }
+
+    private void renderCopilotBillingLine(PrintWriter out, JsonNode copilot) {
+        long delta = copilot.path("premiumDeltaSinceLastTurn").asLong(-1);
+        boolean hasBefore = copilot.has("premiumUsedBefore");
+        boolean hasAfter = copilot.has("premiumUsedAfter");
+        String absolute = hasBefore && hasAfter
+                ? copilot.get("premiumUsedBefore").asText() + "→"
+                        + copilot.get("premiumUsedAfter").asText()
+                : "?";
+        // GitHub's premium counter is eventually-consistent across turns:
+        // a billable turn's increment can land in the observation window of
+        // a later turn. Frame the delta as "session counter advanced since
+        // last turn" (an observable) rather than "THIS turn was billable"
+        // (an attribution we cannot prove from a single delta). Accumulated
+        // deltas across many turns converge to the real total.
+        String tag;
+        String note;
+        if (delta < 0) {
+            tag = MUTED + "copilot: first turn of session (no baseline yet)" + RESET;
+            note = "premiumUsed " + absolute;
+        } else if (delta == 0) {
+            tag = MUTED + "copilot: session counter unchanged since last turn" + RESET;
+            note = "(no billable activity surfaced in this window — this turn or a prior turn may still have pending accounting)";
+        } else {
+            tag = WARNING + "copilot: session counter +" + delta + " since last turn" + RESET;
+            note = "(billable activity at some point in the window — attribution may span this turn or the prior turn's delayed accounting)";
+        }
+        out.printf("  %s  %s  %s%s%n", tag, MUTED + "premiumUsed " + absolute + RESET, MUTED, note);
+        out.print(RESET);
     }
 
     // -- Permission handling (from bridge) -----------------------------------

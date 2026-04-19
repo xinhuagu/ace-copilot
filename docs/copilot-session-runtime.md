@@ -114,7 +114,7 @@ reality.
 | Area | Status | Tracked in |
 | --- | --- | --- |
 | Prompt steering to maximise A hit rate | Agents may end turns without `ask_user`, falling back to B | #5 c4 |
-| Structured-form elicitation (MCP etc.) | Auto-declined + yellow warning in TUI | #5 |
+| Structured-form elicitation (MCP etc.) | Auto-declined + yellow warning in TUI | #15 |
 | Incremental mid-execution output for long-running tools (`bash`, etc.) | One `stream.tool_completed` payload at the end, not streamed | #5 |
 | TaskPlanner consolidated inside the session | Still runs via separate LLM calls | #6 |
 | SelfImprovementEngine (`ErrorDetector`, `PatternDetector`) | Separate LLM calls | #6 |
@@ -130,8 +130,8 @@ Every session-path JSON-RPC response includes `result.usage.copilot`:
 | `usageEventCount` | Number of `assistant.usage` events observed inside this turn. >1 means the SDK agent ran multiple internal LLM calls (typically 1 initial + N tool-result continuations). All of them together cost one premium request. |
 | `premiumUsedBefore` / `premiumUsedAfter` | Snapshots of `premium_interactions.usedRequests` at the first and last `assistant.usage` events of the turn. Useful for operators wanting raw numbers. |
 | `previousTurnPremiumUsed` | The `lastUsage.premiumUsed` stored from the **previous** turn on this session. Baseline for the honest cross-turn delta. |
-| `premiumDeltaSinceLastTurn` | **Authoritative per-turn billing signal.** `currentTurn.last.premiumUsed - previousTurnPremiumUsed`. `>0` iff the turn incurred a premium request. `-1` if no baseline yet (first turn of a session). |
-| `intraTurnPremiumDelta` | Diagnostic only. Subtraction inside the turn (`last - first`). The SDK does not guarantee `first` is a pre-billing baseline — GitHub's counter updates asynchronously and can land mid-stream, so this alone can report 0 for a billable turn or vice-versa. Use `premiumDeltaSinceLastTurn`. |
+| `premiumDeltaSinceLastTurn` | **Session-counter advance observed since the previous turn's last sample** — `currentTurn.last.premiumUsed - previousTurnPremiumUsed`. Not a per-turn billing attribution: GitHub's counter is eventually consistent across turns, so a billable turn's +1 can land on a later turn's observation window (and vice-versa). Reliable only when accumulated across many turns — use the sum to reconcile with `https://github.com/settings/copilot/usage`. `-1` on the first turn (no baseline). |
+| `intraTurnPremiumDelta` | Diagnostic only. Subtraction inside the turn (`last - first`). The SDK does not guarantee `first` is a pre-billing baseline — GitHub's counter updates asynchronously and can land mid-stream, so this alone can report 0 for a billable turn or vice-versa. Prefer the session-level advance in `premiumDeltaSinceLastTurn` over any single-turn reading. |
 | `initiatorFirst` / `initiatorLast` | `"user"` for the initial turn kickoff, `"agent"` for SDK-driven continuations. |
 | `wallMs` | Total wall time of the turn. |
 
@@ -142,6 +142,86 @@ Every session-path JSON-RPC response includes `result.usage.copilot`:
 | (unset) | Legacy pre-Phase-2 warnings (model change, etc.) |
 | `tool_catalog_changed` | The tool set shifted between turns; remote SDK session was recreated and prior Copilot context discarded. Local transcript still reads continuously. |
 | `elicitation_declined` | The SDK (or an MCP server it invoked) requested structured-form input, which this runtime cannot surface yet. Auto-declined. |
+
+## Phase 3 live acceptance walkthrough
+
+Run this end-to-end once after any Phase 3 change to verify the mix
+A→B policy is holding. Each step records an **ideal**
+`premiumDeltaSinceLastTurn` — what you'd expect if GitHub's counter
+updated synchronously. In practice that counter is eventually
+consistent across turns, so a billable turn's +1 can land on the next
+turn's observation window (or vice versa).
+
+What this means for this walkthrough:
+
+- Individual per-step deltas can drift by ±1 from the "ideal" column
+  without indicating a bug. A clarification answer (A-path) can still
+  report +1 if a previous turn's accounting is propagating late;
+  conversely a `/new` turn (B-path) can report 0 if its own +1 hasn't
+  surfaced yet.
+- The **accumulated** sum across the whole scenario is the reliable
+  signal. It should match the absolute `premiumUsed` counter advance
+  visible in window A, and — after a few minutes of propagation — the
+  dashboard reconciliation in the final section.
+- The comparison against the legacy `chat` path holds regardless of
+  counter timing: the legacy path would have incurred ~1 premium per
+  LLM call in any of these steps (5×+ total).
+
+If an individual step reports an "unexpected" delta, keep going and
+check the sum at the end. Only a persistent accumulated miss is a
+regression.
+
+### Setup
+
+Two terminal windows:
+
+- **A** — daemon log tail:
+  ```bash
+  tail -f ~/.ace-copilot/logs/daemon.log | grep -E "Copilot session turn|user_input|pending"
+  ```
+
+- **B** — TUI: `./tui.sh` (starts the daemon if not running; profile
+  should have `copilotRuntime: "session"` and working Copilot auth).
+
+Before starting, note the baseline counter from any recent
+`premiumUsed=N->M` line in window A.
+
+### Scenario
+
+| # | Action in TUI | Expected CLI summary line | Ideal per-step delta | Contributes to ideal total | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Prompt: `summarize ace-copilot-core/build.gradle.kts and then end by asking whether I want a change` | `copilot: session counter +N since last turn` OR `unchanged` (either is fine) | +1 | +1 | First turn; baseline |
+| 2 | At the `answer >` modal, type `add ace-copilot-sdk as an api dependency` | `unchanged` expected; `+1` acceptable if step 1's increment lands here | 0 (A-path) | +0 | Clarification answer — no new sendAndWait |
+| 3 | Wait for task to complete and ask again | agent should end with another ask_user question | n/a | n/a | Phase 3 c4 — observe steering hit rate, not billing |
+| 4 | Answer: `yes, apply it` | `unchanged` expected; `+1` acceptable | 0 (A-path) | +0 | Still A-path |
+| 5 | Type `/new run the unit tests` at the clarification modal | current clarification cancels, new task starts; banner likely `+1` | +1 | +1 | Explicit B-path — `/new` is a new billable turn |
+| 6 | Let new task complete (no ask_user); back to main prompt | `+1` or `unchanged` depending on when step 5's increment surfaces | +1 | +1 | Explicit B-path |
+| 7 | Plain follow-up: `now undo that change` | banner expected to show `+1` at some point in the next 1–2 turns | +1 | +1 | Plain follow-up after idle = B-path |
+| 8 | Put a long task in background: prompt something multi-step, then press any key to auto-`/bg` | task moves to background; main prompt returns | +1 | +1 | Backgrounded task |
+| 9 | While backgrounded task emits an ask_user, TUI interrupts main prompt with `[Clarification] task #X -> ...` notice | drain fires → clarification modal → answer | 0 (A-path) | +0 | Background-task clarification path |
+
+### Success criteria
+
+- **Accumulated** `usage.copilot.premiumDeltaSinceLastTurn` across all
+  turns matches the absolute `premiumUsed` counter advance seen in
+  window A, and the ideal total (5) within ±1–2 (propagation drift).
+- Per-step banners never mis-assert causality: the CLI says
+  "session counter +N since last turn", not "this turn was billable"
+  — so a clarification answer showing +1 is not called out as a bug.
+- Steering observation (step 3): the agent closes with another
+  ask_user instead of ending silently. If it consistently skips
+  ask_user across multiple runs, the c4 steering block may need
+  tuning.
+- At no point does the session wedge: if anything hangs more than
+  15s without activity, inspect the daemon log for pending /
+  unanswered user_input entries.
+
+### Dashboard reconciliation
+
+After running the scenario, wait ~10 minutes and check
+`https://github.com/settings/copilot/usage` (for the account whose
+token the sidecar is using). The `Used` count should advance by the
+same total as the in-log deltas (±1 for rounding / propagation lag).
 
 ## Billing verification
 
