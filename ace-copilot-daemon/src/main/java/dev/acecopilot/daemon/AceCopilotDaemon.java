@@ -2604,9 +2604,11 @@ public final class AceCopilotDaemon {
     /**
      * Resolves the raw GitHub token to pass to the Copilot SDK sidecar,
      * using the same priority as {@link CopilotTokenProvider}: cached OAuth
-     * → configured {@code apiKey} → {@code GITHUB_TOKEN} → {@code GH_TOKEN}
-     * → {@code gh auth token}. Returns {@code null} if none resolve, in
-     * which case the sidecar defers to the SDK's {@code useLoggedInUser}.
+     * → {@code gh auth token} → configured {@code apiKey} →
+     * {@code GITHUB_TOKEN} → {@code GH_TOKEN}. Cached + gh CLI come first
+     * to keep the runtime account aligned with the pre-flight UX.
+     * Returns {@code null} if none resolve, in which case the sidecar
+     * defers to the SDK's {@code useLoggedInUser}.
      */
     private static String resolveCopilotGithubToken(AceCopilotConfig config) {
         return CopilotTokenProvider.firstGithubTokenCandidate(config.apiKey());

@@ -355,9 +355,14 @@ public final class AceCopilotConfig {
         if (envApiKey != null && !envApiKey.isBlank()) {
             config.apiKey = envApiKey;
         }
-        // Fallback: check OPENAI_API_KEY for non-Anthropic providers
+        // Fallback: check OPENAI_API_KEY for OpenAI-compatible providers.
+        // Copilot is excluded — it uses GitHub OAuth/PAT tokens, never an
+        // OpenAI key. Letting OPENAI_API_KEY leak into the copilot apiKey
+        // field would cause auth checks (CLI pre-flight + daemon) to treat
+        // it as a valid GitHub credential and fail later at the wire level.
         if ((config.apiKey == null || config.apiKey.isBlank())
-                && !"anthropic".equals(config.provider)) {
+                && !"anthropic".equals(config.provider)
+                && !"copilot".equals(config.provider)) {
             var openaiKey = System.getenv("OPENAI_API_KEY");
             if (openaiKey != null && !openaiKey.isBlank()) {
                 config.apiKey = openaiKey;

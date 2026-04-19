@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import dev.acecopilot.daemon.AceCopilotConfig;
 import dev.acecopilot.daemon.AceCopilotDaemon;
 import dev.acecopilot.llm.openai.CopilotDeviceAuth;
+import dev.acecopilot.llm.openai.CopilotTokenProvider;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -155,16 +156,27 @@ public final class AceCopilotMain implements Runnable {
             if (!"copilot".equalsIgnoreCase(effectiveProvider)) {
                 return;
             }
-            // Check if we already have a cached OAuth token
-            if (CopilotDeviceAuth.loadCachedToken() != null) {
+            // Pre-flight policy: only the cached device-code token and
+            // `gh auth token` are allowed to skip the first-time login UX.
+            // Other GitHub credential sources (config apiKey / GITHUB_TOKEN /
+            // GH_TOKEN) remain usable at runtime by the daemon but must not
+            // bypass the prompt — a fresh user should always go through a
+            // visible authorization step.
+            if (CopilotTokenProvider.firstPreflightTokenCandidate() != null) {
                 return;
             }
-            // No cached token — need interactive auth
-            System.out.println("No Copilot OAuth token found. Starting GitHub authentication...");
+            System.out.println();
+            System.out.println("No GitHub Copilot credentials found.");
+            System.out.println("Requires an active GitHub Copilot subscription (Individual / Business / Enterprise).");
+            System.out.println("Token will be cached at ~/.ace-copilot/copilot-oauth-token.");
             CopilotDeviceAuth.authenticate();
         } catch (RuntimeException e) {
             System.err.println("Copilot authentication failed: " + e.getMessage());
-            System.err.println("You can retry or set GITHUB_TOKEN with a valid OAuth token.");
+            System.err.println("To retry, do one of:");
+            System.err.println("  - run `gh auth login` (with the `read:user` scope), then re-run ace-copilot, or");
+            System.err.println("  - re-run ace-copilot to attempt the device-code flow again.");
+            System.err.println("Note: GITHUB_TOKEN, GH_TOKEN, and config apiKey are usable at runtime");
+            System.err.println("but cannot satisfy the first-time login pre-flight by design.");
             System.exit(1);
         }
     }

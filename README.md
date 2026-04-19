@@ -93,12 +93,41 @@ Downloads the latest pre-built release, extracts to `~/.ace-copilot/`, and adds 
 
 ### Run against Copilot
 
-If you already have a Copilot subscription and `gh auth login` has run:
-
 ```bash
 ace-copilot-restart copilot    # Start daemon in Copilot session mode
 ace-copilot                    # Attach TUI
 ```
+
+#### First-time login
+
+On first start, ace-copilot only treats the following as "already logged in" and skips the prompt:
+
+1. `~/.ace-copilot/copilot-oauth-token` — token cached from a previous login
+2. `gh auth token` — a working GitHub CLI session
+
+**Easiest path:** run `gh auth login` once, then start ace-copilot. No prompt.
+
+**Otherwise** (fresh machine, no `gh` CLI), ace-copilot prints a device code + URL:
+
+```
+No GitHub Copilot credentials found.
+Requires an active GitHub Copilot subscription (Individual / Business / Enterprise).
+Token will be cached at ~/.ace-copilot/copilot-oauth-token.
+
+  GitHub Copilot Authentication
+  ─────────────────────────────
+  1. Open: https://github.com/login/device
+  2. Enter code: XXXX-XXXX
+  Waiting for authorization...
+```
+
+Open the URL, paste the code, authorize. The token is cached and reused.
+
+> **Subscription required.** Free GitHub accounts cannot use the Copilot API.
+>
+> **About env vars and config tokens.** ace-copilot will happily *use* a token from `apiKey` (in `~/.ace-copilot/config.json`), `GITHUB_TOKEN`, or `GH_TOKEN` once it's running — but these **do not** count as "logged in" on first start. A fresh install always shows the device-code prompt unless a cached token or `gh auth login` is present. When more than one source is set, the cached token and `gh auth token` win at runtime too, so the account that passed the first-time prompt is the same account billed for Copilot quota. Config / env tokens only kick in when no cached or `gh` token exists. This is on purpose: you should see and confirm exactly which GitHub account ace-copilot is binding to before it starts spending your Copilot quota.
+
+#### Per-turn output
 
 First turn prints `copilot: first turn of session (no baseline yet)`. Every subsequent turn shows the per-turn and session-total lines above.
 
