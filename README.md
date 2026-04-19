@@ -11,7 +11,7 @@
 
 > **ace-copilot exists to make GitHub Copilot usable as an agent backend.**
 >
-> Copilot's premium-request billing is among the worst fits in the current AI-subscription market for agent workloads — closed, opaque, punitively capped, and structurally misaligned with how agents actually run ([evidence](docs/copilot-session-runtime.md#why-this-project-exists--copilot-billing-facts)). ace-copilot is a deliberate piece of mechanism engineering against that model: reorganize how turns are issued so a multi-tool, multi-iteration agent turn still costs **one** premium request instead of five.
+> Copilot's premium-request billing is among the worst fits in the current AI-subscription market for agent workloads — closed, opaque, punitively capped, and structurally misaligned with how agents actually run ([evidence](docs/copilot-session-runtime.md#why-this-project-exists--copilot-billing-facts)). ace-copilot is a deliberate piece of mechanism engineering against that model: reorganize how turns are issued so a multi-tool, multi-iteration agent turn still costs **one** premium request instead of scaling with every intermediate step.
 
 ## The problem, concretely
 
