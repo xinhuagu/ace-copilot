@@ -63,11 +63,57 @@ but is a no-op; daemon logs an info line if it is still present.
 - Tool activity via `stream.tool_use` / `stream.tool_completed` —
   parity with the chat path's turn-summary rendering.
 
+## Clarification routing (Phase 3, #5)
+
+When the SDK agent fires `ask_user`, the sidecar round-trips the
+question through the daemon to the TUI. Answering costs **0**
+additional premium requests — the exchange stays inside the current
+`sendAndWait`. The TUI shows a short `[waiting for clarification]`
+line, a dedicated answer prompt, and whether the clarification was
+answered or cancelled.
+
+Two commands the user can type at the clarification prompt:
+
+- **plain text** — treated as the answer. If the text matches one of
+  the SDK's offered `choices` (case-insensitive), it's sent back with
+  `wasFreeform: false`; otherwise as free-form.
+- **`/new <prompt>`** — cancels the pending clarification (sidecar
+  returns `cancel: true` to the SDK, agent wraps up the current turn),
+  then queues `<prompt>` as the next task. A bare `/new` cancels
+  without queuing anything and returns the session to ready.
+
+Timeout: if the user does not answer within **5 minutes**, the TUI
+auto-cancels and the agent wraps up. Daemon-side has a matching
++30-second deadline as a safety net — either side firing first yields
+the same shape (cancel response) so no state is ever wedged.
+
+### Policy: mix A→B fallback (locked)
+
+The `@github/copilot-sdk` does not expose an externally-callable
+`respondToUserInput` — the only way to resolve an `ask_user` is from
+inside its `onUserInputRequest` callback (see
+`experiments/copilot-session-probe/probe-fake-pending.mjs`). This
+means 0-premium follow-ups are only possible when the agent is
+currently pending on `ask_user`. The runtime therefore uses a two-path
+policy:
+
+- **A (preferred)**: agent stays in `ask_user` between turns →
+  user's typed answer resolves the callback → 0 premium.
+- **B (fallback)**: agent finished `sendAndWait` without pending →
+  typed input becomes a new `sendAndWait` on the same SDK session
+  → context preserved but +1 premium.
+
+Hit rate of A depends on prompt steering (agent discipline in closing
+each turn with `ask_user`), tracked in Phase 3 c4. There is no
+additional code-level trick that achieves 0-premium follow-up —
+pretending a pending state exists would silently desync from SDK
+reality.
+
 ## Intentionally deferred
 
 | Area | Status | Tracked in |
 | --- | --- | --- |
-| `respondToUserInput` routing (follow-up messages cost 0 premium) | Not implemented — each follow-up is a new billable `sendAndWait` | #5 |
+| Prompt steering to maximise A hit rate | Agents may end turns without `ask_user`, falling back to B | #5 c4 |
 | Structured-form elicitation (MCP etc.) | Auto-declined + yellow warning in TUI | #5 |
 | Incremental mid-execution output for long-running tools (`bash`, etc.) | One `stream.tool_completed` payload at the end, not streamed | #5 |
 | TaskPlanner consolidated inside the session | Still runs via separate LLM calls | #6 |

@@ -114,6 +114,9 @@ public final class StreamingAgentHandler {
 
     private static final Logger log = LoggerFactory.getLogger(StreamingAgentHandler.class);
 
+    /** Phase 3 (#5) c5: daemon side timeout mirroring the TUI's 5-minute clarification deadline. */
+    private static final long COPILOT_USER_INPUT_WAIT_TIMEOUT_SECONDS = 5 * 60 + 30;
+
     /** Permission level assignments for known tools. */
     private static final Map<String, PermissionLevel> TOOL_PERMISSION_LEVELS = Map.ofEntries(
             Map.entry("read_file", PermissionLevel.READ),
@@ -2024,8 +2027,27 @@ public final class StreamingAgentHandler {
             // Block until the TUI's user_input.response notification is
             // routed to us (or session teardown cancels the future).
             // Request-dispatch executor is cached, so parking this thread
-            // is acceptable. Phase 3 c5 adds a configurable timeout.
-            response = metaFuture.get();
+            // is acceptable.
+            //
+            // Phase 3 c5: bounded wait so a TUI that crashes or disconnects
+            // silently — i.e. the cancelContext is still alive but never
+            // gets a user_input.response — doesn't pin this thread forever.
+            // Matches CLIENT_USER_INPUT_WAIT_TIMEOUT_MS on the TUI side (5
+            // minutes); +30s slack so the client's auto-cancel usually wins
+            // the race and we see a clean cancel rather than a synthetic
+            // timeout here.
+            response = metaFuture.get(COPILOT_USER_INPUT_WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            log.warn("user_input.request timed out for session {} requestId {} after {}s",
+                    sessionId, requestId, COPILOT_USER_INPUT_WAIT_TIMEOUT_SECONDS);
+            pendingUserInput.remove(sessionId);
+            cancelContext.unregisterUserInputRequest(requestId);
+            var synthetic = objectMapper.createObjectNode();
+            synthetic.put("requestId", requestId);
+            synthetic.put("cancel", true);
+            synthetic.put("answer", "");
+            synthetic.put("wasFreeform", true);
+            return synthetic;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             pendingUserInput.remove(sessionId);

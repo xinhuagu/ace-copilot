@@ -27,6 +27,15 @@ public final class TaskStreamReader implements Runnable {
      */
     static final long CLIENT_PERMISSION_WAIT_TIMEOUT_MS = 115_000L;
 
+    /**
+     * Phase 3 (#5) c5: how long this side waits for a REPL answer to a
+     * Copilot clarification before auto-cancelling. 5 minutes matches the
+     * product intent ("user walked away, don't wedge the sidecar"). The
+     * daemon-side sendAndWait has no deadline so this is the canonical
+     * timer for the interaction.
+     */
+    static final long CLIENT_USER_INPUT_WAIT_TIMEOUT_MS = 5 * 60 * 1000L;
+
     private final TaskHandle handle;
     private final DaemonConnection connection;
     private final String sessionId;
@@ -301,16 +310,17 @@ public final class TaskStreamReader implements Runnable {
                 handle.taskId(), requestId, question, choices, allowFreeform);
         UserInputBridge.UserInputAnswer answer;
         try {
-            // No timeout here — Phase 3 c5 adds a configurable one.
-            answer = userInputBridge.requestInput(req, 0, null);
+            answer = userInputBridge.requestInput(req,
+                    CLIENT_USER_INPUT_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             sink.onUserInputResolved(requestId, "interrupted");
             autoCancelUserInput(requestId, question, "interrupted while waiting for user");
             return;
-        } catch (java.util.concurrent.TimeoutException e) {
+        } catch (TimeoutException e) {
             sink.onUserInputResolved(requestId, "timeout");
-            autoCancelUserInput(requestId, question, "timed out waiting for user");
+            autoCancelUserInput(requestId, question,
+                    "timed out after " + (CLIENT_USER_INPUT_WAIT_TIMEOUT_MS / 1000) + "s with no answer");
             return;
         }
 
