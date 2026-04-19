@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.19] - 2026-04-19
+
+### Bug Fixes
+
+- Fall through to defaultProfile when ACE_COPILOT_PROFILE is missing
+- Session path is 3x published multiplier, not flat 1x — revert default to Haiku
+
+### Documentation
+
+- Replace broken /settings/copilot/usage URL with navigational reference
 ## [0.3.18] - 2026-04-19
 
 ### Documentation
