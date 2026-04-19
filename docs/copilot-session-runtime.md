@@ -90,7 +90,7 @@ without telling us.
   "profiles": {
     "copilot": {
       "provider": "copilot",
-      "model": "claude-haiku-4.5",
+      "model": "claude-sonnet-4.6",
       "copilotRuntime": "session",
       "apiKey": "<GitHub OAuth or PAT with Copilot entitlement>"
     }

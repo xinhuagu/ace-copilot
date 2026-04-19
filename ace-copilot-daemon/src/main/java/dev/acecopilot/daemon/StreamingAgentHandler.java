@@ -2225,7 +2225,9 @@ public final class StreamingAgentHandler {
         session.addMessage(new AgentSession.ConversationMessage.User(prompt));
 
         String model = getModelForSession(sessionId);
-        if (model == null || model.isBlank()) model = "claude-haiku-4.5";
+        // Session-mode bills 1x per sendAndWait regardless of model, so the
+        // default is the strongest we have — Haiku saves nothing on premium.
+        if (model == null || model.isBlank()) model = "claude-sonnet-4.6";
 
         // Phase 2 (#4): register ace-copilot's tools with the SDK so the agent
         // uses them instead of the built-in filesystem/shell tools. Tool
