@@ -1371,6 +1371,22 @@ public final class TerminalRepl {
             // NOT the per-call value — using it would cause erratic usage % jumps.
             // If no streaming usage was received, keep the monitor's existing per-call value (0 means "no update").
             long perCallContext = handle.liveInputTokens();
+            // Copilot session path doesn't emit stream.usage notifications today
+            // (StreamingAgentHandler only sends them from the chat-path listener),
+            // so liveInputTokens stays 0 and the context bar reads 0/128K. On
+            // that path usage.inputTokens is the last assistant.usage event's
+            // per-call value — not cumulative — so it's safe to use as fallback.
+            // Gate strictly on runtime="session" so we don't accidentally feed
+            // the chat path's cumulative number back into the monitor.
+            if (perCallContext <= 0) {
+                var copilotNode = usage.path("copilot");
+                if ("session".equals(copilotNode.path("runtime").asText(""))) {
+                    long sessionInput = usage.path("inputTokens").asLong(0);
+                    if (sessionInput > 0) {
+                        perCallContext = sessionInput;
+                    }
+                }
+            }
             // Parse once; this parsed map is fed to the session monitor below (on the first
             // render only, via markUsageAccounted) AND to the per-turn display formatter
             // below (on every render, since display is idempotent across re-renders).
@@ -1442,7 +1458,7 @@ public final class TerminalRepl {
         String note;
         if (delta < 0) {
             tag = MUTED + "copilot: first turn of session (no baseline yet)" + RESET;
-            note = "premiumUsed " + absolute;
+            note = "(per-turn delta starts next turn)";
         } else if (delta == 0) {
             tag = MUTED + "copilot: session counter unchanged since last turn" + RESET;
             note = "(no billable activity surfaced in this window — this turn or a prior turn may still have pending accounting)";
