@@ -696,10 +696,22 @@ public final class StreamingAgentHandler {
      */
     private void writeLlmRequestsBySource(com.fasterxml.jackson.databind.node.ObjectNode usageNode,
                                           RequestAttribution attribution) {
+        writeLlmRequestsBySource(objectMapper, usageNode, attribution);
+    }
+
+    /**
+     * Static for unit-testability: pins the wire shape
+     * ({@code llmRequestsBySource} field, lowercase {@link RequestSource}
+     * name keys) without needing a full handler instance. See
+     * {@code CopilotSessionBySourceShapeTest} (#17).
+     */
+    static void writeLlmRequestsBySource(ObjectMapper mapper,
+                                         com.fasterxml.jackson.databind.node.ObjectNode usageNode,
+                                         RequestAttribution attribution) {
         if (attribution == null || attribution.total() == 0) {
             return;
         }
-        var bySourceNode = objectMapper.createObjectNode();
+        var bySourceNode = mapper.createObjectNode();
         attribution.bySource().forEach((source, count) ->
                 bySourceNode.put(source.name().toLowerCase(Locale.ROOT), count));
         usageNode.set("llmRequestsBySource", bySourceNode);
