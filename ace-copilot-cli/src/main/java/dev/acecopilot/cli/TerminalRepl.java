@@ -1338,6 +1338,37 @@ public final class TerminalRepl {
      * <p>Skips any entry whose source key is blank or whose count is non-positive — the
      * daemon shouldn't send these, but the CLI shouldn't trust its input implicitly.
      */
+    /**
+     * Resolves the per-call input-token count for ContextMonitor sampling.
+     *
+     * <p>Streaming chat turns receive live {@code stream.usage} notifications
+     * during the turn (see {@link TaskStreamReader}), which updates
+     * {@link TaskHandle#liveInputTokens()}. That value is preferred.
+     *
+     * <p>The Copilot session path doesn't emit {@code stream.usage} today —
+     * {@link dev.acecopilot.daemon.StreamingAgentHandler}'s listener only fires
+     * on the chat path — so {@code liveInputTokens} stays 0 for an entire
+     * session turn. On that path {@code usage.inputTokens} is the last
+     * {@code assistant.usage} event's per-call value (not cumulative as on
+     * chat), so it's safe to use as a fallback. Gated strictly on
+     * {@code copilot.runtime == "session"} so we never feed the chat path's
+     * cumulative number back into the monitor.
+     *
+     * <p>Used by both the foreground {@link #renderTaskCompletion} path and
+     * the background auto-push path — they need symmetric behavior or the
+     * session-mode context bar silently breaks whenever a long task ends in
+     * the background.
+     */
+    private static long resolvePerCallContext(TaskHandle handle, JsonNode usage) {
+        long perCallContext = handle.liveInputTokens();
+        if (perCallContext > 0) return perCallContext;
+        if (usage == null) return 0L;
+        JsonNode copilotNode = usage.path("copilot");
+        if (!"session".equals(copilotNode.path("runtime").asText(""))) return 0L;
+        long sessionInput = usage.path("inputTokens").asLong(0);
+        return sessionInput > 0 ? sessionInput : 0L;
+    }
+
     private static Map<String, Integer> parseLlmRequestsBySource(JsonNode usage) {
         if (usage == null) return Map.of();
         JsonNode bySource = usage.path("llmRequestsBySource");
@@ -1370,7 +1401,7 @@ public final class TerminalRepl {
             // The JSON-RPC result's inputTokens is cumulative across all API calls in the turn,
             // NOT the per-call value — using it would cause erratic usage % jumps.
             // If no streaming usage was received, keep the monitor's existing per-call value (0 means "no update").
-            long perCallContext = handle.liveInputTokens();
+            long perCallContext = resolvePerCallContext(handle, usage);
             // Parse once; this parsed map is fed to the session monitor below (on the first
             // render only, via markUsageAccounted) AND to the per-turn display formatter
             // below (on every render, since display is idempotent across re-renders).
@@ -1442,7 +1473,7 @@ public final class TerminalRepl {
         String note;
         if (delta < 0) {
             tag = MUTED + "copilot: first turn of session (no baseline yet)" + RESET;
-            note = "premiumUsed " + absolute;
+            note = "(per-turn delta starts next turn)";
         } else if (delta == 0) {
             tag = MUTED + "copilot: session counter unchanged since last turn" + RESET;
             note = "(no billable activity surfaced in this window — this turn or a prior turn may still have pending accounting)";
@@ -1837,7 +1868,7 @@ public final class TerminalRepl {
                     int bgTurnIn = bgUsage.path("inputTokens").asInt(0);
                     int bgTurnOut = bgUsage.path("outputTokens").asInt(0);
                     int bgLlmRequests = bgUsage.path("llmRequests").asInt(0);
-                    long bgPerCall = handle.liveInputTokens();
+                    long bgPerCall = resolvePerCallContext(handle, bgUsage);
                     contextMonitor.recordTurnComplete(bgTurnIn, bgTurnOut, bgPerCall);
                     contextMonitor.recordLlmRequests(bgLlmRequests);
                     contextMonitor.recordLlmRequestsBySource(parseLlmRequestsBySource(bgUsage));
