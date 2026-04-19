@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import dev.acecopilot.daemon.AceCopilotConfig;
 import dev.acecopilot.daemon.AceCopilotDaemon;
 import dev.acecopilot.llm.openai.CopilotDeviceAuth;
+import dev.acecopilot.llm.openai.CopilotTokenProvider;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -148,23 +149,31 @@ public final class AceCopilotMain implements Runnable {
     static void ensureCopilotAuth(String providerOverride) {
         try {
             String effectiveProvider = providerOverride;
+            String configuredApiKey = null;
             if (effectiveProvider == null || effectiveProvider.isBlank()) {
                 AceCopilotConfig config = AceCopilotConfig.load(null);
                 effectiveProvider = config.provider();
+                configuredApiKey = config.apiKey();
             }
             if (!"copilot".equalsIgnoreCase(effectiveProvider)) {
                 return;
             }
-            // Check if we already have a cached OAuth token
-            if (CopilotDeviceAuth.loadCachedToken() != null) {
+            // Any usable GitHub token (cached OAuth, config apiKey, GITHUB_TOKEN,
+            // GH_TOKEN, or `gh auth token`) skips the device-code prompt.
+            if (CopilotTokenProvider.firstGithubTokenCandidate(configuredApiKey) != null) {
                 return;
             }
-            // No cached token — need interactive auth
-            System.out.println("No Copilot OAuth token found. Starting GitHub authentication...");
+            System.out.println();
+            System.out.println("No GitHub Copilot credentials found.");
+            System.out.println("Requires an active GitHub Copilot subscription (Individual / Business / Enterprise).");
+            System.out.println("Token will be cached at ~/.ace-copilot/copilot-oauth-token.");
             CopilotDeviceAuth.authenticate();
         } catch (RuntimeException e) {
             System.err.println("Copilot authentication failed: " + e.getMessage());
-            System.err.println("You can retry or set GITHUB_TOKEN with a valid OAuth token.");
+            System.err.println("Workarounds:");
+            System.err.println("  - run `gh auth login` then retry, or");
+            System.err.println("  - set GITHUB_TOKEN to a PAT with the `copilot` scope, or");
+            System.err.println("  - put `apiKey` in the copilot profile in ~/.ace-copilot/config.json");
             System.exit(1);
         }
     }

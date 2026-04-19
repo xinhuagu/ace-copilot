@@ -93,12 +93,42 @@ Downloads the latest pre-built release, extracts to `~/.ace-copilot/`, and adds 
 
 ### Run against Copilot
 
-If you already have a Copilot subscription and `gh auth login` has run:
-
 ```bash
 ace-copilot-restart copilot    # Start daemon in Copilot session mode
 ace-copilot                    # Attach TUI
 ```
+
+#### First-time login
+
+ace-copilot finds a GitHub token in this order — first match wins, no prompt:
+
+1. `~/.ace-copilot/copilot-oauth-token` (cached from a previous login)
+2. `apiKey` in the copilot profile of `~/.ace-copilot/config.json`
+3. `GITHUB_TOKEN` env var
+4. `GH_TOKEN` env var
+5. `gh auth token` from the GitHub CLI
+
+**Easiest path:** `gh auth login` once, then start ace-copilot. No further prompt.
+
+**No `gh` CLI?** ace-copilot prints a device code + URL on first run:
+
+```
+No GitHub Copilot credentials found.
+Requires an active GitHub Copilot subscription (Individual / Business / Enterprise).
+Token will be cached at ~/.ace-copilot/copilot-oauth-token.
+
+  GitHub Copilot Authentication
+  ─────────────────────────────
+  1. Open: https://github.com/login/device
+  2. Enter code: XXXX-XXXX
+  Waiting for authorization...
+```
+
+Open the URL, paste the code, authorize. The token is cached and reused on subsequent runs.
+
+> Requires an active **GitHub Copilot** subscription. Free GitHub accounts cannot use the Copilot API.
+
+#### Per-turn output
 
 First turn prints `copilot: first turn of session (no baseline yet)`. Every subsequent turn shows the per-turn and session-total lines above.
 
