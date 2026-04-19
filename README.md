@@ -123,9 +123,9 @@ Token will be cached at ~/.ace-copilot/copilot-oauth-token.
 
 Open the URL, paste the code, authorize. The token is cached and reused.
 
-> Requires an active **GitHub Copilot** subscription. Free GitHub accounts cannot use the Copilot API.
+> **Subscription required.** Free GitHub accounts cannot use the Copilot API.
 >
-> Other credential sources — `apiKey` in `~/.ace-copilot/config.json`, `GITHUB_TOKEN`, `GH_TOKEN` — are usable at runtime by the daemon but **do not** silently skip the first-time login. This is by design: a fresh user should always see a visible authorization step.
+> **About env vars and config tokens.** ace-copilot will happily *use* a token from `apiKey` (in `~/.ace-copilot/config.json`), `GITHUB_TOKEN`, or `GH_TOKEN` once it's running — but these **do not** count as "logged in" on first start. A fresh install always shows the device-code prompt unless a cached token or `gh auth login` is present. This is on purpose: you should see and confirm exactly which GitHub account ace-copilot is binding to before it starts spending your Copilot quota.
 
 #### Per-turn output
 
