@@ -41,7 +41,7 @@ Or configure a PAT in `~/.ace-copilot/config.json`:
         "copilot": {
             "provider": "copilot",
             "apiKey": "ghp_your_personal_access_token",
-            "model": "claude-sonnet-4.5",
+            "model": "claude-haiku-4.5",
             "maxTokens": 16384,
             "thinkingBudget": 0,
             "contextWindowTokens": 200000
@@ -66,16 +66,18 @@ Copilot exposes models from multiple providers. Use `/model <name>` at runtime t
 
 ace-copilot automatically routes requests to the correct API endpoint — Codex models use the Responses API (`/responses`), all others use Chat Completions (`/chat/completions`).
 
-> **Model name format:** Copilot uses dot-notation for versions (`claude-opus-4.6`), while Anthropic direct API uses hyphen-notation (`claude-opus-4-6`). When switching between providers, use the format for the active provider. If the global config has an Anthropic-format model name (e.g. `claude-opus-4-6`), the Copilot provider ignores it and uses its own default (`claude-sonnet-4.5`).
+> **Model name format:** Copilot uses dot-notation for versions (`claude-opus-4.6`), while Anthropic direct API uses hyphen-notation (`claude-opus-4-6`). When switching between providers, use the format for the active provider. If the global config has an Anthropic-format model name (e.g. `claude-opus-4-6`), the Copilot provider ignores it and uses its own default (`claude-haiku-4.5`).
 
 ### Default Model Behavior
 
 When using `./dev.sh copilot`, the model is resolved as follows:
 - If a **copilot profile** exists in config with a `model` field → use that model
-- If only a **global model** exists and it is an Anthropic-native name → ignore it, use `claude-sonnet-4.5`
-- If no model is configured → use `claude-sonnet-4.5`
+- If only a **global model** exists and it is an Anthropic-native name → ignore it, use `claude-haiku-4.5`
+- If no model is configured → use `claude-haiku-4.5`
 
-This means you can keep `"model": "claude-opus-4-6"` in your global config for Anthropic direct API, and `./dev.sh copilot` will still use `claude-sonnet-4.5` without conflict.
+`claude-haiku-4.5` is the default because it is the only Copilot model with a session-mode multiplier of 1× (others are 3×). For most agent workloads it is the cheapest competent option; switch up only when capability justifies the cost. See the README billing table for the full multiplier matrix.
+
+This also means you can keep `"model": "claude-opus-4-6"` in your global config for Anthropic direct API, and `./dev.sh copilot` will still use `claude-haiku-4.5` without conflict.
 
 ### Running
 
