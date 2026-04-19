@@ -123,6 +123,7 @@ public final class TerminalRepl {
     private static final int MAX_CONTEXT_DETAIL_CHARS = 12_000;
     private final Object uiRenderLock = new Object();
     private final AtomicBoolean permissionInterruptRequested = new AtomicBoolean(false);
+    private final AtomicBoolean userInputInterruptRequested = new AtomicBoolean(false);
     private final AtomicBoolean uiRenderRequested = new AtomicBoolean(true);
 
     /** Tracks the effective model, updated after successful model switches. */
@@ -422,6 +423,7 @@ public final class TerminalRepl {
                 pushBackgroundCompletion(handle, reader);
             });
             permissionBridge.setRequestListener(req -> onPermissionRequested(req, reader));
+            userInputBridge.setRequestListener(req -> onUserInputRequested(req, reader));
 
             // Render startup banner
             renderBanner(out, terminal.getWidth());
@@ -498,6 +500,17 @@ public final class TerminalRepl {
                     if (permissionInterruptRequested.getAndSet(false) || permissionBridge.hasPending()) {
                         out.println();
                         drainPermissions(out, reader);
+                        continue;
+                    }
+                    // Same pattern for Copilot clarifications from a
+                    // backgrounded task (Phase 3, #5): an ask_user that
+                    // arrives while the user is back at the main prompt
+                    // must break the readLine, surface the question, and
+                    // route the answer — otherwise the SDK's Promise sits
+                    // in the bridge until the 5-minute timeout fires.
+                    if (userInputInterruptRequested.getAndSet(false) || userInputBridge.hasPending()) {
+                        out.println();
+                        drainUserInputs(out, reader);
                         continue;
                     }
                     // Ctrl+C at prompt: exit gracefully
@@ -1589,6 +1602,23 @@ public final class TerminalRepl {
     }
 
     /**
+     * Phase 3 (#5): drains any pending Copilot clarifications at the
+     * main prompt (when no task is in the foreground). Mirrors
+     * {@link #drainPermissions}; relies on {@link #handleUserInputFromBridge}
+     * to surface the question and collect the answer. Called when the
+     * user's readLine was interrupted by a pending request arriving from
+     * a backgrounded task.
+     */
+    private void drainUserInputs(PrintWriter out, LineReader reader) {
+        while (userInputBridge.hasPending()) {
+            var req = userInputBridge.pollPending();
+            if (req == null) break;
+            handleUserInputFromBridge(out, reader, req);
+            userInputInterruptRequested.set(false);
+        }
+    }
+
+    /**
      * Drains any pending permission requests (non-blocking).
      */
     private void drainPermissions(PrintWriter out, LineReader reader) {
@@ -2146,6 +2176,40 @@ public final class TerminalRepl {
         } catch (Exception e) {
             permissionInterruptRequested.set(false);
             log.debug("Failed to interrupt prompt for permission popup: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Phase 3 (#5): same shape as {@link #onPermissionRequested} for the
+     * Copilot session runtime's clarification questions. Called from the
+     * {@link UserInputBridge} listener whenever a backgrounded task emits
+     * {@code user_input.requested} and there is no foreground wait loop
+     * to drain it. Raises a SIGINT on the readLine so the main loop's
+     * catch branch routes into {@link #drainUserInputs}.
+     */
+    private void onUserInputRequested(UserInputBridge.UserInputRequest request, LineReader reader) {
+        if (reader == null) return;
+        String summary = request.question() == null || request.question().isBlank()
+                ? "Copilot agent has a clarifying question"
+                : fitWidth(request.question(), 90);
+        String notice = WARNING + "[Clarification] " + RESET
+                + "task #" + request.taskId() + " -> " + summary;
+        enqueueUiNotice(notice);
+        requestUiRender();
+        interruptPromptForUserInputPopup();
+    }
+
+    private void interruptPromptForUserInputPopup() {
+        if (!readingPrompt) return;
+        if (taskManager.hasForegroundTask()) return;
+        if (!userInputInterruptRequested.compareAndSet(false, true)) return;
+        var terminal = activeTerminal;
+        if (terminal == null) return;
+        try {
+            terminal.raise(Terminal.Signal.INT);
+        } catch (Exception e) {
+            userInputInterruptRequested.set(false);
+            log.debug("Failed to interrupt prompt for user_input popup: {}", e.getMessage());
         }
     }
 
