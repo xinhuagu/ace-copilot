@@ -466,6 +466,16 @@ public final class TerminalRepl {
                 // 1. Check pending permission requests from task threads
                 drainPermissions(out, reader);
 
+                // 1b. Phase 3 (#5): drain Copilot clarifications from
+                // backgrounded tasks proactively — a user_input.requested
+                // that arrives outside the readLine interrupt window (just
+                // after readLine returned, during a permission modal, etc.)
+                // would otherwise sit in UserInputBridge until the 5-minute
+                // timeout. Run this before notifyCompletedBackgroundTasks
+                // so the task in question has a chance to finish its turn
+                // before we render its completion.
+                drainUserInputs(out, reader);
+
                 // 2. Check if any background tasks completed while we were idle
                 notifyCompletedBackgroundTasks(out);
 
