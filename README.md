@@ -15,10 +15,15 @@
 
 ## The problem, concretely
 
+Copilot's billing model is structurally hostile to agent workloads. The facts below are operator-verified, not guessed from marketing pages.
+
+- **Premium requests are hard-capped per month.** Unlike pay-as-you-go APIs (Anthropic, OpenAI direct, Ollama-local) where you pay per token with no ceiling, Copilot gives you a fixed monthly pool of premium requests and stops when it runs out. No overage bill, no degraded tier — you wait for the next billing cycle or upgrade the plan. On the plan verified here, **~10,000 requests/month → every single request is 0.01% of your entire monthly budget**.
+- **Every model bills 1x on the session path. The published multiplier table does not apply.** GitHub documents a 0.33x multiplier for Haiku-class models and operators naturally assume picking a smaller model saves budget. **Verified false for the `sendAndWait` (session SDK) endpoint**: one Haiku turn = 1 premium = 0.01% of the monthly cap, same as Sonnet or Opus. So on session mode, model choice is neutral for billing — and picking the cheaper model saves you exactly nothing.
+- **Copilot silently reduces native Claude context windows.** Claude Sonnet 4.5 ships with 200K native (or 1M with beta). The Copilot-proxied version of "the same" model is trimmed below that limit, with no published spec and no operator control. Long conversations can hit SDK-side context pressure without warning.
 - **Every ReAct iteration on the stock chat path bills.** A single agent turn that searches wiki, reads two files, and answers costs ~4 premium requests on vanilla Copilot chat. On serious agent workloads this runs out the monthly cap in days.
-- **The counter is eventually consistent.** A billable turn's `+1` can land in a later turn's observation window. No single-turn delta is a trustworthy per-turn attribution — you need session-cumulative numbers to verify anything.
-- **The surface is closed.** No per-turn receipt, no granular controls, no way to opt specific subsystems out of billing. You pay what the counter says, and you find out after the fact.
-- **It's hostile to exactly the workloads Copilot is marketed for.** Longer tool sequences — the whole point of an agent — are priced as if each step were a fresh user prompt.
+- **The counter is eventually consistent and the surface is closed.** A billable turn's `+1` can land in a later turn's observation window. No per-turn receipt, no granular controls, no way to opt subsystems out of billing. You pay what the counter says, and you find out after the fact.
+
+This is why ace-copilot exists. Not as a polite integration — as mechanism engineering against a billing model designed to resist exactly the kind of use agents require.
 
 ## How ace-copilot answers it
 
