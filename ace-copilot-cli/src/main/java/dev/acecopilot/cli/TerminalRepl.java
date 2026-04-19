@@ -181,6 +181,14 @@ public final class TerminalRepl {
     private volatile long deferEventSeq;
     /** Last consumed skill draft event sequence from daemon. */
     private volatile long skillDraftEventSeq;
+    /**
+     * Copilot `premium_interactions.usedRequests` captured on the first
+     * session-runtime turn of this CLI attachment. Used as the baseline
+     * for the session-total line (#20). -1 means "no baseline yet".
+     * Ephemeral — resets whenever this REPL process starts; does not
+     * survive a TUI reattach.
+     */
+    private long sessionPremiumBaseline = -1L;
 
     private sealed interface UiEvent permits UiNoticeEvent, UiPrintAboveEvent {}
 
@@ -1443,7 +1451,44 @@ public final class TerminalRepl {
             note = "(billable activity at some point in the window — attribution may span this turn or the prior turn's delayed accounting)";
         }
         out.printf("  %s  %s  %s%s%n", tag, MUTED + "premiumUsed " + absolute + RESET, MUTED, note);
+        renderCopilotSessionTotalLine(out, copilot);
         out.print(RESET);
+    }
+
+    /**
+     * Session-total companion to the per-turn line (#20). Captures a
+     * baseline from the first session-runtime turn observed by this CLI
+     * attachment, then prints cumulative counter advance from that
+     * baseline on every subsequent turn. Summed across many turns the
+     * total is more reliable than any individual per-turn delta — the
+     * eventually-consistent per-turn noise averages out.
+     */
+    private void renderCopilotSessionTotalLine(PrintWriter out, JsonNode copilot) {
+        long baselineCandidate = copilot.has("premiumUsedBefore")
+                ? copilot.get("premiumUsedBefore").asLong(-1)
+                : copilot.path("premiumUsedAfter").asLong(-1);
+        if (baselineCandidate < 0) {
+            return;
+        }
+        if (sessionPremiumBaseline < 0) {
+            sessionPremiumBaseline = baselineCandidate;
+            return;
+        }
+        long current = copilot.path("premiumUsedAfter").asLong(-1);
+        if (current < 0) {
+            return;
+        }
+        long total = current - sessionPremiumBaseline;
+        // Wording deliberately scoped to "this TUI attached": the baseline
+        // is captured from the first turn this CLI process observes, so a
+        // reattach (or any attachment that misses the true first turn)
+        // would undercount a "since session start" claim. Cross-reattach
+        // totals need daemon-side baseline plumbing (out of scope for #20).
+        String tag = total > 0
+                ? WARNING + "copilot: total +" + total + " since this TUI attached" + RESET
+                : MUTED + "copilot: no change since this TUI attached" + RESET;
+        String absolute = sessionPremiumBaseline + "→" + current;
+        out.printf("  %s  %s%n", tag, MUTED + "premiumUsed " + absolute + RESET);
     }
 
     // -- Permission handling (from bridge) -----------------------------------
