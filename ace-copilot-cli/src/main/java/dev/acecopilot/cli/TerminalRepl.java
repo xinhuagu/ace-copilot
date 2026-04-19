@@ -1479,9 +1479,14 @@ public final class TerminalRepl {
             return;
         }
         long total = current - sessionPremiumBaseline;
+        // Wording deliberately scoped to "this TUI attached": the baseline
+        // is captured from the first turn this CLI process observes, so a
+        // reattach (or any attachment that misses the true first turn)
+        // would undercount a "since session start" claim. Cross-reattach
+        // totals need daemon-side baseline plumbing (out of scope for #20).
         String tag = total > 0
-                ? WARNING + "copilot: session total +" + total + " since session start" + RESET
-                : MUTED + "copilot: session total unchanged since session start" + RESET;
+                ? WARNING + "copilot: total +" + total + " since this TUI attached" + RESET
+                : MUTED + "copilot: no change since this TUI attached" + RESET;
         String absolute = sessionPremiumBaseline + "→" + current;
         out.printf("  %s  %s%n", tag, MUTED + "premiumUsed " + absolute + RESET);
     }
