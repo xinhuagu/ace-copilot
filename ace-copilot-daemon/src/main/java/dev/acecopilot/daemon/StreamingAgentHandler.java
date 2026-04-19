@@ -1532,9 +1532,28 @@ public final class StreamingAgentHandler {
         this.llmClient = llmClient;
         this.model = model;
         this.systemPrompt = systemPrompt;
+        // SkillRefinementEngine defaults to the main client; callers who want
+        // learning to run on a separate provider override this with
+        // setLearningLlmConfig (Phase 4 B1, #6).
         this.skillRefinementEngine = llmClient != null && model != null
                 ? new SkillRefinementEngine(llmClient, model, skillMetricsStore)
                 : null;
+    }
+
+    /**
+     * Phase 4 B1 (#6): rebuild {@link SkillRefinementEngine} with a
+     * dedicated learning LlmClient so the refinement pipeline runs off the
+     * operator's chosen learning provider instead of sharing the main
+     * user-path client. Call order: after {@link #setLlmConfig}.
+     * A {@code null} client is a no-op (keeps the default built by
+     * {@code setLlmConfig}).
+     */
+    public void setLearningLlmConfig(dev.acecopilot.core.llm.LlmClient learningClient, String learningModel) {
+        if (learningClient == null || learningModel == null || learningModel.isBlank()) {
+            return;
+        }
+        this.skillRefinementEngine = new SkillRefinementEngine(
+                learningClient, learningModel, skillMetricsStore);
     }
 
     /**

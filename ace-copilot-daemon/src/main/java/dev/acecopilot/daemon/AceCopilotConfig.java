@@ -145,6 +145,22 @@ public final class AceCopilotConfig {
      * and stays on {@code "chat"} (logged at ERROR).
      */
     private boolean copilotRuntimeAcceptUnsandboxed = false;
+    /**
+     * Provider name for the post-turn learning LlmClient (#6 Phase 4 B1).
+     * When set, skill refinement / dynamic skill generation / session skill
+     * packer route their LLM calls through a separate {@link
+     * dev.acecopilot.core.llm.LlmClient} built with this provider instead
+     * of the main one. The point is to keep the learning pipeline running
+     * without eating the user's Copilot premium budget on session mode.
+     *
+     * <p>{@code null} = use the main client (current behaviour).
+     * Setting this to {@code "copilot"} defeats the purpose and is
+     * rejected at load time with a clear error.
+     */
+    private String learningProvider;
+    private String learningBaseUrl;
+    private String learningApiKey;
+    private String learningModel;
     private int maxTokens;
     private int thinkingBudget;
     private int maxTurns;
@@ -717,6 +733,23 @@ public final class AceCopilotConfig {
     /** See {@link #copilotRuntimeAcceptUnsandboxed} — Phase 1 safety gate (#3). */
     public boolean copilotRuntimeAcceptUnsandboxed() {
         return copilotRuntimeAcceptUnsandboxed;
+    }
+
+    /** Phase 4 B1 (#6): dedicated learning-pipeline provider, or {@code null}. */
+    public String learningProvider() {
+        return learningProvider;
+    }
+
+    public String learningBaseUrl() {
+        return learningBaseUrl;
+    }
+
+    public String learningApiKey() {
+        return learningApiKey;
+    }
+
+    public String learningModel() {
+        return learningModel;
     }
 
     /**
@@ -1447,6 +1480,25 @@ public final class AceCopilotConfig {
         if (fileConfig.copilotRuntimeAcceptUnsandboxed != null) {
             this.copilotRuntimeAcceptUnsandboxed = fileConfig.copilotRuntimeAcceptUnsandboxed;
         }
+        if (fileConfig.learningProvider != null && !fileConfig.learningProvider.isBlank()) {
+            String v = fileConfig.learningProvider.trim().toLowerCase();
+            if ("copilot".equals(v)) {
+                log.error("learningProvider=\"copilot\" defeats the purpose of a dedicated learning "
+                        + "provider (#6 Phase 4 B1): the learning pipeline would still consume "
+                        + "Copilot premium. Ignoring and falling back to the main client.");
+            } else {
+                this.learningProvider = v;
+            }
+        }
+        if (fileConfig.learningBaseUrl != null && !fileConfig.learningBaseUrl.isBlank()) {
+            this.learningBaseUrl = fileConfig.learningBaseUrl;
+        }
+        if (fileConfig.learningApiKey != null && !fileConfig.learningApiKey.isBlank()) {
+            this.learningApiKey = fileConfig.learningApiKey;
+        }
+        if (fileConfig.learningModel != null && !fileConfig.learningModel.isBlank()) {
+            this.learningModel = fileConfig.learningModel;
+        }
         if (fileConfig.maxTokens > 0) {
             this.maxTokens = fileConfig.maxTokens;
         }
@@ -1690,6 +1742,10 @@ public final class AceCopilotConfig {
         public String model;
         public String copilotRuntime;
         public Boolean copilotRuntimeAcceptUnsandboxed;
+        public String learningProvider;
+        public String learningBaseUrl;
+        public String learningApiKey;
+        public String learningModel;
         public int maxTokens;
         public int thinkingBudget;
         public int maxTurns;

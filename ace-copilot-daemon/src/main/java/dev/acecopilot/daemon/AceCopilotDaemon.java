@@ -236,6 +236,42 @@ public final class AceCopilotDaemon {
         var circuitBreaker = new CircuitBreaker(cbConfig, eventBus);
         LlmClient llmClient = new CircuitBreakerLlmClient(rawLlmClient, circuitBreaker);
 
+        // Phase 4 B1 (#6): if learningProvider is configured, build a second
+        // LlmClient dedicated to the post-turn learning pipeline so it runs
+        // without consuming the user's Copilot premium. Falls back to the
+        // main client when unset (matches pre-B1 behaviour, so existing
+        // installs see no change).
+        final LlmClient learningLlmClient;
+        final String learningModelResolved;
+        if (config.learningProvider() != null && !config.learningProvider().isBlank()) {
+            String lp = config.learningProvider();
+            String lm = (config.learningModel() != null && !config.learningModel().isBlank())
+                    ? config.learningModel()
+                    : model;
+            String lApiKey = (config.learningApiKey() != null && !config.learningApiKey().isBlank())
+                    ? config.learningApiKey()
+                    : apiKey;
+            LlmClient rawLearning = "anthropic".equals(lp)
+                    ? LlmClientFactory.createAnthropicClient(
+                            lApiKey, config.refreshToken(), config.learningBaseUrl(),
+                            config.context1m(), config.extraAnthropicBetas())
+                    : LlmClientFactory.create(
+                            lp, lApiKey, config.refreshToken(), config.learningBaseUrl(), lm);
+            // Use the SAME circuit breaker instance so learning failures don't
+            // open a separate fault-isolation budget. Tradeoff: a flaky
+            // learning provider can trip the main user request path; in
+            // practice learning is non-interactive and can tolerate failures,
+            // so it's the less-bad side.
+            learningLlmClient = new CircuitBreakerLlmClient(rawLearning, circuitBreaker);
+            learningModelResolved = lm;
+            log.info("Learning LLM client built: provider={}, model={}, baseUrl={}",
+                    lp, lm, config.learningBaseUrl() != null ? config.learningBaseUrl() : "(default)");
+        } else {
+            learningLlmClient = llmClient;
+            learningModelResolved = model;
+            log.info("Learning LLM client: reusing main client (learningProvider unset)");
+        }
+
         // Register circuit breaker health check
         healthMonitor.register(new CircuitBreakerHealthCheck(circuitBreaker));
         log.info("LLM circuit breaker enabled: threshold={}, timeout={}s",
@@ -461,6 +497,11 @@ public final class AceCopilotDaemon {
         // (factory may translate or fall back, e.g. copilot ignores anthropic model names)
         String effectiveModel = "anthropic".equals(config.provider()) ? model : llmClient.defaultModel();
         agentHandler.setLlmConfig(llmClient, effectiveModel, systemPrompt);
+        // Phase 4 B1 (#6): if a separate learning client was built, route
+        // SkillRefinementEngine through it so its refinement proposals run
+        // on the configured learning provider. No-op when learningProvider
+        // is unset (setLearningLlmConfig guards on null/blank).
+        agentHandler.setLearningLlmConfig(learningLlmClient, learningModelResolved);
         agentHandler.setTokenConfig(config.maxTokens(), config.thinkingBudget(), config.maxTurns(), contextWindow);
         agentHandler.setContextAssemblyConfig(
                 markdownStore,
@@ -693,9 +734,14 @@ public final class AceCopilotDaemon {
             }
         }
 
+        // Phase 4 B1 (#6): use the learning LlmClient so skill generation
+        // runs off the configured learning provider (zero Copilot premium
+        // if learningProvider was set to anthropic/ollama/etc.).
         dynamicSkillGenerator = new DynamicSkillGenerator(
-                llmClient,
-                agentHandler::getModelForSession,
+                learningLlmClient,
+                sid -> (learningLlmClient == llmClient)
+                        ? agentHandler.getModelForSession(sid)
+                        : learningModelResolved,
                 skillRegistry);
         dynamicSkillGenerator.setLearningExplanationRecorder(learningExplanationRecorder);
         dynamicSkillGenerator.setLearningValidationRecorder(learningValidationRecorder);
@@ -1157,10 +1203,13 @@ public final class AceCopilotDaemon {
             return toReleaseJson(summary);
         });
 
-        // Session skill packer (extract successful workflow from session into skill draft)
+        // Session skill packer (extract successful workflow from session into skill draft).
+        // Phase 4 B1 (#6): uses the learning LlmClient — falls through to the main one
+        // when learningProvider is unset, so existing configs behave as before.
         int packBudget = SessionSkillPacker.deriveMaxConversationChars(contextWindow);
         var skillPacker = new SessionSkillPacker(
-                historyStore, sessionManager, llmClient, model, objectMapper, packBudget);
+                historyStore, sessionManager, learningLlmClient, learningModelResolved,
+                objectMapper, packBudget);
         router.register("skill.pack", params -> {
             if (params == null || !params.has("sessionId")) {
                 throw new IllegalArgumentException("Missing required parameter: sessionId");
