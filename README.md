@@ -125,7 +125,7 @@ Open the URL, paste the code, authorize. The token is cached and reused.
 
 > **Subscription required.** Free GitHub accounts cannot use the Copilot API.
 >
-> **About env vars and config tokens.** ace-copilot will happily *use* a token from `apiKey` (in `~/.ace-copilot/config.json`), `GITHUB_TOKEN`, or `GH_TOKEN` once it's running — but these **do not** count as "logged in" on first start. A fresh install always shows the device-code prompt unless a cached token or `gh auth login` is present. This is on purpose: you should see and confirm exactly which GitHub account ace-copilot is binding to before it starts spending your Copilot quota.
+> **About env vars and config tokens.** ace-copilot will happily *use* a token from `apiKey` (in `~/.ace-copilot/config.json`), `GITHUB_TOKEN`, or `GH_TOKEN` once it's running — but these **do not** count as "logged in" on first start. A fresh install always shows the device-code prompt unless a cached token or `gh auth login` is present. When more than one source is set, the cached token and `gh auth token` win at runtime too, so the account that passed the first-time prompt is the same account billed for Copilot quota. Config / env tokens only kick in when no cached or `gh` token exists. This is on purpose: you should see and confirm exactly which GitHub account ace-copilot is binding to before it starts spending your Copilot quota.
 
 #### Per-turn output
 

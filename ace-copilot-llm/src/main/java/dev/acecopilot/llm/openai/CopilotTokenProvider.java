@@ -30,12 +30,18 @@ import java.util.function.Supplier;
  * GitHub token directly as Bearer token for the Copilot API. This works for
  * tokens with the {@code copilot} scope or "Copilot Requests" permission.
  *
- * <p>Token resolution order (tries each until one works):
+ * <p>Token resolution order (tries each until one works). The order
+ * deliberately mirrors the CLI's first-time-login pre-flight: the cached
+ * device-code token and {@code gh auth token} come first, so the source
+ * that satisfied pre-flight is the same one runtime uses. Other sources
+ * remain available as fallbacks for headless / CI scenarios but cannot
+ * silently override an account the user already confirmed.
  * <ol>
+ *   <li>Cached device-code token at {@code ~/.ace-copilot/copilot-oauth-token}</li>
+ *   <li>{@code gh auth token} from GitHub CLI</li>
  *   <li>Configured {@code apiKey} from config.json</li>
  *   <li>{@code GITHUB_TOKEN} environment variable</li>
  *   <li>{@code GH_TOKEN} environment variable</li>
- *   <li>{@code gh auth token} from GitHub CLI</li>
  * </ol>
  */
 public final class CopilotTokenProvider implements Supplier<String> {
@@ -150,20 +156,28 @@ public final class CopilotTokenProvider implements Supplier<String> {
     }
 
     /**
-     * Returns the ordered list of GitHub token candidates using the same
-     * priority as the full Copilot auth resolution: cached OAuth →
-     * configured {@code apiKey} → {@code GITHUB_TOKEN} → {@code GH_TOKEN} →
-     * {@code gh auth token}. Exposed so consumers that need the raw GitHub
-     * token (e.g. the Copilot SDK sidecar, issue #3) can reuse this logic
-     * without triggering Copilot's token-exchange flow.
+     * Returns the ordered list of GitHub token candidates. Order: cached
+     * OAuth → {@code gh auth token} → configured {@code apiKey} →
+     * {@code GITHUB_TOKEN} → {@code GH_TOKEN}.
+     *
+     * <p>The first two positions match the pre-flight policy
+     * ({@link #firstPreflightTokenCandidate()}), so whichever source let
+     * the user past the first-time login screen is also the source the
+     * Copilot quota gets billed to. Config / env tokens remain as
+     * fallbacks for headless callers but cannot silently take over an
+     * account the user already confirmed via {@code gh}.
+     *
+     * <p>Exposed so consumers that need the raw GitHub token (e.g. the
+     * Copilot SDK sidecar, issue #3) can reuse this logic without
+     * triggering Copilot's token-exchange flow.
      */
     public static List<String> collectGithubTokenCandidates(String configuredToken) {
         List<String> candidates = new ArrayList<>(5);
         addIfValid(candidates, CopilotDeviceAuth.loadCachedToken(), "cached OAuth token");
+        addIfValid(candidates, resolveGhCliToken(), "gh CLI");
         addIfValid(candidates, configuredToken, "config");
         addIfValid(candidates, System.getenv("GITHUB_TOKEN"), "GITHUB_TOKEN");
         addIfValid(candidates, System.getenv("GH_TOKEN"), "GH_TOKEN");
-        addIfValid(candidates, resolveGhCliToken(), "gh CLI");
         return candidates;
     }
 
