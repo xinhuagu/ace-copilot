@@ -1424,18 +1424,23 @@ public final class TerminalRepl {
                 ? copilot.get("premiumUsedBefore").asText() + "→"
                         + copilot.get("premiumUsedAfter").asText()
                 : "?";
+        // GitHub's premium counter is eventually-consistent across turns:
+        // a billable turn's increment can land in the observation window of
+        // a later turn. Frame the delta as "session counter advanced since
+        // last turn" (an observable) rather than "THIS turn was billable"
+        // (an attribution we cannot prove from a single delta). Accumulated
+        // deltas across many turns converge to the real total.
         String tag;
         String note;
         if (delta < 0) {
             tag = MUTED + "copilot: first turn of session (no baseline yet)" + RESET;
             note = "premiumUsed " + absolute;
         } else if (delta == 0) {
-            tag = MUTED + "copilot: 0 premium this turn" + RESET;
-            note = "(kept inside the in-flight sendAndWait — either a clarification answer "
-                    + "or the SDK counter hasn't yet incremented for this turn)";
+            tag = MUTED + "copilot: session counter unchanged since last turn" + RESET;
+            note = "(A-path clarification answer, or the increment is still propagating from a prior turn)";
         } else {
-            tag = WARNING + "copilot: +" + delta + " premium this turn" + RESET;
-            note = "(new billable sendAndWait — plain follow-up or /new starts a fresh turn)";
+            tag = WARNING + "copilot: session counter +" + delta + " since last turn" + RESET;
+            note = "(billable activity at some point in the window — attribution may span the prior turn's delayed accounting)";
         }
         out.printf("  %s  %s  %s%s%n", tag, MUTED + "premiumUsed " + absolute + RESET, MUTED, note);
         out.print(RESET);

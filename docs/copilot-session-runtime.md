@@ -146,11 +146,30 @@ Every session-path JSON-RPC response includes `result.usage.copilot`:
 ## Phase 3 live acceptance walkthrough
 
 Run this end-to-end once after any Phase 3 change to verify the mix
-A→B policy is holding. Each step records the expected
-`premiumDeltaSinceLastTurn` delta; the sum across the scenario is the
-number of premium requests a real user interaction like this would
-have incurred. The legacy `chat` path would have incurred 1 per
-LLM call (typically 5×+).
+A→B policy is holding. Each step records an **ideal**
+`premiumDeltaSinceLastTurn` — what you'd expect if GitHub's counter
+updated synchronously. In practice that counter is eventually
+consistent across turns, so a billable turn's +1 can land on the next
+turn's observation window (or vice versa).
+
+What this means for this walkthrough:
+
+- Individual per-step deltas can drift by ±1 from the "ideal" column
+  without indicating a bug. A clarification answer (A-path) can still
+  report +1 if a previous turn's accounting is propagating late;
+  conversely a `/new` turn (B-path) can report 0 if its own +1 hasn't
+  surfaced yet.
+- The **accumulated** sum across the whole scenario is the reliable
+  signal. It should match the absolute `premiumUsed` counter advance
+  visible in window A, and — after a few minutes of propagation — the
+  dashboard reconciliation in the final section.
+- The comparison against the legacy `chat` path holds regardless of
+  counter timing: the legacy path would have incurred ~1 premium per
+  LLM call in any of these steps (5×+ total).
+
+If an individual step reports an "unexpected" delta, keep going and
+check the sum at the end. Only a persistent accumulated miss is a
+regression.
 
 ### Setup
 
@@ -169,28 +188,33 @@ Before starting, note the baseline counter from any recent
 
 ### Scenario
 
-| # | Action in TUI | Expected CLI summary | Expected window-A delta | Notes |
-| --- | --- | --- | --- | --- |
-| 1 | Prompt: `summarize ace-copilot-core/build.gradle.kts and then end by asking whether I want a change` | `copilot: 0 premium this turn (kept inside the in-flight sendAndWait — ...)` or `+1 premium` depending on counter timing | `+1` net (may land at turn 1 or later) | First turn; baseline |
-| 2 | At the `answer >` modal, type `add ace-copilot-sdk as an api dependency` | task continues; next summary shows either `0` or `+0` delta | `+0` | Clarification answer → A-path = 0 premium |
-| 3 | Wait for task to complete and ask again | agent ends with another ask_user question (steering working) | n/a | Phase 3 c4 — observe whether agent naturally closes with ask_user |
-| 4 | Answer: `yes, apply it` | agent applies change then asks again | `+0` | Still A-path |
-| 5 | Type `/new run the unit tests` at the clarification modal | current clarification cancels, new task starts | `+1` for the new task | Explicit B-path — `/new` acknowledged as a new billable turn |
-| 6 | Let new task complete (no ask_user); back to main prompt | turn summary shows `copilot: +1 premium this turn (new billable sendAndWait ...)` when agent ends cleanly | `+1` | Explicit B — renderCopilotBillingLine tags it |
-| 7 | Plain follow-up: `now undo that change` | new task; summary again shows `+1 premium` | `+1` | Plain follow-up after idle = B-path, visible |
-| 8 | Put a long task in background: prompt something multi-step, then press any key to auto-`/bg` | task moves to background; main prompt returns | `+1` when main task eventually surfaces completion | Backgrounded task behaviour |
-| 9 | While backgrounded task emits an ask_user, TUI interrupts main prompt with `[Clarification] task #X -> ...` notice | drain fires → clarification modal → answer | `+0` | Background-task clarification path (reviewer P1 fix) |
+| # | Action in TUI | Expected CLI summary line | Ideal per-step delta | Contributes to ideal total | Notes |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Prompt: `summarize ace-copilot-core/build.gradle.kts and then end by asking whether I want a change` | `copilot: session counter +N since last turn` OR `unchanged` (either is fine) | +1 | +1 | First turn; baseline |
+| 2 | At the `answer >` modal, type `add ace-copilot-sdk as an api dependency` | `unchanged` expected; `+1` acceptable if step 1's increment lands here | 0 (A-path) | +0 | Clarification answer — no new sendAndWait |
+| 3 | Wait for task to complete and ask again | agent should end with another ask_user question | n/a | n/a | Phase 3 c4 — observe steering hit rate, not billing |
+| 4 | Answer: `yes, apply it` | `unchanged` expected; `+1` acceptable | 0 (A-path) | +0 | Still A-path |
+| 5 | Type `/new run the unit tests` at the clarification modal | current clarification cancels, new task starts; banner likely `+1` | +1 | +1 | Explicit B-path — `/new` is a new billable turn |
+| 6 | Let new task complete (no ask_user); back to main prompt | `+1` or `unchanged` depending on when step 5's increment surfaces | +1 | +1 | Explicit B-path |
+| 7 | Plain follow-up: `now undo that change` | banner expected to show `+1` at some point in the next 1–2 turns | +1 | +1 | Plain follow-up after idle = B-path |
+| 8 | Put a long task in background: prompt something multi-step, then press any key to auto-`/bg` | task moves to background; main prompt returns | +1 | +1 | Backgrounded task |
+| 9 | While backgrounded task emits an ask_user, TUI interrupts main prompt with `[Clarification] task #X -> ...` notice | drain fires → clarification modal → answer | 0 (A-path) | +0 | Background-task clarification path |
 
 ### Success criteria
 
-- Steps 2, 4, 9 all show `+0` premium delta (A-path).
-- Steps 1, 5, 6, 7, 8 all show `+1` and the CLI prints the yellow
-  `copilot: +N premium this turn` line so the user is aware.
-- `usage.copilot.premiumDeltaSinceLastTurn` values sum matches the
-  absolute `premiumUsed` counter advance seen in window A.
-- At no point does the session wedge: if anything hangs more than 15s
-  without activity, inspect the daemon log for pending/unanswered
-  user_input entries.
+- **Accumulated** `usage.copilot.premiumDeltaSinceLastTurn` across all
+  turns matches the absolute `premiumUsed` counter advance seen in
+  window A, and the ideal total (5) within ±1–2 (propagation drift).
+- Per-step banners never mis-assert causality: the CLI says
+  "session counter +N since last turn", not "this turn was billable"
+  — so a clarification answer showing +1 is not called out as a bug.
+- Steering observation (step 3): the agent closes with another
+  ask_user instead of ending silently. If it consistently skips
+  ask_user across multiple runs, the c4 steering block may need
+  tuning.
+- At no point does the session wedge: if anything hangs more than
+  15s without activity, inspect the daemon log for pending /
+  unanswered user_input entries.
 
 ### Dashboard reconciliation
 
