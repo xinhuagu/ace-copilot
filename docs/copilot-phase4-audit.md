@@ -18,7 +18,7 @@ every `ace-copilot-*` module.
 | - | --- | --- | --- | --- | --- |
 | 1 | `StreamingAgentLoop.runTurn:313` | main-react | Each ReAct iteration of a chat-path prompt | chat (`LlmClient.streamMessage`) | `MAIN_TURN` / `CONTINUATION` |
 | 2 | `AgentLoop.runTurn:121` | main-react | Non-streaming fallback | chat | `MAIN_TURN` |
-| 3 | `StreamingAgentHandler.handlePromptViaCopilotSession:2334` | main-react | Session-path prompt dispatch | session (`CopilotAcpClient.sendAndWait`) | not in `RequestSource` enum — session path reports `bySource.MAIN_TURN=1` via the new c4-audit instrumentation |
+| 3 | `StreamingAgentHandler.handlePromptViaCopilotSession:2334` | main-react | Session-path prompt dispatch | session (`CopilotAcpClient.sendAndWait`) | `MAIN_TURN` — recorded through `RequestAttribution.builder().record(MAIN_TURN)` and emitted via the shared `writeLlmRequestsBySource` helper, same contract as the chat path |
 | 4 | `LLMTaskPlanner.plan:45` | task-planner | `plannerEnabled && complexityScore.shouldPlan()` (chat path only — session dispatch returns before this check) | chat | `PLANNER` |
 | 5 | `AdaptiveReplanner.replan:118` | task-planner | Plan step failure triggers replan (chat path only) | chat | `REPLAN` |
 | 6 | `SequentialPlanExecutor.java:194 / :254` | task-planner | Plan step execution and fallback paths (chat path only) | chat | `MAIN_TURN` / `FALLBACK` |
@@ -64,12 +64,31 @@ All three proposals preserve the 1-premium-per-user-prompt target.
 ## Instrumentation delta in this PR
 
 - `StreamingAgentHandler.handlePromptViaCopilotSession` now emits
-  `usage.bySource` (parallel to chat path) with `MAIN_TURN=1` and every
-  other `RequestSource` category at 0. Downstream tools see the same
-  shape on both paths.
+  attribution through the existing chat-path contract — field name
+  `usage.llmRequestsBySource`, keys are lowercase `RequestSource`
+  names, and only recorded sources appear (no zero-padding). Session
+  mode records only `MAIN_TURN`, so a session turn's payload looks
+  like:
+
+  ```json
+  "usage": {
+    "llmRequests": 1,
+    "llmRequestsBySource": { "main_turn": 1 },
+    "copilot": { "subsystemsSkipped": "planner,compaction,post_turn_learning", ... }
+  }
+  ```
+
+  Dashboards and the existing CLI parser (which only understands
+  `llmRequestsBySource`) see session turns identically to chat turns.
+  An earlier draft of this PR used a separate `usage.bySource` field
+  with uppercase keys and explicit zeros for every category; that was
+  caught in review and swapped for the shared helper. See
+  `CopilotSessionBySourceShapeTest` which pins the field name and key
+  casing.
 - Same path emits `usage.copilot.subsystemsSkipped = "planner,compaction,post_turn_learning"`
-  so grep / dashboards can flag any future regression that quietly
-  wires a billable subsystem back in.
+  (a session-only regression signal, deliberately **not** on the
+  shared attribution map) so grep / dashboards can flag any future
+  change that quietly wires a billable subsystem back in.
 - No change to chat-path attribution — it already tags every call site
   per `RequestSource` (verified above).
 
