@@ -32,17 +32,33 @@ public final class TaskStreamReader implements Runnable {
     private final String sessionId;
     private final String fullPrompt;
     private final PermissionBridge permissionBridge;
+    private final UserInputBridge userInputBridge;
     private final Consumer<TaskHandle> onComplete;
+
+    /**
+     * Phase 1-compatible constructor without {@link UserInputBridge}; any
+     * {@code user_input.requested} notification gets auto-cancelled so the
+     * sendAndWait does not hang. New code should pass a bridge so the REPL
+     * can actually answer the question (Phase 3, #5).
+     */
+    public TaskStreamReader(TaskHandle handle, DaemonConnection connection,
+                            String sessionId, String fullPrompt,
+                            PermissionBridge permissionBridge,
+                            Consumer<TaskHandle> onComplete) {
+        this(handle, connection, sessionId, fullPrompt, permissionBridge, null, onComplete);
+    }
 
     public TaskStreamReader(TaskHandle handle, DaemonConnection connection,
                             String sessionId, String fullPrompt,
                             PermissionBridge permissionBridge,
+                            UserInputBridge userInputBridge,
                             Consumer<TaskHandle> onComplete) {
         this.handle = Objects.requireNonNull(handle, "handle");
         this.connection = Objects.requireNonNull(connection, "connection");
         this.sessionId = Objects.requireNonNull(sessionId, "sessionId");
         this.fullPrompt = Objects.requireNonNull(fullPrompt, "fullPrompt");
         this.permissionBridge = Objects.requireNonNull(permissionBridge, "permissionBridge");
+        this.userInputBridge = userInputBridge;
         this.onComplete = onComplete;
     }
 
@@ -247,32 +263,80 @@ public final class TaskStreamReader implements Runnable {
     }
 
     /**
-     * Phase 3 (#5) landing in stages: the daemon's
-     * {@code handleSidecarUserInputRequest} blocks inside the in-flight
-     * {@code sendAndWait} until it receives a {@code user_input.response}
-     * notification on this connection. The current CLI does not yet have
-     * a clarification UX (arriving in c3 along with
-     * {@code /new <prompt>}), so auto-cancel immediately to avoid
-     * deadlocking the session. The user sees a yellow warning explaining
-     * what happened; the agent wraps the turn with a short decline.
+     * Routes a Copilot clarification (Phase 3, #5) through the
+     * {@link UserInputBridge} so the REPL collects the user's answer and
+     * this thread sends it back as a {@code user_input.response}
+     * notification. The whole exchange stays inside the in-flight
+     * {@code sendAndWait} — cost stays at 0 premium requests.
+     *
+     * <p>When no bridge is registered (pre-#5 wiring paths, test harnesses),
+     * falls back to an immediate cancel so the sendAndWait unwinds with a
+     * visible warning rather than deadlocking.
      */
     private void handleUserInputRequested(JsonNode params) {
         if (params == null) return;
         String requestId = params.path("requestId").asText("");
         if (requestId.isEmpty()) {
-            log.warn("Task {}: user_input.requested missing requestId — cannot auto-cancel", handle.taskId());
+            log.warn("Task {}: user_input.requested missing requestId — cannot route", handle.taskId());
             return;
         }
         String question = params.path("question").asText("");
-        String summary = question.isBlank()
+        boolean allowFreeform = params.path("allowFreeform").asBoolean(true);
+        java.util.List<String> choices = new java.util.ArrayList<>();
+        if (params.has("choices") && params.get("choices").isArray()) {
+            params.get("choices").forEach(c -> { if (c != null && !c.isNull()) choices.add(c.asText()); });
+        }
+
+        if (userInputBridge == null) {
+            autoCancelUserInput(requestId, question,
+                    "This CLI does not have a clarification UX wired (UserInputBridge missing)");
+            return;
+        }
+
+        handle.markActivity("clarification pending");
+        var sink = handle.outputSink();
+        sink.onUserInputRequest(requestId, question, choices, allowFreeform);
+
+        var req = new UserInputBridge.UserInputRequest(
+                handle.taskId(), requestId, question, choices, allowFreeform);
+        UserInputBridge.UserInputAnswer answer;
+        try {
+            // No timeout here — Phase 3 c5 adds a configurable one.
+            answer = userInputBridge.requestInput(req, 0, null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            sink.onUserInputResolved(requestId, "interrupted");
+            autoCancelUserInput(requestId, question, "interrupted while waiting for user");
+            return;
+        } catch (java.util.concurrent.TimeoutException e) {
+            sink.onUserInputResolved(requestId, "timeout");
+            autoCancelUserInput(requestId, question, "timed out waiting for user");
+            return;
+        }
+
+        String resolvedReason = answer.cancel() ? "cancelled" : null;
+        sink.onUserInputResolved(requestId, resolvedReason);
+
+        try {
+            ObjectNode responseParams = connection.objectMapper().createObjectNode();
+            responseParams.put("requestId", requestId);
+            responseParams.put("cancel", answer.cancel());
+            responseParams.put("answer", answer.answer() != null ? answer.answer() : "");
+            responseParams.put("wasFreeform", answer.wasFreeform());
+            connection.sendNotification("user_input.response", responseParams);
+        } catch (IOException e) {
+            log.error("Task {}: failed to send user_input.response: {}", handle.taskId(), e.getMessage());
+        }
+    }
+
+    private void autoCancelUserInput(String requestId, String question, String reasonMsg) {
+        String prefix = question.isBlank()
                 ? "Copilot agent asked a clarifying question"
                 : "Copilot agent asked: " + question;
-        String warning = summary + ". This CLI does not yet route answers back "
-                + "(Phase 3 work-in-progress, #5); auto-cancelling so the session does not hang.";
+        String warning = prefix + ". " + reasonMsg + " — cancelling so the session does not hang.";
         handle.appendToolEvent("stream", "user_input_auto_cancel", false, 0, warning);
         handle.markActivity("user_input auto-cancelled");
         handle.outputSink().onWarning(warning);
-
         try {
             ObjectNode responseParams = connection.objectMapper().createObjectNode();
             responseParams.put("requestId", requestId);
