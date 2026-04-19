@@ -55,6 +55,21 @@ public final class TaskManager {
     public TaskHandle submit(String prompt, DaemonConnection connection, String sessionId,
                              OutputSink outputSink, PermissionBridge permissionBridge,
                              int contextWindow) {
+        return submit(prompt, connection, sessionId, outputSink,
+                permissionBridge, null, contextWindow);
+    }
+
+    /**
+     * Overload accepting a {@link UserInputBridge} so Copilot session-runtime
+     * clarifications ({@code user_input.requested}) can be answered by the
+     * REPL thread. Without a bridge, {@link TaskStreamReader} auto-cancels
+     * any clarification with a visible warning (safe fallback — no
+     * deadlock). See Phase 3, #5.
+     */
+    public TaskHandle submit(String prompt, DaemonConnection connection, String sessionId,
+                             OutputSink outputSink, PermissionBridge permissionBridge,
+                             UserInputBridge userInputBridge,
+                             int contextWindow) {
         Objects.requireNonNull(prompt, "prompt");
         Objects.requireNonNull(connection, "connection");
         Objects.requireNonNull(sessionId, "sessionId");
@@ -67,7 +82,7 @@ public final class TaskManager {
 
         // TaskStreamReader reads sink from handle.outputSink() — supports /bg and /fg swaps
         var reader = new TaskStreamReader(handle, connection, sessionId,
-                prompt, permissionBridge, this::handleTaskComplete);
+                prompt, permissionBridge, userInputBridge, this::handleTaskComplete);
 
         Thread thread = Thread.ofVirtual()
                 .name("ace-copilot-task-" + taskId)

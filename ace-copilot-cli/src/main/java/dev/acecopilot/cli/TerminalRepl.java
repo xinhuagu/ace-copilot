@@ -104,6 +104,12 @@ public final class TerminalRepl {
     private final TerminalMarkdownRenderer markdownRenderer;
     private final TaskManager taskManager;
     private final PermissionBridge permissionBridge;
+    private final UserInputBridge userInputBridge = new UserInputBridge();
+    // Phase 3 (#5): set when the user types `/new <prompt>` during a
+    // Copilot clarification. Consumed on the next iteration of the
+    // read-loop so the prompt flows through the normal task-launch path
+    // without us needing to thread the task machinery down here.
+    private volatile String pendingFollowupPrompt;
     private final ObjectMapper statusMapper;
     private final ConcurrentLinkedQueue<UiEvent> uiEvents = new ConcurrentLinkedQueue<>();
     private final Deque<UiNotice> uiNoticeBuffer = new ArrayDeque<>();
@@ -117,6 +123,7 @@ public final class TerminalRepl {
     private static final int MAX_CONTEXT_DETAIL_CHARS = 12_000;
     private final Object uiRenderLock = new Object();
     private final AtomicBoolean permissionInterruptRequested = new AtomicBoolean(false);
+    private final AtomicBoolean userInputInterruptRequested = new AtomicBoolean(false);
     private final AtomicBoolean uiRenderRequested = new AtomicBoolean(true);
 
     /** Tracks the effective model, updated after successful model switches. */
@@ -416,6 +423,7 @@ public final class TerminalRepl {
                 pushBackgroundCompletion(handle, reader);
             });
             permissionBridge.setRequestListener(req -> onPermissionRequested(req, reader));
+            userInputBridge.setRequestListener(req -> onUserInputRequested(req, reader));
 
             // Render startup banner
             renderBanner(out, terminal.getWidth());
@@ -458,16 +466,35 @@ public final class TerminalRepl {
                 // 1. Check pending permission requests from task threads
                 drainPermissions(out, reader);
 
+                // 1b. Phase 3 (#5): drain Copilot clarifications from
+                // backgrounded tasks proactively — a user_input.requested
+                // that arrives outside the readLine interrupt window (just
+                // after readLine returned, during a permission modal, etc.)
+                // would otherwise sit in UserInputBridge until the 5-minute
+                // timeout. Run this before notifyCompletedBackgroundTasks
+                // so the task in question has a chance to finish its turn
+                // before we render its completion.
+                drainUserInputs(out, reader);
+
                 // 2. Check if any background tasks completed while we were idle
                 notifyCompletedBackgroundTasks(out);
 
                 String line;
+                // Phase 3 (#5): consume any prompt queued by an in-clarification
+                // `/new <prompt>` before blocking on stdin so the new task
+                // starts immediately.
+                String queuedFollowup = pendingFollowupPrompt;
+                if (queuedFollowup != null) {
+                    pendingFollowupPrompt = null;
+                }
                 try {
                     readingPrompt = true;
                     consoleMode = ConsoleMode.NORMAL_INPUT;
                     requestUiRender();
                     try {
-                        line = reader.readLine(PROMPT_STR);
+                        line = (queuedFollowup != null)
+                                ? queuedFollowup
+                                : reader.readLine(PROMPT_STR);
                     } finally {
                         readingPrompt = false;
                         ensureCursorVisible();
@@ -483,6 +510,17 @@ public final class TerminalRepl {
                     if (permissionInterruptRequested.getAndSet(false) || permissionBridge.hasPending()) {
                         out.println();
                         drainPermissions(out, reader);
+                        continue;
+                    }
+                    // Same pattern for Copilot clarifications from a
+                    // backgrounded task (Phase 3, #5): an ask_user that
+                    // arrives while the user is back at the main prompt
+                    // must break the readLine, surface the question, and
+                    // route the answer — otherwise the SDK's Promise sits
+                    // in the bridge until the 5-minute timeout fires.
+                    if (userInputInterruptRequested.getAndSet(false) || userInputBridge.hasPending()) {
+                        out.println();
+                        drainUserInputs(out, reader);
                         continue;
                     }
                     // Ctrl+C at prompt: exit gracefully
@@ -512,6 +550,25 @@ public final class TerminalRepl {
                 }
 
                 String trimmed = line.trim();
+
+                // Phase 3 (#5) `/new [<prompt>]`: explicit new-task escape.
+                // Without a task running, `/new X` is equivalent to `X` since
+                // every new prompt already starts a new agent.prompt. The
+                // useful semantics (cancelling a pending clarification and
+                // starting fresh) live on handleUserInputFromBridge — this
+                // branch just handles the tail.
+                if (trimmed.equalsIgnoreCase("/new")
+                        || trimmed.toLowerCase().startsWith("/new ")) {
+                    String rest = trimmed.length() > 4 ? trimmed.substring(5).trim() : "";
+                    if (rest.isEmpty()) {
+                        out.println(MUTED + "  Ready for your next task." + RESET);
+                        out.flush();
+                        continue;
+                    }
+                    submitAndWait(out, reader, rest);
+                    continue;
+                }
+
                 if (trimmed.startsWith("/")) {
                     if (handleSlashCommand(out, trimmed, reader)) {
                         break;
@@ -1044,7 +1101,8 @@ public final class TerminalRepl {
 
             promptStartNanos = System.nanoTime();
 
-            var handle = taskManager.submit(effectiveInput, conn, sessionId, fgSink, permissionBridge, ctxWindow);
+            var handle = taskManager.submit(effectiveInput, conn, sessionId, fgSink,
+                    permissionBridge, userInputBridge, ctxWindow);
             taskManager.setForeground(handle.taskId());
             resumeCheckpointStore.recordTaskSubmitted(
                     sessionId,
@@ -1130,6 +1188,15 @@ public final class TerminalRepl {
                     continue;
                 }
 
+                // 1b. Handle Copilot session clarification (Phase 3, #5).
+                var uiReq = userInputBridge.pollPending();
+                if (uiReq != null) {
+                    terminal.setAttributes(savedAttrs);
+                    handleUserInputFromBridge(out, reader, uiReq);
+                    terminal.setAttributes(rawAttrs);
+                    continue;
+                }
+
                 // 2. Check if user pressed a key (1ms peek — non-blocking)
                 int ch = terminal.reader().peek(1);
                 if (ch == -1) {
@@ -1171,6 +1238,11 @@ public final class TerminalRepl {
                 var permReq = permissionBridge.pollPending(50, TimeUnit.MILLISECONDS);
                 if (permReq != null) {
                     handlePermissionFromBridge(out, reader, permReq);
+                    continue;
+                }
+                var uiReq = userInputBridge.pollPending();
+                if (uiReq != null) {
+                    handleUserInputFromBridge(out, reader, uiReq);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -1340,6 +1412,64 @@ public final class TerminalRepl {
      * Handles a permission request routed through the bridge.
      * Prompts the user and submits the answer back.
      */
+    /**
+     * Prompts the user for a clarification answer in the Copilot session
+     * runtime (Phase 3, #5). Plain text is submitted as a free-form answer
+     * (0 premium). Typing {@code /new <prompt>} cancels the clarification
+     * and queues a fresh task — the caller sees the next task start on
+     * the next REPL iteration. Typing {@code /new} alone cancels without
+     * queuing anything (the session idles in "Task complete" state until
+     * the next input).
+     */
+    private void handleUserInputFromBridge(PrintWriter out, LineReader reader,
+                                           UserInputBridge.UserInputRequest req) {
+        out.println();
+        out.println(ACCENT + "━ Copilot agent is asking ━" + RESET);
+        if (!req.question().isBlank()) {
+            out.println("  " + req.question());
+        }
+        if (!req.choices().isEmpty()) {
+            out.println(MUTED + "  choices: " + String.join(" | ", req.choices()) + RESET);
+        }
+        out.println(MUTED + "  (plain text answers; `/new <prompt>` starts a fresh task, `/new` cancels)" + RESET);
+        out.print(ACCENT + " answer > " + RESET);
+        out.flush();
+
+        String line;
+        try {
+            line = reader.readLine("");
+        } catch (Exception e) {
+            userInputBridge.cancel(req.requestId());
+            return;
+        }
+        if (line == null) {
+            userInputBridge.cancel(req.requestId());
+            return;
+        }
+        String trimmed = line.trim();
+
+        if (trimmed.equalsIgnoreCase("/new") || trimmed.toLowerCase().startsWith("/new ")) {
+            userInputBridge.cancel(req.requestId());
+            String rest = trimmed.length() > 4 ? trimmed.substring(5).trim() : "";
+            if (!rest.isEmpty()) {
+                pendingFollowupPrompt = rest;
+                out.println(INFO + "  Clarification cancelled. Starting new task: " + rest + RESET);
+            } else {
+                out.println(INFO + "  Clarification cancelled. Ready for your next input." + RESET);
+            }
+            out.flush();
+            return;
+        }
+
+        boolean isChoice = req.choices().stream().anyMatch(c -> c.equalsIgnoreCase(trimmed));
+        var answer = isChoice
+                ? UserInputBridge.UserInputAnswer.choice(trimmed)
+                : UserInputBridge.UserInputAnswer.freeform(trimmed);
+        if (!userInputBridge.submitAnswer(req.requestId(), answer)) {
+            log.warn("UserInputBridge rejected answer for requestId={}", req.requestId());
+        }
+    }
+
     private void handlePermissionFromBridge(PrintWriter out, LineReader reader,
                                             PermissionBridge.PermissionRequest req) {
         // Inner width excludes the left and right border characters (│ ... │)
@@ -1478,6 +1608,23 @@ public final class TerminalRepl {
     private void discardBufferedPermissionInput(Terminal terminal) throws IOException {
         while (terminal.reader().peek(1) >= 0) {
             terminal.reader().read(1);
+        }
+    }
+
+    /**
+     * Phase 3 (#5): drains any pending Copilot clarifications at the
+     * main prompt (when no task is in the foreground). Mirrors
+     * {@link #drainPermissions}; relies on {@link #handleUserInputFromBridge}
+     * to surface the question and collect the answer. Called when the
+     * user's readLine was interrupted by a pending request arriving from
+     * a backgrounded task.
+     */
+    private void drainUserInputs(PrintWriter out, LineReader reader) {
+        while (userInputBridge.hasPending()) {
+            var req = userInputBridge.pollPending();
+            if (req == null) break;
+            handleUserInputFromBridge(out, reader, req);
+            userInputInterruptRequested.set(false);
         }
     }
 
@@ -2039,6 +2186,40 @@ public final class TerminalRepl {
         } catch (Exception e) {
             permissionInterruptRequested.set(false);
             log.debug("Failed to interrupt prompt for permission popup: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Phase 3 (#5): same shape as {@link #onPermissionRequested} for the
+     * Copilot session runtime's clarification questions. Called from the
+     * {@link UserInputBridge} listener whenever a backgrounded task emits
+     * {@code user_input.requested} and there is no foreground wait loop
+     * to drain it. Raises a SIGINT on the readLine so the main loop's
+     * catch branch routes into {@link #drainUserInputs}.
+     */
+    private void onUserInputRequested(UserInputBridge.UserInputRequest request, LineReader reader) {
+        if (reader == null) return;
+        String summary = request.question() == null || request.question().isBlank()
+                ? "Copilot agent has a clarifying question"
+                : fitWidth(request.question(), 90);
+        String notice = WARNING + "[Clarification] " + RESET
+                + "task #" + request.taskId() + " -> " + summary;
+        enqueueUiNotice(notice);
+        requestUiRender();
+        interruptPromptForUserInputPopup();
+    }
+
+    private void interruptPromptForUserInputPopup() {
+        if (!readingPrompt) return;
+        if (taskManager.hasForegroundTask()) return;
+        if (!userInputInterruptRequested.compareAndSet(false, true)) return;
+        var terminal = activeTerminal;
+        if (terminal == null) return;
+        try {
+            terminal.raise(Terminal.Signal.INT);
+        } catch (Exception e) {
+            userInputInterruptRequested.set(false);
+            log.debug("Failed to interrupt prompt for user_input popup: {}", e.getMessage());
         }
     }
 
@@ -3057,6 +3238,7 @@ public final class TerminalRepl {
                 out.println(INFO + "  /fg" + RESET + "       Bring background task to foreground (/fg [id])");
                 out.println(INFO + "  /continue" + RESET + " Continue from the last task context");
                 out.println(INFO + "  /cancel" + RESET + "   Cancel a task (/cancel [id])");
+                out.println(INFO + "  /new" + RESET + "      Start a fresh task (/new <prompt> to submit immediately; /new alone clears clarification state)");
                 out.println(INFO + "  /exit" + RESET + "     Exit the REPL");
                 out.println();
                 out.flush();

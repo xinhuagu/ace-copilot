@@ -53,6 +53,28 @@ public interface OutputSink {
      */
     default void onWarning(String message) {}
 
+    /**
+     * The Copilot session-runtime agent is blocked on a clarifying
+     * question (Phase 3, #5). Foreground sinks render the question so the
+     * user's next input can be routed as an answer (0 premium request)
+     * instead of a new prompt (1 premium request).
+     *
+     * @param requestId     opaque id that must be echoed back in the answer
+     * @param question      text the agent is asking
+     * @param choices       predefined answers; may be empty
+     * @param allowFreeform whether a free-form answer is acceptable
+     */
+    default void onUserInputRequest(String requestId, String question,
+                                    java.util.List<String> choices,
+                                    boolean allowFreeform) {}
+
+    /**
+     * The pending {@link #onUserInputRequest} has been resolved (answered,
+     * cancelled, or superseded). Foreground sinks clear the waiting-for-
+     * clarification indicator. {@code null} reason means a normal answer.
+     */
+    default void onUserInputResolved(String requestId, String reason) {}
+
     /** Receives a stream cancellation acknowledgment. */
     void onStreamCancelled();
 
