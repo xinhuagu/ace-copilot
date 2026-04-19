@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/xinhuagu/ace-copilot/actions/workflows/ci.yml"><img src="https://github.com/xinhuagu/ace-copilot/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Java-21-orange?logo=openjdk" alt="Java 21">
-  <img src="https://img.shields.io/badge/GraalVM-Native_Image-blue?logo=oracle" alt="GraalVM">
+  <img src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white" alt="Node.js 20+">
   <img src="https://img.shields.io/badge/Gradle-8.14-02303A?logo=gradle&logoColor=white" alt="Gradle 8.14">
 </p>
 
@@ -99,11 +99,6 @@ ace-copilot                    # Attach TUI
 ```
 
 #### First-time login
-
-On first start, ace-copilot only treats the following as "already logged in" and skips the prompt:
-
-1. `~/.ace-copilot/copilot-oauth-token` — token cached from a previous login
-2. `gh auth token` — a working GitHub CLI session
 
 **Easiest path:** run `gh auth login` once, then start ace-copilot. No prompt.
 
