@@ -122,6 +122,18 @@ Open the URL, paste the code, authorize. The token is cached and reused.
 >
 > **About env vars and config tokens.** ace-copilot will happily *use* a token from `apiKey` (in `~/.ace-copilot/config.json`), `GITHUB_TOKEN`, or `GH_TOKEN` once it's running — but these **do not** count as "logged in" on first start. A fresh install always shows the device-code prompt unless a cached token or `gh auth login` is present. When more than one source is set, the cached token and `gh auth token` win at runtime too, so the account that passed the first-time prompt is the same account billed for Copilot quota. Config / env tokens only kick in when no cached or `gh` token exists. This is on purpose: you should see and confirm exactly which GitHub account ace-copilot is binding to before it starts spending your Copilot quota.
 
+#### Choose a model
+
+Default is **`claude-haiku-4.5`** — the only Copilot model with a 1× session-mode multiplier (every other model is 3×). For most agent work this is the cheapest competent choice; switch up only when capability justifies the cost. See the multiplier matrix in [The problem, concretely](#the-problem-concretely) above.
+
+| When you want to choose | How | Example |
+|---|---|---|
+| **At startup** (one-shot for this run) | `ACE_COPILOT_MODEL` env var on the launch command | `ACE_COPILOT_MODEL=claude-sonnet-4.5 ace-copilot` |
+| **Mid-session** (try a model for the next turn) | `/model <name>` at the prompt | `/model claude-opus-4.6` |
+| **Permanently** (every future launch) | `model` field in the copilot profile of `~/.ace-copilot/config.json` | `"model": "claude-sonnet-4.6"` |
+
+Common Copilot model names: `claude-haiku-4.5`, `claude-sonnet-4.5`, `claude-sonnet-4.6`, `claude-opus-4.6`, `gpt-4o`, `gpt-5.2-codex`, `o4-mini`. Full list and per-model notes in [docs/provider-configuration.md](docs/provider-configuration.md#available-models).
+
 #### Per-turn output
 
 First turn prints `copilot: first turn of session (no baseline yet)`. Every subsequent turn shows the per-turn and session-total lines above.

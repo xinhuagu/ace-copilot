@@ -42,7 +42,7 @@ public final class LlmClientFactory {
             "groq", "llama-3.3-70b-versatile",
             "together", "meta-llama/Llama-3.3-70B-Instruct-Turbo",
             "mistral", "mistral-large-latest",
-            "copilot", "claude-sonnet-4.5",
+            "copilot", "claude-haiku-4.5",
             "ollama", "qwen3:4b"
     );
 
@@ -137,7 +137,7 @@ public final class LlmClientFactory {
     private static LlmClient createCopilotClient(String githubToken, String baseUrl, String model) {
         var tokenProvider = new CopilotTokenProvider(githubToken);
         String resolvedBaseUrl = baseUrl != null ? baseUrl : DEFAULT_BASE_URLS.get("copilot");
-        String defaultModel = DEFAULT_MODELS.getOrDefault("copilot", "claude-sonnet-4.5");
+        String defaultModel = DEFAULT_MODELS.getOrDefault("copilot", "claude-haiku-4.5");
 
         // If model is an Anthropic-native name (from global config), ignore it — use copilot default.
         // Users can still explicitly set a copilot model via profile config or /model command.
