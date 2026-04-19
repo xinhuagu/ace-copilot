@@ -316,16 +316,28 @@ public final class AceCopilotConfig {
         // 3. Determine which profile to apply:
         //    ACE_COPILOT_PROFILE > ACE_COPILOT_PROVIDER (if matching profile exists)
         //    > defaultProfile (only when ACE_COPILOT_PROVIDER is not explicitly set)
+        //
+        // If ACE_COPILOT_PROFILE names a profile that doesn't exist, fall through
+        // to the remaining precedence instead of leaving the config in its bare
+        // constructor state (which silently boots against anthropic defaults).
         var envProfile = System.getenv("ACE_COPILOT_PROFILE");
         var envProvider = System.getenv("ACE_COPILOT_PROVIDER");
+        boolean profileApplied = false;
         if (envProfile != null && !envProfile.isBlank()) {
-            config.applyProfile(envProfile);
-        } else if (envProvider != null && !envProvider.isBlank()
-                && config.profiles != null && config.profiles.containsKey(envProvider.toLowerCase())) {
-            config.applyProfile(envProvider.toLowerCase());
-        } else if ((envProvider == null || envProvider.isBlank())
-                && config.defaultProfile != null && !config.defaultProfile.isBlank()) {
-            config.applyProfile(config.defaultProfile);
+            profileApplied = config.applyProfile(envProfile);
+            if (!profileApplied) {
+                log.warn("ACE_COPILOT_PROFILE='{}' did not match any configured profile; "
+                        + "falling through to ACE_COPILOT_PROVIDER / defaultProfile.", envProfile);
+            }
+        }
+        if (!profileApplied) {
+            if (envProvider != null && !envProvider.isBlank()
+                    && config.profiles != null && config.profiles.containsKey(envProvider.toLowerCase())) {
+                config.applyProfile(envProvider.toLowerCase());
+            } else if ((envProvider == null || envProvider.isBlank())
+                    && config.defaultProfile != null && !config.defaultProfile.isBlank()) {
+                config.applyProfile(config.defaultProfile);
+            }
         }
 
         // 4. Environment variables (highest precedence)
@@ -1222,18 +1234,19 @@ public final class AceCopilotConfig {
      * Applies a named profile, overriding current config values with profile values.
      * Profile settings are merged (non-null values override, null values keep current).
      */
-    private void applyProfile(String profileName) {
+    private boolean applyProfile(String profileName) {
         if (profiles == null || profiles.isEmpty()) {
             log.warn("Profile '{}' requested but no profiles defined in config", profileName);
-            return;
+            return false;
         }
         var profile = profiles.get(profileName);
         if (profile == null) {
             log.warn("Profile '{}' not found. Available profiles: {}", profileName, profiles.keySet());
-            return;
+            return false;
         }
         log.info("Applying config profile: {}", profileName);
         mergeFromFormat(profile);
+        return true;
     }
 
     /**
