@@ -28,6 +28,7 @@ import dev.acecopilot.core.llm.ContentBlock;
 import dev.acecopilot.core.llm.LlmException;
 import dev.acecopilot.core.llm.Message;
 import dev.acecopilot.core.llm.RequestAttribution;
+import dev.acecopilot.core.llm.RequestSource;
 import dev.acecopilot.core.llm.StopReason;
 import dev.acecopilot.core.llm.StreamEvent;
 import dev.acecopilot.core.llm.StreamEventHandler;
@@ -2385,19 +2386,18 @@ public final class StreamingAgentHandler {
         // exposed as a diagnostic under `copilot` rather than masquerading
         // as `llmRequests` (which the CLI renders as the billing indicator).
         usageNode.put("llmRequests", 1);
-        // Phase 4 audit (#6): make the subsystem breakdown explicit on the
-        // session path so consumers can compare against the chat path's
-        // RequestAttribution. On session mode the daemon dispatch returns
-        // early (before planner / checkpoint), compaction is handled
-        // internally by the SDK agent, and post-turn learning is not
-        // invoked — so every category except the main turn is zero.
-        var bySourceNode = usageNode.putObject("bySource");
-        bySourceNode.put("MAIN_TURN", 1);
-        bySourceNode.put("PLANNER", 0);
-        bySourceNode.put("CONTINUATION", 0);
-        bySourceNode.put("FALLBACK", 0);
-        bySourceNode.put("REPLAN", 0);
-        bySourceNode.put("COMPACTION_SUMMARY", 0);
+        // Phase 4 audit (#6): reuse the chat-path contract
+        // (`llmRequestsBySource`, lowercase keys) so existing consumers
+        // including the TUI — which only parses that field — see session
+        // turns with the same shape as chat turns. Session mode dispatches
+        // early (before planner / checkpoint), SDK handles compaction,
+        // and post-turn learning isn't invoked, so the only category that
+        // fires is MAIN_TURN=1. Categories at zero are intentionally
+        // omitted per the contract's "only present sources are reported".
+        var sessionAttribution = RequestAttribution.builder()
+                .record(RequestSource.MAIN_TURN)
+                .build();
+        writeLlmRequestsBySource(usageNode, sessionAttribution);
 
         Long previousSessionPremium = sessionLastPremiumUsed.get(sessionId);
         long crossTurnPremiumDelta = computeCrossTurnPremiumDelta(previousSessionPremium, last);
