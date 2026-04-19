@@ -30,6 +30,42 @@ Defaults to `"chat"` — existing installs see no change. The legacy
 `copilotRuntimeAcceptUnsandboxed` field is accepted for backward compat
 but is a no-op; daemon logs an info line if it is still present.
 
+### Post-turn learning on session mode (Phase 4 B1, #6)
+
+By default, session mode skips the post-turn learning pipeline (skill
+refinement, dynamic skill generation, session skill packer) — those
+components call `LlmClient.sendMessage` directly and would otherwise
+eat Copilot premium per turn. To keep learning running without that
+cost, configure a dedicated learning provider:
+
+```json
+{
+  "profiles": {
+    "copilot": {
+      "provider": "copilot",
+      "copilotRuntime": "session",
+      "copilotRuntimeAcceptUnsandboxed": true,
+      "apiKey": "<GitHub token>",
+
+      "learningProvider": "anthropic",
+      "learningModel": "claude-haiku-4.5",
+      "learningApiKey": "<Anthropic key, or reuse a cached OAuth>"
+    }
+  }
+}
+```
+
+Supported: any provider `LlmClientFactory.create(...)` accepts —
+`"anthropic"`, `"ollama"`, `"openai"`, `"openai-codex"`. Setting
+`learningProvider: "copilot"` is rejected with an ERROR at load time
+(defeats the purpose). When unset, the daemon logs a WARN at startup
+explaining that session-mode learning is off.
+
+The learning provider is wrapped in the **same** circuit breaker as
+the main client. A flaky learning provider can trip the main breaker —
+a deliberate tradeoff so background learning failures are visible and
+bounded, not quietly degrading.
+
 ## Requirements
 
 - Node.js 20+ on `PATH`. Daemon preflights this at startup; missing

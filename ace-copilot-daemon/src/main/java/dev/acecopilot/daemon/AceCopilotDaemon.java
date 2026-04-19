@@ -502,6 +502,15 @@ public final class AceCopilotDaemon {
         // on the configured learning provider. No-op when learningProvider
         // is unset (setLearningLlmConfig guards on null/blank).
         agentHandler.setLearningLlmConfig(learningLlmClient, learningModelResolved);
+        if ("session".equalsIgnoreCase(config.effectiveCopilotRuntime())
+                && (config.learningProvider() == null || config.learningProvider().isBlank())) {
+            log.warn(
+                "copilotRuntime='session' is active but learningProvider is unset — the post-turn "
+                + "learning pipeline (skill refinement, skill generation, session packer) will "
+                + "NOT run on session-mode turns. Set learningProvider to a non-Copilot provider "
+                + "(e.g. \"anthropic\" or \"ollama\") to keep learning working without eating "
+                + "Copilot premium. See docs/copilot-session-runtime.md (#6).");
+        }
         agentHandler.setTokenConfig(config.maxTokens(), config.thinkingBudget(), config.maxTurns(), contextWindow);
         agentHandler.setContextAssemblyConfig(
                 markdownStore,

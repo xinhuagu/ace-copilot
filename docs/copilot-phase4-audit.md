@@ -39,7 +39,7 @@ consequences:
 | Upfront planner | Fires on complex prompts → +1 premium | **Silently skipped.** SDK agent plans internally if it decides to |
 | Fallback / replan | Fires on plan-step failure → +N premium | **Silently skipped.** No plan exists |
 | Compaction summary | Fires mid-turn if context overflows → +1 premium | **Silently skipped.** SDK manages context itself |
-| Post-turn learning (skill refine / generate / pack) | Fires after every turn → +1-3 premium and background work | **Silently skipped.** No learning happens on session prompts |
+| Post-turn learning (skill refine / generate / pack) | Fires after every turn → +1-3 premium and background work | **Conditional.** PR B1 (#6) lets operators set `learningProvider` to a non-Copilot provider; when set, session-mode turns schedule learning on that client and incur 0 Copilot premium. When unset (default), learning stays off on session path and the daemon logs a WARN at startup. |
 
 Phase 3's 1-premium-per-turn claim is therefore accurate for session
 mode, but the user also silently loses four capabilities that chat

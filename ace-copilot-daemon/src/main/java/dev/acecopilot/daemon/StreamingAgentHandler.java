@@ -24,12 +24,14 @@ import dev.acecopilot.core.agent.Tool;
 import dev.acecopilot.core.agent.ToolMetricsCollector;
 import dev.acecopilot.core.agent.ToolMetrics;
 import dev.acecopilot.core.agent.ToolRegistry;
+import dev.acecopilot.core.agent.Turn;
 import dev.acecopilot.core.llm.ContentBlock;
 import dev.acecopilot.core.llm.LlmException;
 import dev.acecopilot.core.llm.Message;
 import dev.acecopilot.core.llm.RequestAttribution;
 import dev.acecopilot.core.llm.RequestSource;
 import dev.acecopilot.core.llm.StopReason;
+import dev.acecopilot.core.llm.Usage;
 import dev.acecopilot.core.llm.StreamEvent;
 import dev.acecopilot.core.llm.StreamEventHandler;
 import dev.acecopilot.core.planner.AdaptiveReplanner;
@@ -1546,7 +1548,9 @@ public final class StreamingAgentHandler {
      * operator's chosen learning provider instead of sharing the main
      * user-path client. Call order: after {@link #setLlmConfig}.
      * A {@code null} client is a no-op (keeps the default built by
-     * {@code setLlmConfig}).
+     * {@code setLlmConfig}). Sets {@link #learningOnDedicatedProvider} so
+     * the session path can tell whether it is safe to schedule learning
+     * without eating Copilot premium.
      */
     public void setLearningLlmConfig(dev.acecopilot.core.llm.LlmClient learningClient, String learningModel) {
         if (learningClient == null || learningModel == null || learningModel.isBlank()) {
@@ -1554,7 +1558,11 @@ public final class StreamingAgentHandler {
         }
         this.skillRefinementEngine = new SkillRefinementEngine(
                 learningClient, learningModel, skillMetricsStore);
+        this.learningOnDedicatedProvider = true;
     }
+
+    /** True iff {@link #setLearningLlmConfig} installed a dedicated learning client. */
+    private volatile boolean learningOnDedicatedProvider = false;
 
     /**
      * Sets the token configuration for permission-aware agent loop creation.
@@ -2443,10 +2451,14 @@ public final class StreamingAgentHandler {
         copilotNode.put("runtime", "session");
         copilotNode.put("usageEventCount", r.usageEventCount());
         // Phase 4 audit: subsystems intentionally not invoked on this path.
-        // Downstream tooling can grep this to flag accidental regressions
-        // (e.g. if a future change wires post-turn learning into session
-        // mode without accounting for the extra premium it may incur).
-        copilotNode.put("subsystemsSkipped", "planner,compaction,post_turn_learning");
+        // post_turn_learning is re-enabled when a dedicated learning
+        // LlmClient is configured (B1, #6); left off otherwise so
+        // turning learning back on doesn't silently route through
+        // Copilot and eat premium again.
+        copilotNode.put("subsystemsSkipped",
+                learningOnDedicatedProvider
+                        ? "planner,compaction"
+                        : "planner,compaction,post_turn_learning");
         if (first != null && first.premiumUsed() != null) {
             copilotNode.put("premiumUsedBefore", first.premiumUsed());
             copilotNode.put("initiatorFirst", first.initiator());
@@ -2473,7 +2485,49 @@ public final class StreamingAgentHandler {
                 crossTurnPremiumDelta, r.intraTurnPremiumDelta(), r.usageEventCount(),
                 System.currentTimeMillis() - started);
 
+        // Phase 4 B1 (#6): run the post-turn learning pipeline off the
+        // dedicated learning LlmClient. Gate on learningOnDedicatedProvider
+        // so we don't silently route learning through Copilot (pre-B1
+        // behaviour kept learning off the session path for exactly this
+        // reason).
+        if (learningOnDedicatedProvider) {
+            var sessionMetricsCollector = sessionMetrics.get(sessionId);
+            schedulePostRequestLearning(
+                    sessionId,
+                    session.projectPath(),
+                    buildSyntheticSessionTurn(prompt, responseText, last),
+                    List.copyOf(session.messages()),
+                    sessionMetricsCollector != null
+                            ? sessionMetricsCollector.allMetrics()
+                            : Map.of(),
+                    Set.of());
+        }
+
         return result;
+    }
+
+    /**
+     * Phase 4 B1 (#6): the post-turn learning pipeline was built around
+     * the chat-path {@link Turn} record. Session mode doesn't produce one
+     * natively (the SDK agent returns {@code content + stopReason}), so
+     * synthesise the minimum viable shape: user + assistant messages,
+     * token usage from the last SDK usage snapshot, one billable LLM
+     * request tagged {@code MAIN_TURN}. Downstream consumers
+     * ({@link SkillRefinementEngine}, {@link DynamicSkillGenerator},
+     * {@link SessionSkillPacker}) only read {@code newMessages},
+     * {@code totalUsage}, and {@code finalStopReason}, so the rest stays
+     * at default / empty.
+     */
+    private Turn buildSyntheticSessionTurn(String prompt, String responseText,
+                                           CopilotAcpClient.UsageSnapshot last) {
+        var messages = new java.util.ArrayList<Message>(2);
+        if (prompt != null && !prompt.isBlank()) messages.add(Message.user(prompt));
+        if (responseText != null && !responseText.isBlank()) messages.add(Message.assistant(responseText));
+        int inTok = (last != null && last.inputTokens() != null) ? last.inputTokens().intValue() : 0;
+        int outTok = (last != null && last.outputTokens() != null) ? last.outputTokens().intValue() : 0;
+        var usage = new Usage(inTok, outTok);
+        var attribution = RequestAttribution.builder().record(RequestSource.MAIN_TURN).build();
+        return new Turn(messages, StopReason.END_TURN, usage, null, false, false, null, 1, attribution);
     }
 
     public void awaitSessionPostProcessing(String sessionId) {
