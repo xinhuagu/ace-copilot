@@ -183,6 +183,7 @@ public final class TaskStreamReader implements Runnable {
                     }
                 }
             }
+            case "user_input.requested" -> handleUserInputRequested(params);
             case "stream.heartbeat" -> {
                 String phase = "active";
                 if (params != null) {
@@ -242,6 +243,46 @@ public final class TaskStreamReader implements Runnable {
                 sink.onBudgetExhausted(params);
             }
             default -> log.debug("Task {}: ignoring notification: {}", handle.taskId(), method);
+        }
+    }
+
+    /**
+     * Phase 3 (#5) landing in stages: the daemon's
+     * {@code handleSidecarUserInputRequest} blocks inside the in-flight
+     * {@code sendAndWait} until it receives a {@code user_input.response}
+     * notification on this connection. The current CLI does not yet have
+     * a clarification UX (arriving in c3 along with
+     * {@code /new <prompt>}), so auto-cancel immediately to avoid
+     * deadlocking the session. The user sees a yellow warning explaining
+     * what happened; the agent wraps the turn with a short decline.
+     */
+    private void handleUserInputRequested(JsonNode params) {
+        if (params == null) return;
+        String requestId = params.path("requestId").asText("");
+        if (requestId.isEmpty()) {
+            log.warn("Task {}: user_input.requested missing requestId — cannot auto-cancel", handle.taskId());
+            return;
+        }
+        String question = params.path("question").asText("");
+        String summary = question.isBlank()
+                ? "Copilot agent asked a clarifying question"
+                : "Copilot agent asked: " + question;
+        String warning = summary + ". This CLI does not yet route answers back "
+                + "(Phase 3 work-in-progress, #5); auto-cancelling so the session does not hang.";
+        handle.appendToolEvent("stream", "user_input_auto_cancel", false, 0, warning);
+        handle.markActivity("user_input auto-cancelled");
+        handle.outputSink().onWarning(warning);
+
+        try {
+            ObjectNode responseParams = connection.objectMapper().createObjectNode();
+            responseParams.put("requestId", requestId);
+            responseParams.put("cancel", true);
+            responseParams.put("answer", "");
+            responseParams.put("wasFreeform", true);
+            connection.sendNotification("user_input.response", responseParams);
+        } catch (IOException e) {
+            log.error("Task {}: failed to send user_input.response cancel: {}",
+                    handle.taskId(), e.getMessage());
         }
     }
 

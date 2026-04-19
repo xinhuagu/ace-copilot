@@ -3829,10 +3829,28 @@ public final class StreamingAgentHandler {
          */
         void stopMonitor() {
             stopped = true;
-            // Cancel all pending permission futures so waiting threads unblock
+            // Cancel all pending permission + user_input futures so waiting
+            // threads unblock. A client disconnect landing here while a
+            // Copilot clarification is pending (issue #5) would otherwise
+            // wedge the sidecar-facing request handler indefinitely, which
+            // in turn pins the active sendAndWait until session teardown.
             synchronized (permissionLifecycleLock) {
                 pendingPermissions.forEach((_, future) -> future.cancel(false));
                 pendingPermissions.clear();
+                pendingUserInputs.forEach((_, future) -> {
+                    // Complete with a synthetic cancel notification so the
+                    // handler returns a deterministic cancel-shaped result
+                    // to the sidecar rather than propagating a cancellation
+                    // exception back through the RPC pipeline.
+                    var msg = objectMapper.createObjectNode();
+                    msg.put("method", "user_input.response");
+                    var p = msg.putObject("params");
+                    p.put("cancel", true);
+                    p.put("answer", "");
+                    p.put("wasFreeform", true);
+                    future.complete(msg);
+                });
+                pendingUserInputs.clear();
             }
             var sel = selector;
             if (sel != null) {
