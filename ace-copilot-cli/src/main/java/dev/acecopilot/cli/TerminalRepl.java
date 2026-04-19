@@ -1437,10 +1437,10 @@ public final class TerminalRepl {
             note = "premiumUsed " + absolute;
         } else if (delta == 0) {
             tag = MUTED + "copilot: session counter unchanged since last turn" + RESET;
-            note = "(A-path clarification answer, or the increment is still propagating from a prior turn)";
+            note = "(no billable activity surfaced in this window — this turn or a prior turn may still have pending accounting)";
         } else {
             tag = WARNING + "copilot: session counter +" + delta + " since last turn" + RESET;
-            note = "(billable activity at some point in the window — attribution may span the prior turn's delayed accounting)";
+            note = "(billable activity at some point in the window — attribution may span this turn or the prior turn's delayed accounting)";
         }
         out.printf("  %s  %s  %s%s%n", tag, MUTED + "premiumUsed " + absolute + RESET, MUTED, note);
         out.print(RESET);
