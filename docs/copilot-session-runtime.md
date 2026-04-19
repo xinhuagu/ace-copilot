@@ -63,19 +63,48 @@ for the 3× cost relative to Haiku and be explicit about the tradeoff.
 without the 3× surcharge. If GitHub ever publishes clarifying
 documentation for the agent endpoint, update this section.)
 
-### 3. Copilot reduces the native context window on some Claude models
+### 3. Copilot caps Claude context windows below the model's native capacity
 
-Claude models have generous native context windows — Sonnet 4.5 ships
-with 200K (or 1M with the context-1M beta), for example. GitHub
-Copilot proxies Claude through their own infrastructure and **reduces
-the effective context window below Claude's native limit** on at least
-some of the supported Claude SKUs. Operators should not assume the
-Copilot-branded Claude model has the context window advertised on
-Anthropic's model card.
+Anthropic publishes Claude Sonnet 4.6 at **200K tokens** native, **500K
+on Enterprise plans**, and **1M via the `context-1m-2025-08-07` beta
+header** (see [Anthropic's Sonnet 4.5
+announcement](https://www.anthropic.com/news/claude-sonnet-4-5) and
+[Claude API context-windows
+docs](https://platform.claude.com/docs/en/build-with-claude/context-windows)).
 
-One premium request on Enterprise is 0.1% of the month; a single
-`sendAndWait` that truncates silently and has to be reissued doubles
-that cost with no way to see it coming.
+Through GitHub Copilot, multiple layers trim that further:
+
+- **The 1M beta header is never forwarded.** Copilot Chat's Anthropic
+  provider does not pass `context-1m-2025-08-07`, so Sonnet 4.6 /
+  Opus 4.6 requests stay capped at 200K even when the account would
+  otherwise qualify. Tracked as a feature request in
+  [microsoft/vscode#298901](https://github.com/microsoft/vscode/issues/298901) — not merged as of this writing.
+- **`max_prompt_tokens` is under-reported vs. the 200K cap.** Copilot's
+  own CAPI response advertises a prompt-token limit below 200K for
+  Sonnet 4.6 / Opus 4.6, so Copilot-side compaction fires **~40K
+  tokens earlier** than the nominal window. Filed as
+  [microsoft/vscode#298900](https://github.com/microsoft/vscode/issues/298900).
+- **Effective usable window ≈ 128K in practice.** Third-party harness
+  authors measuring the real limit observe the usable context to be
+  closer to 128K than 200K —
+  [anomalyco/opencode#16129](https://github.com/anomalyco/opencode/issues/16129).
+- **~40% of the window silently reserved for output.** Copilot users
+  see roughly 40% of the advertised window held back for output
+  tokens even when the prompt is small —
+  [github/community#188691](https://github.com/orgs/community/discussions/188691),
+  [github/community#186340](https://github.com/orgs/community/discussions/186340).
+
+Stack those together: the Copilot-branded "Sonnet 4.6" behaves like a
+model with a meaningfully smaller context than Anthropic's
+model-card-advertised 200K (and nowhere close to the 1M beta or the
+Enterprise 500K path). Operators should assume closer to **~128K
+effective prompt budget** on session mode and plan compaction / tool
+use accordingly.
+
+One premium request on Enterprise is 0.1% of the month for Haiku or
+0.3% for Sonnet; a single `sendAndWait` that silently truncates
+context and has to be reissued doubles that cost with no way to see
+it coming.
 
 This matters directly for long agent runs: a Copilot-side context
 trim that happens silently can truncate conversation state the agent
