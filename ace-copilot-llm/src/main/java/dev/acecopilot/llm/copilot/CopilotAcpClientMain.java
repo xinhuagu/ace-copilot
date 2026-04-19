@@ -27,7 +27,7 @@ import java.nio.file.Path;
  * <p>Picks up configuration from env vars (in priority order):
  * <ul>
  *   <li>{@code ACE_COPILOT_SIDECAR_DIR} — path to {@code ace-copilot-sidecar/} (default: repo-relative)</li>
- *   <li>{@code ACE_COPILOT_COPILOT_MODEL} — model to use (default: {@code claude-sonnet-4.6})</li>
+ *   <li>{@code ACE_COPILOT_COPILOT_MODEL} — model to use (default: {@code claude-haiku-4.5})</li>
  *   <li>{@code ACE_COPILOT_COPILOT_PROMPT} — prompt to send (default: a built-in tool-exercising prompt)</li>
  *   <li>{@code ACE_COPILOT_GITHUB_TOKEN} — explicit token, if set</li>
  *   <li>{@code ACE_COPILOT_GH_ACCOUNT} — gh account name to resolve token via {@code gh auth token --user <acct>}</li>
@@ -35,10 +35,13 @@ import java.nio.file.Path;
  */
 public final class CopilotAcpClientMain {
 
-    // Session-mode billing is flat 1x regardless of model (verified against
-    // github.com/settings/copilot/usage), so pick the strongest default we
-    // have — Haiku saves nothing on the premium counter.
-    private static final String DEFAULT_MODEL = "claude-sonnet-4.6";
+    // Session-mode billing = published multiplier × 3 (verified against
+    // github.com/settings/copilot/usage across many turns). Haiku stays
+    // cheapest: Haiku 0.33 × 3 = 1 premium/turn; Sonnet 1 × 3 = 3
+    // premium/turn. Default to Haiku so operators don't get billed 3x
+    // by accident. Users who want Sonnet/Opus capability can switch
+    // via profile or /model and explicitly accept the cost.
+    private static final String DEFAULT_MODEL = "claude-haiku-4.5";
 
     private static final String DEFAULT_PROMPT = """
             List the top-level files in the current directory and tell me, in one sentence,

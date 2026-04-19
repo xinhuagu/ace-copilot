@@ -18,7 +18,16 @@
 Copilot's billing model is structurally hostile to agent workloads. The facts below are operator-verified, not guessed from marketing pages.
 
 - **Premium requests are hard-capped per month.** Unlike pay-as-you-go APIs (Anthropic, OpenAI direct, Ollama-local) where you pay per token with no ceiling, Copilot gives you a fixed monthly pool of premium requests and stops when it runs out. No overage bill, no degraded tier — you wait for the next billing cycle or upgrade the plan. On the **Copilot Enterprise** plan (1,000 premium requests/month per seat), **every single request is 0.1% of your entire monthly budget**. A single complex task on the stock chat path can eat 0.5–1% of your month.
-- **Every model bills 1x on the session path. The published multiplier table does not apply.** GitHub documents a 0.33x multiplier for Haiku-class models and operators naturally assume picking a smaller model saves budget. **Verified false for the `sendAndWait` (session SDK) endpoint**: one Haiku turn = 1 premium = 0.1% of the Enterprise monthly cap, same as Sonnet or Opus. So on session mode, model choice is neutral for billing — and picking the cheaper model saves you exactly nothing.
+- **The session endpoint applies a flat 3× multiplier on top of the published model multipliers.** Operator-verified by repeated measurement against https://github.com/settings/copilot/usage across many turns. Model choice is **not** neutral on session mode — it is *more* expensive than chat mode for every model except Haiku.
+
+  | Model | Published multiplier (chat path) | Observed per-turn on session path | Session-vs-published ratio |
+  | --- | --- | --- | --- |
+  | Claude Haiku 4.5 | 0.33× | **1×** | 3× |
+  | Claude Sonnet 4.5 | 1× | **3×** | 3× |
+  | Claude Sonnet 4.6 | 1× | **3×** | 3× |
+  | GPT-5.4 | 1× | **3×** | 3× |
+
+  On Enterprise (1,000 req/month), one Sonnet session turn = **0.3%** of your month, one Haiku session turn = **0.1%**. Haiku is still the cheapest model on session mode — three Haiku turns fit in the premium budget of one Sonnet turn. Pick Sonnet/Opus/GPT when capability justifies 3× the cost, not by default.
 - **Copilot silently reduces native Claude context windows.** Claude Sonnet 4.5 ships with 200K native (or 1M with beta). The Copilot-proxied version of "the same" model is trimmed below that limit, with no published spec and no operator control. Long conversations can hit SDK-side context pressure without warning.
 - **Every ReAct iteration on the stock chat path bills.** A single agent turn that searches wiki, reads two files, and answers costs ~4 premium requests on vanilla Copilot chat. On serious agent workloads this runs out the monthly cap in days.
 - **The counter is eventually consistent and the surface is closed.** A billable turn's `+1` can land in a later turn's observation window. No per-turn receipt, no granular controls, no way to opt subsystems out of billing. You pay what the counter says, and you find out after the fact.

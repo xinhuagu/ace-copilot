@@ -2225,9 +2225,11 @@ public final class StreamingAgentHandler {
         session.addMessage(new AgentSession.ConversationMessage.User(prompt));
 
         String model = getModelForSession(sessionId);
-        // Session-mode bills 1x per sendAndWait regardless of model, so the
-        // default is the strongest we have — Haiku saves nothing on premium.
-        if (model == null || model.isBlank()) model = "claude-sonnet-4.6";
+        // Session-mode billing = published multiplier × 3 (verified). Haiku
+        // stays cheapest: 0.33 × 3 = 1 premium/turn vs Sonnet 1 × 3 = 3.
+        // Default to Haiku so operators are billed 1x by default; Sonnet/
+        // Opus usage should be a deliberate opt-in.
+        if (model == null || model.isBlank()) model = "claude-haiku-4.5";
 
         // Phase 2 (#4): register ace-copilot's tools with the SDK so the agent
         // uses them instead of the built-in filesystem/shell tools. Tool

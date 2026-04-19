@@ -33,24 +33,33 @@ consumes **0.1%** of the entire monthly budget. That is the full
 resolution of your month. A single complex task on the stock chat
 path can eat 0.5–1% of your month.
 
-### 2. Every model costs 1 premium request on the session path — no multiplier
+### 2. The session endpoint applies a flat 3× multiplier on top of the published model multipliers
 
-GitHub publishes a "model multiplier" table (0.33x for Haiku-class,
-1x for mid-range, higher for frontier models) and operators naturally
-assume picking a smaller model saves premium budget. **On the session
-SDK path this is not true.** Verified by running Haiku-only turns and
-watching https://github.com/settings/copilot/usage: **every
-`sendAndWait` advances the counter by 1, regardless of model**. One
-Haiku turn = 1 premium request = 0.01% of the monthly cap.
+GitHub publishes a "model multiplier" table — 0.33x for Haiku-class,
+1x for mid-range Claude and GPT, higher for frontier models. **The
+session SDK path (`sendAndWait`) multiplies that table by 3**. Verified
+by repeated observation of https://github.com/settings/copilot/usage
+across many turns:
 
-Operational consequence: **on session mode, model choice is neutral for
-billing**. Picking Haiku over Sonnet/Opus saves nothing on the premium
-counter. Pick whichever model gives you the best capability/latency
-for the task — you are paying the same premium per turn either way.
+| Model | Published multiplier (chat path) | Observed per-turn on session path | Ratio |
+| --- | --- | --- | --- |
+| Claude Haiku 4.5 | 0.33× | **1×** | 3× |
+| Claude Sonnet 4.5 | 1× | **3×** | 3× |
+| Claude Sonnet 4.6 | 1× | **3×** | 3× |
+| GPT-5.4 | 1× | **3×** | 3× |
 
-(The chat-completions path may still honor the published multipliers;
-this finding is specific to the `sendAndWait` endpoint used by
-`@github/copilot-sdk`. If GitHub ever publishes clarifying
+Operational consequence: **Haiku is the cheapest option on session
+mode too**. Three Haiku session turns fit in the premium budget of one
+Sonnet session turn. On Enterprise (1,000 requests/month), a Sonnet
+session turn consumes **0.3%** of your monthly budget; a Haiku session
+turn consumes **0.1%**.
+
+This project defaults to Haiku on session mode for that reason. When
+you explicitly need Sonnet/Opus/GPT capability, use them — but budget
+for the 3× cost relative to Haiku and be explicit about the tradeoff.
+
+(The chat-completions path still honors the published multipliers
+without the 3× surcharge. If GitHub ever publishes clarifying
 documentation for the agent endpoint, update this section.)
 
 ### 3. Copilot reduces the native context window on some Claude models
@@ -90,7 +99,7 @@ without telling us.
   "profiles": {
     "copilot": {
       "provider": "copilot",
-      "model": "claude-sonnet-4.6",
+      "model": "claude-haiku-4.5",
       "copilotRuntime": "session",
       "apiKey": "<GitHub OAuth or PAT with Copilot entitlement>"
     }

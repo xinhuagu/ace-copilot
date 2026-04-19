@@ -249,8 +249,9 @@ CMDEOF
 # daemon falls back to provider=anthropic and needs ANTHROPIC_API_KEY —
 # which is wrong for the "install + run against Copilot" story the
 # README sells. Write a minimal 3-profile Copilot config on first
-# install, default to Sonnet 4.6 in session mode. Never overwrite an
-# existing config.
+# install, default to Haiku in session mode (1 premium/turn; Sonnet
+# session turns are 3 premium/turn per verified observation). Never
+# overwrite an existing config.
 # ---------------------------------------------------------------------------
 bootstrap_config() {
     CONFIG_FILE="$INSTALL_DIR/config.json"
@@ -262,23 +263,23 @@ bootstrap_config() {
     info "Writing starter config to $CONFIG_FILE..."
     cat > "$CONFIG_FILE" <<'JSON'
 {
-  "defaultProfile": "copilot-sonnet",
+  "defaultProfile": "copilot-haiku",
   "profiles": {
-    "copilot-sonnet": {
-      "provider": "copilot",
-      "model": "claude-sonnet-4.6",
-      "maxTokens": 16384,
-      "thinkingBudget": 0,
-      "contextWindowTokens": 200000,
-      "copilotRuntime": "session",
-      "copilotRuntimeAcceptUnsandboxed": true
-    },
     "copilot-haiku": {
       "provider": "copilot",
       "model": "claude-haiku-4.5",
       "maxTokens": 16384,
       "thinkingBudget": 0,
       "contextWindowTokens": 128000,
+      "copilotRuntime": "session",
+      "copilotRuntimeAcceptUnsandboxed": true
+    },
+    "copilot-sonnet": {
+      "provider": "copilot",
+      "model": "claude-sonnet-4.6",
+      "maxTokens": 16384,
+      "thinkingBudget": 0,
+      "contextWindowTokens": 200000,
       "copilotRuntime": "session",
       "copilotRuntimeAcceptUnsandboxed": true
     },
@@ -294,12 +295,12 @@ bootstrap_config() {
   }
 }
 JSON
-    ok "Starter config written. Default profile: copilot-sonnet (Claude Sonnet 4.6)"
+    ok "Starter config written. Default profile: copilot-haiku (Claude Haiku 4.5 — 1 premium/turn)"
     echo ""
     echo "  Switch profiles any time with:"
-    echo "    ace-copilot-restart copilot-sonnet   # Claude Sonnet 4.6 (default)"
-    echo "    ace-copilot-restart copilot-haiku    # Claude Haiku 4.5"
-    echo "    ace-copilot-restart copilot-gpt      # GPT-5.4"
+    echo "    ace-copilot-restart copilot-haiku    # Claude Haiku 4.5 (default, 1 premium/turn)"
+    echo "    ace-copilot-restart copilot-sonnet   # Claude Sonnet 4.6 (3 premium/turn)"
+    echo "    ace-copilot-restart copilot-gpt      # GPT-5.4 (3 premium/turn)"
     echo ""
     echo "  Requires: gh auth login (for Copilot token auto-discovery)."
     echo ""
