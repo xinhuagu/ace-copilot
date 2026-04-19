@@ -201,6 +201,36 @@ public final class ForegroundOutputSink implements OutputSink {
     }
 
     @Override
+    public void onUserInputRequest(String requestId, String question,
+                                   java.util.List<String> choices,
+                                   boolean allowFreeform) {
+        synchronized (lock) {
+            if (receivedTextOutput) {
+                flushMarkdown();
+            }
+            stopSpinnerInternal();
+            statusRenderer.hide();
+            out.printf("%s[waiting for clarification]%s%n", ACCENT, RESET);
+            out.flush();
+            statusRenderer.refresh();
+        }
+    }
+
+    @Override
+    public void onUserInputResolved(String requestId, String reason) {
+        synchronized (lock) {
+            statusRenderer.hide();
+            if (reason == null) {
+                out.printf("%s[answer received — continuing]%s%n", MUTED, RESET);
+            } else {
+                out.printf("%s[clarification %s]%s%n", MUTED, reason, RESET);
+            }
+            out.flush();
+            statusRenderer.refresh();
+        }
+    }
+
+    @Override
     public void onStreamCancelled() {
         synchronized (lock) {
             stopSpinnerInternal();
