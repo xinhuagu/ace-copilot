@@ -176,6 +176,27 @@ public final class CopilotTokenProvider implements Supplier<String> {
         return list.isEmpty() ? null : list.getFirst();
     }
 
+    /**
+     * Narrow probe used by the CLI's first-time-auth pre-flight: only checks
+     * the cached device-code token and {@code gh auth token}. Other sources
+     * (configured {@code apiKey}, {@code GITHUB_TOKEN}, {@code GH_TOKEN}) are
+     * intentionally excluded — they are usable at runtime by the daemon, but
+     * must not silently bypass the first-time login UX.
+     *
+     * @return cached device-code token, else gh CLI token, else {@code null}
+     */
+    public static String firstPreflightTokenCandidate() {
+        String cached = CopilotDeviceAuth.loadCachedToken();
+        if (cached != null && !cached.isBlank()) {
+            return cached;
+        }
+        String ghCli = resolveGhCliToken();
+        if (ghCli != null && !ghCli.isBlank()) {
+            return ghCli;
+        }
+        return null;
+    }
+
     private static void addIfValid(List<String> candidates, String token, String source) {
         if (token != null && !token.isBlank() && !candidates.contains(token)) {
             log.debug("Found GitHub token candidate from {}", source);

@@ -149,26 +149,20 @@ public final class AceCopilotMain implements Runnable {
     static void ensureCopilotAuth(String providerOverride) {
         try {
             String effectiveProvider = providerOverride;
-            String configuredApiKey = null;
             if (effectiveProvider == null || effectiveProvider.isBlank()) {
                 AceCopilotConfig config = AceCopilotConfig.load(null);
                 effectiveProvider = config.provider();
-                configuredApiKey = config.apiKey();
             }
             if (!"copilot".equalsIgnoreCase(effectiveProvider)) {
                 return;
             }
-            // Defense in depth: even though AceCopilotConfig no longer leaks
-            // OPENAI_API_KEY into copilot's apiKey field, only forward an
-            // explicitly GitHub-shaped credential to the cascade. Anything
-            // else (e.g. an OpenAI-style key from a misconfigured profile)
-            // would falsely satisfy the pre-flight and skip the device-code
-            // prompt only to fail later at the wire.
-            String githubShapedApiKey = isGithubShapedToken(configuredApiKey) ? configuredApiKey : null;
-            // Any usable GitHub token (cached OAuth, githubShapedApiKey,
-            // GITHUB_TOKEN, GH_TOKEN, or `gh auth token`) skips the
-            // device-code prompt.
-            if (CopilotTokenProvider.firstGithubTokenCandidate(githubShapedApiKey) != null) {
+            // Pre-flight policy: only the cached device-code token and
+            // `gh auth token` are allowed to skip the first-time login UX.
+            // Other GitHub credential sources (config apiKey / GITHUB_TOKEN /
+            // GH_TOKEN) remain usable at runtime by the daemon but must not
+            // bypass the prompt — a fresh user should always go through a
+            // visible authorization step.
+            if (CopilotTokenProvider.firstPreflightTokenCandidate() != null) {
                 return;
             }
             System.out.println();
@@ -189,18 +183,6 @@ public final class AceCopilotMain implements Runnable {
     public static void main(String[] args) {
         int exitCode = new CommandLine(new AceCopilotMain()).execute(args);
         System.exit(exitCode);
-    }
-
-    private static boolean isGithubShapedToken(String token) {
-        if (token == null || token.isBlank()) {
-            return false;
-        }
-        return token.startsWith("gho_")
-                || token.startsWith("ghp_")
-                || token.startsWith("ghu_")
-                || token.startsWith("ghs_")
-                || token.startsWith("ghr_")
-                || token.startsWith("github_pat_");
     }
 
     private static String resolveClientInstanceId() {

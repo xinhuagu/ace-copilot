@@ -100,17 +100,14 @@ ace-copilot                    # Attach TUI
 
 #### First-time login
 
-ace-copilot finds a GitHub token in this order — first match wins, no prompt:
+On first start, ace-copilot only treats the following as "already logged in" and skips the prompt:
 
-1. `~/.ace-copilot/copilot-oauth-token` (cached from a previous login)
-2. `apiKey` in the copilot profile of `~/.ace-copilot/config.json`
-3. `GITHUB_TOKEN` env var
-4. `GH_TOKEN` env var
-5. `gh auth token` from the GitHub CLI
+1. `~/.ace-copilot/copilot-oauth-token` — token cached from a previous login
+2. `gh auth token` — a working GitHub CLI session
 
-**Easiest path:** `gh auth login` once, then start ace-copilot. No further prompt.
+**Easiest path:** run `gh auth login` once, then start ace-copilot. No prompt.
 
-**No `gh` CLI?** ace-copilot prints a device code + URL on first run:
+**Otherwise** (fresh machine, no `gh` CLI), ace-copilot prints a device code + URL:
 
 ```
 No GitHub Copilot credentials found.
@@ -124,9 +121,11 @@ Token will be cached at ~/.ace-copilot/copilot-oauth-token.
   Waiting for authorization...
 ```
 
-Open the URL, paste the code, authorize. The token is cached and reused on subsequent runs.
+Open the URL, paste the code, authorize. The token is cached and reused.
 
 > Requires an active **GitHub Copilot** subscription. Free GitHub accounts cannot use the Copilot API.
+>
+> Other credential sources — `apiKey` in `~/.ace-copilot/config.json`, `GITHUB_TOKEN`, `GH_TOKEN` — are usable at runtime by the daemon but **do not** silently skip the first-time login. This is by design: a fresh user should always see a visible authorization step.
 
 #### Per-turn output
 
