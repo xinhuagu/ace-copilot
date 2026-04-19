@@ -158,9 +158,17 @@ public final class AceCopilotMain implements Runnable {
             if (!"copilot".equalsIgnoreCase(effectiveProvider)) {
                 return;
             }
-            // Any usable GitHub token (cached OAuth, config apiKey, GITHUB_TOKEN,
-            // GH_TOKEN, or `gh auth token`) skips the device-code prompt.
-            if (CopilotTokenProvider.firstGithubTokenCandidate(configuredApiKey) != null) {
+            // Defense in depth: even though AceCopilotConfig no longer leaks
+            // OPENAI_API_KEY into copilot's apiKey field, only forward an
+            // explicitly GitHub-shaped credential to the cascade. Anything
+            // else (e.g. an OpenAI-style key from a misconfigured profile)
+            // would falsely satisfy the pre-flight and skip the device-code
+            // prompt only to fail later at the wire.
+            String githubShapedApiKey = isGithubShapedToken(configuredApiKey) ? configuredApiKey : null;
+            // Any usable GitHub token (cached OAuth, githubShapedApiKey,
+            // GITHUB_TOKEN, GH_TOKEN, or `gh auth token`) skips the
+            // device-code prompt.
+            if (CopilotTokenProvider.firstGithubTokenCandidate(githubShapedApiKey) != null) {
                 return;
             }
             System.out.println();
@@ -181,6 +189,18 @@ public final class AceCopilotMain implements Runnable {
     public static void main(String[] args) {
         int exitCode = new CommandLine(new AceCopilotMain()).execute(args);
         System.exit(exitCode);
+    }
+
+    private static boolean isGithubShapedToken(String token) {
+        if (token == null || token.isBlank()) {
+            return false;
+        }
+        return token.startsWith("gho_")
+                || token.startsWith("ghp_")
+                || token.startsWith("ghu_")
+                || token.startsWith("ghs_")
+                || token.startsWith("ghr_")
+                || token.startsWith("github_pat_");
     }
 
     private static String resolveClientInstanceId() {
