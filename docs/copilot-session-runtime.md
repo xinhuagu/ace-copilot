@@ -11,6 +11,72 @@ This document is the current contract for operators and reviewers.
 Everything below reflects `main` as of Pre-Phase 3 (#12); follow-ups
 live in issues #5 (Phase 3) and #6 (Phase 4).
 
+## Why this project exists — Copilot billing facts
+
+ace-copilot only makes sense if you know exactly what you are working
+against. These are the concrete, operator-verified facts that motivate
+everything below.
+
+### 1. Copilot bills by "premium request", and the quota is hard-capped per month
+
+Unlike pay-as-you-go APIs (Anthropic, OpenAI direct, Ollama-local) where
+you pay per token and there is no ceiling, **GitHub Copilot gives you a
+fixed number of premium requests per month** and every LLM call that
+hits their endpoint consumes one. When the monthly pool runs out,
+you stop — there is no overage bill, there is no degraded tier, there
+is no per-request top-up transparent to the agent. You run out, you
+wait until the next billing cycle, or you upgrade the plan.
+
+At roughly 10,000 premium requests/month on the plan verified during
+this project's development, a single request consumes **0.01%** of the
+entire monthly budget. That is the full resolution of your month.
+
+### 2. Every model costs 1 premium request on the session path — no multiplier
+
+GitHub publishes a "model multiplier" table (0.33x for Haiku-class,
+1x for mid-range, higher for frontier models) and operators naturally
+assume picking a smaller model saves premium budget. **On the session
+SDK path this is not true.** Verified by running Haiku-only turns and
+watching https://github.com/settings/copilot/usage: **every
+`sendAndWait` advances the counter by 1, regardless of model**. One
+Haiku turn = 1 premium request = 0.01% of the monthly cap.
+
+Operational consequence: **on session mode, model choice is neutral for
+billing**. Picking Haiku over Sonnet/Opus saves nothing on the premium
+counter. Pick whichever model gives you the best capability/latency
+for the task — you are paying the same premium per turn either way.
+
+(The chat-completions path may still honor the published multipliers;
+this finding is specific to the `sendAndWait` endpoint used by
+`@github/copilot-sdk`. If GitHub ever publishes clarifying
+documentation for the agent endpoint, update this section.)
+
+### 3. Copilot reduces the native context window on some Claude models
+
+Claude models have generous native context windows — Sonnet 4.5 ships
+with 200K (or 1M with the context-1M beta), for example. GitHub
+Copilot proxies Claude through their own infrastructure and **reduces
+the effective context window below Claude's native limit** on at least
+some of the supported Claude SKUs. Operators should not assume the
+Copilot-branded Claude model has the context window advertised on
+Anthropic's model card.
+
+This matters directly for long agent runs: a Copilot-side context
+trim that happens silently can truncate conversation state the agent
+was relying on, and we cannot compensate by compacting harder from
+our side without burning additional premium requests (which is
+exactly why the Phase 4 decision dropped our compaction summary on
+the session path — see below).
+
+### What this means for the architecture
+
+Every design decision in the rest of this document — one `sendAndWait`
+per user turn, planner kept in-session, compaction dropped, post-turn
+learning skipped, honest per-turn and session-total billing UX — is a
+direct answer to these three facts. The goal is to make the most of a
+finite, opaque, capped budget inside a proxy that trims context
+without telling us.
+
 ## Turning it on
 
 ```json
