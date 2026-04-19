@@ -38,8 +38,9 @@ path can eat 0.5–1% of your month.
 GitHub publishes a "model multiplier" table — 0.33x for Haiku-class,
 1x for mid-range Claude and GPT, higher for frontier models. **The
 session SDK path (`sendAndWait`) multiplies that table by 3**. Verified
-by repeated observation of https://github.com/settings/copilot/usage
-across many turns:
+by repeated observation of the GitHub Copilot usage dashboard
+(Settings → Billing & Plans → Copilot premium requests) across many
+turns:
 
 | Model | Published multiplier (chat path) | Observed per-turn on session path | Ratio |
 | --- | --- | --- | --- |
@@ -226,7 +227,7 @@ Every session-path JSON-RPC response includes `result.usage.copilot`:
 | `usageEventCount` | Number of `assistant.usage` events observed inside this turn. >1 means the SDK agent ran multiple internal LLM calls (typically 1 initial + N tool-result continuations). All of them together cost one premium request. |
 | `premiumUsedBefore` / `premiumUsedAfter` | Snapshots of `premium_interactions.usedRequests` at the first and last `assistant.usage` events of the turn. Useful for operators wanting raw numbers. |
 | `previousTurnPremiumUsed` | The `lastUsage.premiumUsed` stored from the **previous** turn on this session. Baseline for the honest cross-turn delta. |
-| `premiumDeltaSinceLastTurn` | **Session-counter advance observed since the previous turn's last sample** — `currentTurn.last.premiumUsed - previousTurnPremiumUsed`. Not a per-turn billing attribution: GitHub's counter is eventually consistent across turns, so a billable turn's +1 can land on a later turn's observation window (and vice-versa). Reliable only when accumulated across many turns — use the sum to reconcile with `https://github.com/settings/copilot/usage`. `-1` on the first turn (no baseline). |
+| `premiumDeltaSinceLastTurn` | **Session-counter advance observed since the previous turn's last sample** — `currentTurn.last.premiumUsed - previousTurnPremiumUsed`. Not a per-turn billing attribution: GitHub's counter is eventually consistent across turns, so a billable turn's +1 can land on a later turn's observation window (and vice-versa). Reliable only when accumulated across many turns — use the sum to reconcile with the Copilot usage dashboard (Settings → Billing & Plans → Copilot premium requests). `-1` on the first turn (no baseline). |
 | `intraTurnPremiumDelta` | Diagnostic only. Subtraction inside the turn (`last - first`). The SDK does not guarantee `first` is a pre-billing baseline — GitHub's counter updates asynchronously and can land mid-stream, so this alone can report 0 for a billable turn or vice-versa. Prefer the session-level advance in `premiumDeltaSinceLastTurn` over any single-turn reading. |
 | `initiatorFirst` / `initiatorLast` | `"user"` for the initial turn kickoff, `"agent"` for SDK-driven continuations. |
 | `wallMs` | Total wall time of the turn. |
@@ -314,10 +315,11 @@ Before starting, note the baseline counter from any recent
 
 ### Dashboard reconciliation
 
-After running the scenario, wait ~10 minutes and check
-`https://github.com/settings/copilot/usage` (for the account whose
-token the sidecar is using). The `Used` count should advance by the
-same total as the in-log deltas (±1 for rounding / propagation lag).
+After running the scenario, wait ~10 minutes and check your Copilot
+usage dashboard (GitHub → Settings → Billing & Plans → Copilot premium
+requests, for the account whose token the sidecar is using). The
+`Used` count should advance by the same total as the in-log deltas
+(±1 for rounding / propagation lag).
 
 ## Billing verification
 
@@ -332,8 +334,8 @@ grep "Copilot session turn" ~/.ace-copilot/logs/daemon.log | tail -50 | \
     END {print "session billing delta: " (last - first)}'
 ```
 
-This matches `https://github.com/settings/copilot/usage` up to the
-dashboard's propagation lag (minutes to hours).
+This matches the Copilot usage dashboard (Settings → Billing & Plans)
+up to the dashboard's propagation lag (minutes to hours).
 
 ## Troubleshooting
 

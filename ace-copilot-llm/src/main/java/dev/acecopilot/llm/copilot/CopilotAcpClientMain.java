@@ -36,7 +36,7 @@ import java.nio.file.Path;
 public final class CopilotAcpClientMain {
 
     // Session-mode billing = published multiplier × 3 (verified against
-    // github.com/settings/copilot/usage across many turns). Haiku stays
+    // the Copilot usage dashboard across many turns). Haiku stays
     // cheapest: Haiku 0.33 × 3 = 1 premium/turn; Sonnet 1 × 3 = 3
     // premium/turn. Default to Haiku so operators don't get billed 3x
     // by accident. Users who want Sonnet/Opus capability can switch

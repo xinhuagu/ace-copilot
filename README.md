@@ -18,7 +18,7 @@
 Copilot's billing model is structurally hostile to agent workloads. The facts below are operator-verified, not guessed from marketing pages.
 
 - **Premium requests are hard-capped per month.** Unlike pay-as-you-go APIs (Anthropic, OpenAI direct, Ollama-local) where you pay per token with no ceiling, Copilot gives you a fixed monthly pool of premium requests and stops when it runs out. No overage bill, no degraded tier — you wait for the next billing cycle or upgrade the plan. On the **Copilot Enterprise** plan (1,000 premium requests/month per seat), **every single request is 0.1% of your entire monthly budget**. A single complex task on the stock chat path can eat 0.5–1% of your month.
-- **The session endpoint applies a flat 3× multiplier on top of the published model multipliers.** Operator-verified by repeated measurement against https://github.com/settings/copilot/usage across many turns. Model choice is **not** neutral on session mode — it is *more* expensive than chat mode for every model except Haiku.
+- **The session endpoint applies a flat 3× multiplier on top of the published model multipliers.** Operator-verified by repeated measurement against your GitHub Copilot usage dashboard (Settings → Billing & Plans → Copilot premium requests) across many turns. Model choice is **not** neutral on session mode — it is *more* expensive than chat mode for every model except Haiku.
 
   | Model | Published multiplier (chat path) | Observed per-turn on session path | Session-vs-published ratio |
   | --- | --- | --- | --- |
