@@ -172,12 +172,32 @@ public final class CopilotTokenProvider implements Supplier<String> {
      * triggering Copilot's token-exchange flow.
      */
     public static List<String> collectGithubTokenCandidates(String configuredToken) {
+        return collectGithubTokenCandidates(
+                configuredToken,
+                CopilotDeviceAuth::loadCachedToken,
+                CopilotTokenProvider::resolveGhCliToken,
+                () -> System.getenv("GITHUB_TOKEN"),
+                () -> System.getenv("GH_TOKEN"));
+    }
+
+    /**
+     * Testable overload — production code calls
+     * {@link #collectGithubTokenCandidates(String)}, which wires the real
+     * cached-file / gh-CLI / env-var sources. Tests can pass deterministic
+     * suppliers to lock the ordering policy.
+     */
+    static List<String> collectGithubTokenCandidates(
+            String configuredToken,
+            Supplier<String> cachedTokenSupplier,
+            Supplier<String> ghCliTokenSupplier,
+            Supplier<String> githubTokenEnvSupplier,
+            Supplier<String> ghTokenEnvSupplier) {
         List<String> candidates = new ArrayList<>(5);
-        addIfValid(candidates, CopilotDeviceAuth.loadCachedToken(), "cached OAuth token");
-        addIfValid(candidates, resolveGhCliToken(), "gh CLI");
+        addIfValid(candidates, cachedTokenSupplier.get(), "cached OAuth token");
+        addIfValid(candidates, ghCliTokenSupplier.get(), "gh CLI");
         addIfValid(candidates, configuredToken, "config");
-        addIfValid(candidates, System.getenv("GITHUB_TOKEN"), "GITHUB_TOKEN");
-        addIfValid(candidates, System.getenv("GH_TOKEN"), "GH_TOKEN");
+        addIfValid(candidates, githubTokenEnvSupplier.get(), "GITHUB_TOKEN");
+        addIfValid(candidates, ghTokenEnvSupplier.get(), "GH_TOKEN");
         return candidates;
     }
 
@@ -200,11 +220,24 @@ public final class CopilotTokenProvider implements Supplier<String> {
      * @return cached device-code token, else gh CLI token, else {@code null}
      */
     public static String firstPreflightTokenCandidate() {
-        String cached = CopilotDeviceAuth.loadCachedToken();
+        return firstPreflightTokenCandidate(
+                CopilotDeviceAuth::loadCachedToken,
+                CopilotTokenProvider::resolveGhCliToken);
+    }
+
+    /**
+     * Testable overload — production code calls
+     * {@link #firstPreflightTokenCandidate()}, which wires the real
+     * sources. Tests can pass deterministic suppliers.
+     */
+    static String firstPreflightTokenCandidate(
+            Supplier<String> cachedTokenSupplier,
+            Supplier<String> ghCliTokenSupplier) {
+        String cached = cachedTokenSupplier.get();
         if (cached != null && !cached.isBlank()) {
             return cached;
         }
-        String ghCli = resolveGhCliToken();
+        String ghCli = ghCliTokenSupplier.get();
         if (ghCli != null && !ghCli.isBlank()) {
             return ghCli;
         }
