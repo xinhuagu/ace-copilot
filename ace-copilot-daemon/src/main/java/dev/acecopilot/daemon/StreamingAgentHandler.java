@@ -28,6 +28,7 @@ import dev.acecopilot.core.llm.ContentBlock;
 import dev.acecopilot.core.llm.LlmException;
 import dev.acecopilot.core.llm.Message;
 import dev.acecopilot.core.llm.RequestAttribution;
+import dev.acecopilot.core.llm.RequestSource;
 import dev.acecopilot.core.llm.StopReason;
 import dev.acecopilot.core.llm.StreamEvent;
 import dev.acecopilot.core.llm.StreamEventHandler;
@@ -695,10 +696,22 @@ public final class StreamingAgentHandler {
      */
     private void writeLlmRequestsBySource(com.fasterxml.jackson.databind.node.ObjectNode usageNode,
                                           RequestAttribution attribution) {
+        writeLlmRequestsBySource(objectMapper, usageNode, attribution);
+    }
+
+    /**
+     * Static for unit-testability: pins the wire shape
+     * ({@code llmRequestsBySource} field, lowercase {@link RequestSource}
+     * name keys) without needing a full handler instance. See
+     * {@code CopilotSessionBySourceShapeTest} (#17).
+     */
+    static void writeLlmRequestsBySource(ObjectMapper mapper,
+                                         com.fasterxml.jackson.databind.node.ObjectNode usageNode,
+                                         RequestAttribution attribution) {
         if (attribution == null || attribution.total() == 0) {
             return;
         }
-        var bySourceNode = objectMapper.createObjectNode();
+        var bySourceNode = mapper.createObjectNode();
         attribution.bySource().forEach((source, count) ->
                 bySourceNode.put(source.name().toLowerCase(Locale.ROOT), count));
         usageNode.set("llmRequestsBySource", bySourceNode);
@@ -2385,6 +2398,18 @@ public final class StreamingAgentHandler {
         // exposed as a diagnostic under `copilot` rather than masquerading
         // as `llmRequests` (which the CLI renders as the billing indicator).
         usageNode.put("llmRequests", 1);
+        // Phase 4 audit (#6): reuse the chat-path contract
+        // (`llmRequestsBySource`, lowercase keys) so existing consumers
+        // including the TUI — which only parses that field — see session
+        // turns with the same shape as chat turns. Session mode dispatches
+        // early (before planner / checkpoint), SDK handles compaction,
+        // and post-turn learning isn't invoked, so the only category that
+        // fires is MAIN_TURN=1. Categories at zero are intentionally
+        // omitted per the contract's "only present sources are reported".
+        var sessionAttribution = RequestAttribution.builder()
+                .record(RequestSource.MAIN_TURN)
+                .build();
+        writeLlmRequestsBySource(usageNode, sessionAttribution);
 
         Long previousSessionPremium = sessionLastPremiumUsed.get(sessionId);
         long crossTurnPremiumDelta = computeCrossTurnPremiumDelta(previousSessionPremium, last);
@@ -2398,6 +2423,11 @@ public final class StreamingAgentHandler {
         var copilotNode = objectMapper.createObjectNode();
         copilotNode.put("runtime", "session");
         copilotNode.put("usageEventCount", r.usageEventCount());
+        // Phase 4 audit: subsystems intentionally not invoked on this path.
+        // Downstream tooling can grep this to flag accidental regressions
+        // (e.g. if a future change wires post-turn learning into session
+        // mode without accounting for the extra premium it may incur).
+        copilotNode.put("subsystemsSkipped", "planner,compaction,post_turn_learning");
         if (first != null && first.premiumUsed() != null) {
             copilotNode.put("premiumUsedBefore", first.premiumUsed());
             copilotNode.put("initiatorFirst", first.initiator());
