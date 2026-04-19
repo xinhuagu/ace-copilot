@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.18] - 2026-04-19
+
+### Documentation
+
+- Add Copilot billing facts section
+- Front-load the three operator-verified Copilot billing facts
+- Use Copilot Enterprise (1000 req/month) as canonical billing example
+
+### Features
+
+- Default Copilot session model → claude-sonnet-4.6
+- Accept any profile name from config.json (#profile-switch)
+- Write starter config.json with 3 Copilot profiles on first install
 ## [0.3.17] - 2026-04-19
 
 ### Bug Fixes
