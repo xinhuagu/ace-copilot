@@ -2385,6 +2385,19 @@ public final class StreamingAgentHandler {
         // exposed as a diagnostic under `copilot` rather than masquerading
         // as `llmRequests` (which the CLI renders as the billing indicator).
         usageNode.put("llmRequests", 1);
+        // Phase 4 audit (#6): make the subsystem breakdown explicit on the
+        // session path so consumers can compare against the chat path's
+        // RequestAttribution. On session mode the daemon dispatch returns
+        // early (before planner / checkpoint), compaction is handled
+        // internally by the SDK agent, and post-turn learning is not
+        // invoked — so every category except the main turn is zero.
+        var bySourceNode = usageNode.putObject("bySource");
+        bySourceNode.put("MAIN_TURN", 1);
+        bySourceNode.put("PLANNER", 0);
+        bySourceNode.put("CONTINUATION", 0);
+        bySourceNode.put("FALLBACK", 0);
+        bySourceNode.put("REPLAN", 0);
+        bySourceNode.put("COMPACTION_SUMMARY", 0);
 
         Long previousSessionPremium = sessionLastPremiumUsed.get(sessionId);
         long crossTurnPremiumDelta = computeCrossTurnPremiumDelta(previousSessionPremium, last);
@@ -2398,6 +2411,11 @@ public final class StreamingAgentHandler {
         var copilotNode = objectMapper.createObjectNode();
         copilotNode.put("runtime", "session");
         copilotNode.put("usageEventCount", r.usageEventCount());
+        // Phase 4 audit: subsystems intentionally not invoked on this path.
+        // Downstream tooling can grep this to flag accidental regressions
+        // (e.g. if a future change wires post-turn learning into session
+        // mode without accounting for the extra premium it may incur).
+        copilotNode.put("subsystemsSkipped", "planner,compaction,post_turn_learning");
         if (first != null && first.premiumUsed() != null) {
             copilotNode.put("premiumUsedBefore", first.premiumUsed());
             copilotNode.put("initiatorFirst", first.initiator());
