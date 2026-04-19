@@ -13,6 +13,10 @@
 >
 > Copilot's premium-request billing is among the worst fits in the current AI-subscription market for agent workloads — closed, opaque, punitively capped, and structurally misaligned with how agents actually run ([evidence](docs/copilot-session-runtime.md#why-this-project-exists--copilot-billing-facts)). ace-copilot is a deliberate piece of mechanism engineering against that model: reorganize how turns are issued so a multi-tool, multi-iteration agent turn still costs **one** premium request instead of scaling with every intermediate step.
 
+<p align="center">
+  <img src="docs/img/ace-copilot-vs-copilot-billing.png" alt="GitHub Copilot bills per interaction; ace-copilot bills per execution" width="700">
+</p>
+
 ## The problem, concretely
 
 Copilot's billing model is structurally hostile to agent workloads. The facts below are operator-verified, not guessed from marketing pages.
