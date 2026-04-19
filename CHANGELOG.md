@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.21] - 2026-04-19
+
+### Documentation
+
+- Add billing comparison hero image under tagline (#24)
+- Swap GraalVM badge for npm, trim redundant pre-flight list (#26)
+
+### Features
+
+- Cascade GitHub token sources before device-code prompt (#25)
+- Default to claude-haiku-4.5, document model selection (#27)
 ## [0.3.20] - 2026-04-19
 
 ### Documentation
