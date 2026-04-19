@@ -27,9 +27,11 @@ you stop — there is no overage bill, there is no degraded tier, there
 is no per-request top-up transparent to the agent. You run out, you
 wait until the next billing cycle, or you upgrade the plan.
 
-At roughly 10,000 premium requests/month on the plan verified during
-this project's development, a single request consumes **0.01%** of the
-entire monthly budget. That is the full resolution of your month.
+On **Copilot Enterprise** (1,000 premium requests/month per seat —
+the canonical reference plan for this project), a single request
+consumes **0.1%** of the entire monthly budget. That is the full
+resolution of your month. A single complex task on the stock chat
+path can eat 0.5–1% of your month.
 
 ### 2. Every model costs 1 premium request on the session path — no multiplier
 
@@ -60,6 +62,10 @@ the effective context window below Claude's native limit** on at least
 some of the supported Claude SKUs. Operators should not assume the
 Copilot-branded Claude model has the context window advertised on
 Anthropic's model card.
+
+One premium request on Enterprise is 0.1% of the month; a single
+`sendAndWait` that truncates silently and has to be reissued doubles
+that cost with no way to see it coming.
 
 This matters directly for long agent runs: a Copilot-side context
 trim that happens silently can truncate conversation state the agent
