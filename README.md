@@ -9,6 +9,10 @@
   <img src="https://img.shields.io/badge/Gradle-8.14-02303A?logo=gradle&logoColor=white" alt="Gradle 8.14">
 </p>
 
+<p align="center">
+  <img src="docs/img/ace-copilot-vs-copilot-billing.png" alt="GitHub Copilot bills per interaction; ace-copilot bills per execution" width="700">
+</p>
+
 > **ace-copilot exists because long-running tasks demand learning.**
 >
 > When an agent runs for minutes or hours, context is not enough. It must absorb experience while it works, reuse what succeeds, and govern what it learns so it does not become noisy or unsafe.
