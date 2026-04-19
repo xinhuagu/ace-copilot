@@ -109,15 +109,30 @@ additional code-level trick that achieves 0-premium follow-up —
 pretending a pending state exists would silently desync from SDK
 reality.
 
+## Phase 4 locked decisions (#6)
+
+Three chat-mode subsystems that are **intentionally** not invoked on
+the session path. Each is an explicit product decision under the
+Copilot-only + savings-first policy, not a silent gap:
+
+| Subsystem | Decision | Why |
+| --- | --- | --- |
+| TaskPlanner / replan / plan-step executor | **In-session via prompt steering (c4).** The SDK agent plans inside the same `sendAndWait` when the task warrants it, nudged by the steering preamble. No extra premium. | Preserves planning quality without a separate billable plan turn. |
+| Compaction summary | **Dropped.** SDK manages context internally on the session path. | Running our summary would be double work and cost an extra premium per trigger. Revisit if operators report turn truncation. |
+| Post-turn learning (`SkillRefinementEngine`, `DynamicSkillGenerator`, `SessionSkillPacker`) | **Kept skipped.** Restoring these on session mode under the Copilot-only policy would add +1–3 premium per turn, directly undercutting Phase 3's savings. The learning pipeline still runs on chat mode; it is off on session mode by design. | Savings first. Reconsider if a 0-premium path emerges (e.g. SDK lets a sub-task run inside the same `sendAndWait`). |
+
+Telemetry to verify: every session-path turn emits
+`usage.copilot.subsystemsSkipped = "planner,compaction,post_turn_learning"`.
+That string is stable and grep-friendly — if any future change tries
+to wire one of these back onto session mode silently, it would have
+to drop the corresponding entry, which is a visible diff.
+
 ## Intentionally deferred
 
 | Area | Status | Tracked in |
 | --- | --- | --- |
-| Prompt steering to maximise A hit rate | Agents may end turns without `ask_user`, falling back to B | #5 c4 |
 | Structured-form elicitation (MCP etc.) | Auto-declined + yellow warning in TUI | #15 |
 | Incremental mid-execution output for long-running tools (`bash`, etc.) | One `stream.tool_completed` payload at the end, not streamed | #5 |
-| TaskPlanner consolidated inside the session | Still runs via separate LLM calls | #6 |
-| SelfImprovementEngine (`ErrorDetector`, `PatternDetector`) | Separate LLM calls | #6 |
 | Cancel with wire-level interrupt | Best-effort; cancel takes effect after the current `sendAndWait` | #5 |
 
 ## Diagnostic fields
