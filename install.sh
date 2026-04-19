@@ -9,10 +9,13 @@
 #   2. Downloads the latest release from GitHub
 #   3. Extracts to ~/.ace-copilot/
 #   4. Creates ace-copilot, ace-copilot-tui, ace-copilot-restart, ace-copilot-update commands
+#   5. Writes a starter ~/.ace-copilot/config.json with Copilot profiles
+#      (copilot-sonnet default, plus copilot-haiku / copilot-gpt) — only
+#      on first install; existing configs are left untouched
 #
-# No build tools required — only Java 21 runtime.
-# Optional: Node.js 20+ on PATH if you opt into copilotRuntime="session" (issue #3)
-# for GitHub Copilot. The default copilotRuntime="chat" does not need Node.
+# Requirements: Java 21 runtime. Node.js 20+ is required for the Copilot
+# session runtime (the default profile uses it); without Node the daemon
+# falls back to chat mode with a loud error.
 # Supports: macOS, Linux, Windows (Git Bash / WSL)
 set -e
 
@@ -240,6 +243,69 @@ CMDEOF
 }
 
 # ---------------------------------------------------------------------------
+# Bootstrap starter config — only if none exists
+#
+# ace-copilot is a Copilot-focused agent harness. Without a config the
+# daemon falls back to provider=anthropic and needs ANTHROPIC_API_KEY —
+# which is wrong for the "install + run against Copilot" story the
+# README sells. Write a minimal 3-profile Copilot config on first
+# install, default to Sonnet 4.6 in session mode. Never overwrite an
+# existing config.
+# ---------------------------------------------------------------------------
+bootstrap_config() {
+    CONFIG_FILE="$INSTALL_DIR/config.json"
+    if [ -f "$CONFIG_FILE" ]; then
+        info "Existing config at $CONFIG_FILE — leaving untouched."
+        return
+    fi
+
+    info "Writing starter config to $CONFIG_FILE..."
+    cat > "$CONFIG_FILE" <<'JSON'
+{
+  "defaultProfile": "copilot-sonnet",
+  "profiles": {
+    "copilot-sonnet": {
+      "provider": "copilot",
+      "model": "claude-sonnet-4.6",
+      "maxTokens": 16384,
+      "thinkingBudget": 0,
+      "contextWindowTokens": 200000,
+      "copilotRuntime": "session",
+      "copilotRuntimeAcceptUnsandboxed": true
+    },
+    "copilot-haiku": {
+      "provider": "copilot",
+      "model": "claude-haiku-4.5",
+      "maxTokens": 16384,
+      "thinkingBudget": 0,
+      "contextWindowTokens": 128000,
+      "copilotRuntime": "session",
+      "copilotRuntimeAcceptUnsandboxed": true
+    },
+    "copilot-gpt": {
+      "provider": "copilot",
+      "model": "gpt-5.4",
+      "maxTokens": 16384,
+      "thinkingBudget": 0,
+      "contextWindowTokens": 1000000,
+      "copilotRuntime": "session",
+      "copilotRuntimeAcceptUnsandboxed": true
+    }
+  }
+}
+JSON
+    ok "Starter config written. Default profile: copilot-sonnet (Claude Sonnet 4.6)"
+    echo ""
+    echo "  Switch profiles any time with:"
+    echo "    ace-copilot-restart copilot-sonnet   # Claude Sonnet 4.6 (default)"
+    echo "    ace-copilot-restart copilot-haiku    # Claude Haiku 4.5"
+    echo "    ace-copilot-restart copilot-gpt      # GPT-5.4"
+    echo ""
+    echo "  Requires: gh auth login (for Copilot token auto-discovery)."
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
 # Verify PATH
 # ---------------------------------------------------------------------------
 verify_path() {
@@ -272,6 +338,7 @@ main() {
     fetch_latest_version
     download_release
     install_commands
+    bootstrap_config
     verify_path
 
     echo ""
