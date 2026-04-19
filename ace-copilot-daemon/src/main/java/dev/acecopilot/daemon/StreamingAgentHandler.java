@@ -117,6 +117,34 @@ public final class StreamingAgentHandler {
     /** Phase 3 (#5) c5: daemon side timeout mirroring the TUI's 5-minute clarification deadline. */
     private static final long COPILOT_USER_INPUT_WAIT_TIMEOUT_SECONDS = 5 * 60 + 30;
 
+    /**
+     * Phase 3 (#5) c4 prompt steering. Prepended to every session-path
+     * prompt so the SDK agent defaults to closing each turn with an
+     * ask_user when the overall task isn't clearly finished. Raising A-path
+     * hit rate is the only way to keep multi-turn dialogues at 0 premium
+     * (see {@code probe-fake-pending.mjs} — the SDK has no externally-
+     * callable respondToUserInput, so B-path is the fallback). The nudge
+     * is deliberately short and situational so it doesn't derail simple
+     * one-shot prompts: if the task is plainly done, the agent is told to
+     * STOP and not ask.
+     */
+    private static final String COPILOT_SESSION_PROMPT_STEERING = String.join("\n",
+            "[ace-copilot session-runtime guidance — not from the user]",
+            "If the task you just completed is clearly self-contained and finished (e.g. a single",
+            "question answered, a single file read, a standalone computation), STOP without asking",
+            "a follow-up question. Let the turn end.",
+            "",
+            "Otherwise — if there is any ambiguity about whether the user might want a next step,",
+            "refinement, or a related action — end your turn with a brief ask_user() question such",
+            "as \"Anything to refine or add next?\". This keeps the conversation inside a single",
+            "session exchange rather than forcing the user to start a new billable turn.",
+            "",
+            "Do not ask about tool permissions here; those are handled separately by the runtime.",
+            "",
+            "User message below:",
+            "",
+            "");
+
     /** Permission level assignments for known tools. */
     private static final Map<String, PermissionLevel> TOOL_PERMISSION_LEVELS = Map.ofEntries(
             Map.entry("read_file", PermissionLevel.READ),
@@ -2294,11 +2322,16 @@ public final class StreamingAgentHandler {
             }
         });
 
+        // Phase 3 c4: prompt steering — prepend a short nudge so the SDK
+        // agent preferentially closes with ask_user when the task isn't
+        // clearly done. See COPILOT_SESSION_PROMPT_STEERING javadoc.
+        final String steeredPrompt = COPILOT_SESSION_PROMPT_STEERING + prompt;
+
         var started = System.currentTimeMillis();
         var textBuf = new StringBuilder();
         CopilotAcpClient.SendResult r;
         try {
-            r = client.sendAndWait(model, prompt, toolDescriptors, (delta) -> {
+            r = client.sendAndWait(model, steeredPrompt, toolDescriptors, (delta) -> {
                 if (delta == null || delta.isEmpty()) return;
                 textBuf.append(delta);
                 try {

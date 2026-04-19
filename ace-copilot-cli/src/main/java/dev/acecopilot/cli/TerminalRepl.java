@@ -1402,8 +1402,43 @@ public final class TerminalRepl {
                               + formatTokenCount(sessionInfo.contextWindowTokens())
                             : "",
                     RESET);
+
+            // Phase 3 (#5): surface the Copilot session runtime's honest
+            // per-turn billing signal so users can tell when a plain
+            // follow-up became a new billable turn (B-path) vs a
+            // 0-premium clarification answer (A-path). Only rendered
+            // for session-runtime turns, not legacy /chat/completions.
+            var copilot = usage.path("copilot");
+            if (copilot.isObject() && "session".equals(copilot.path("runtime").asText(""))) {
+                renderCopilotBillingLine(out, copilot);
+            }
             out.flush();
         }
+    }
+
+    private void renderCopilotBillingLine(PrintWriter out, JsonNode copilot) {
+        long delta = copilot.path("premiumDeltaSinceLastTurn").asLong(-1);
+        boolean hasBefore = copilot.has("premiumUsedBefore");
+        boolean hasAfter = copilot.has("premiumUsedAfter");
+        String absolute = hasBefore && hasAfter
+                ? copilot.get("premiumUsedBefore").asText() + "→"
+                        + copilot.get("premiumUsedAfter").asText()
+                : "?";
+        String tag;
+        String note;
+        if (delta < 0) {
+            tag = MUTED + "copilot: first turn of session (no baseline yet)" + RESET;
+            note = "premiumUsed " + absolute;
+        } else if (delta == 0) {
+            tag = MUTED + "copilot: 0 premium this turn" + RESET;
+            note = "(kept inside the in-flight sendAndWait — either a clarification answer "
+                    + "or the SDK counter hasn't yet incremented for this turn)";
+        } else {
+            tag = WARNING + "copilot: +" + delta + " premium this turn" + RESET;
+            note = "(new billable sendAndWait — plain follow-up or /new starts a fresh turn)";
+        }
+        out.printf("  %s  %s  %s%s%n", tag, MUTED + "premiumUsed " + absolute + RESET, MUTED, note);
+        out.print(RESET);
     }
 
     // -- Permission handling (from bridge) -----------------------------------

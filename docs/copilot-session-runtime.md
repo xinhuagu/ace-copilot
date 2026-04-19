@@ -114,7 +114,7 @@ reality.
 | Area | Status | Tracked in |
 | --- | --- | --- |
 | Prompt steering to maximise A hit rate | Agents may end turns without `ask_user`, falling back to B | #5 c4 |
-| Structured-form elicitation (MCP etc.) | Auto-declined + yellow warning in TUI | #5 |
+| Structured-form elicitation (MCP etc.) | Auto-declined + yellow warning in TUI | #15 |
 | Incremental mid-execution output for long-running tools (`bash`, etc.) | One `stream.tool_completed` payload at the end, not streamed | #5 |
 | TaskPlanner consolidated inside the session | Still runs via separate LLM calls | #6 |
 | SelfImprovementEngine (`ErrorDetector`, `PatternDetector`) | Separate LLM calls | #6 |
@@ -142,6 +142,62 @@ Every session-path JSON-RPC response includes `result.usage.copilot`:
 | (unset) | Legacy pre-Phase-2 warnings (model change, etc.) |
 | `tool_catalog_changed` | The tool set shifted between turns; remote SDK session was recreated and prior Copilot context discarded. Local transcript still reads continuously. |
 | `elicitation_declined` | The SDK (or an MCP server it invoked) requested structured-form input, which this runtime cannot surface yet. Auto-declined. |
+
+## Phase 3 live acceptance walkthrough
+
+Run this end-to-end once after any Phase 3 change to verify the mix
+A→B policy is holding. Each step records the expected
+`premiumDeltaSinceLastTurn` delta; the sum across the scenario is the
+number of premium requests a real user interaction like this would
+have incurred. The legacy `chat` path would have incurred 1 per
+LLM call (typically 5×+).
+
+### Setup
+
+Two terminal windows:
+
+- **A** — daemon log tail:
+  ```bash
+  tail -f ~/.ace-copilot/logs/daemon.log | grep -E "Copilot session turn|user_input|pending"
+  ```
+
+- **B** — TUI: `./tui.sh` (starts the daemon if not running; profile
+  should have `copilotRuntime: "session"` and working Copilot auth).
+
+Before starting, note the baseline counter from any recent
+`premiumUsed=N->M` line in window A.
+
+### Scenario
+
+| # | Action in TUI | Expected CLI summary | Expected window-A delta | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | Prompt: `summarize ace-copilot-core/build.gradle.kts and then end by asking whether I want a change` | `copilot: 0 premium this turn (kept inside the in-flight sendAndWait — ...)` or `+1 premium` depending on counter timing | `+1` net (may land at turn 1 or later) | First turn; baseline |
+| 2 | At the `answer >` modal, type `add ace-copilot-sdk as an api dependency` | task continues; next summary shows either `0` or `+0` delta | `+0` | Clarification answer → A-path = 0 premium |
+| 3 | Wait for task to complete and ask again | agent ends with another ask_user question (steering working) | n/a | Phase 3 c4 — observe whether agent naturally closes with ask_user |
+| 4 | Answer: `yes, apply it` | agent applies change then asks again | `+0` | Still A-path |
+| 5 | Type `/new run the unit tests` at the clarification modal | current clarification cancels, new task starts | `+1` for the new task | Explicit B-path — `/new` acknowledged as a new billable turn |
+| 6 | Let new task complete (no ask_user); back to main prompt | turn summary shows `copilot: +1 premium this turn (new billable sendAndWait ...)` when agent ends cleanly | `+1` | Explicit B — renderCopilotBillingLine tags it |
+| 7 | Plain follow-up: `now undo that change` | new task; summary again shows `+1 premium` | `+1` | Plain follow-up after idle = B-path, visible |
+| 8 | Put a long task in background: prompt something multi-step, then press any key to auto-`/bg` | task moves to background; main prompt returns | `+1` when main task eventually surfaces completion | Backgrounded task behaviour |
+| 9 | While backgrounded task emits an ask_user, TUI interrupts main prompt with `[Clarification] task #X -> ...` notice | drain fires → clarification modal → answer | `+0` | Background-task clarification path (reviewer P1 fix) |
+
+### Success criteria
+
+- Steps 2, 4, 9 all show `+0` premium delta (A-path).
+- Steps 1, 5, 6, 7, 8 all show `+1` and the CLI prints the yellow
+  `copilot: +N premium this turn` line so the user is aware.
+- `usage.copilot.premiumDeltaSinceLastTurn` values sum matches the
+  absolute `premiumUsed` counter advance seen in window A.
+- At no point does the session wedge: if anything hangs more than 15s
+  without activity, inspect the daemon log for pending/unanswered
+  user_input entries.
+
+### Dashboard reconciliation
+
+After running the scenario, wait ~10 minutes and check
+`https://github.com/settings/copilot/usage` (for the account whose
+token the sidecar is using). The `Used` count should advance by the
+same total as the in-log deltas (±1 for rounding / propagation lag).
 
 ## Billing verification
 
