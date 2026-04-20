@@ -14,7 +14,7 @@
 > Copilot's premium-request billing is among the most **opaque and punitively priced** options in the current AI-subscription market for agent workloads — an integer counter with no per-turn receipt, an **undocumented 3× multiplier** on the session endpoint, a silently trimmed context window, and overage priced several times higher than the same model costs direct from the provider ([evidence](docs/copilot-session-runtime.md#why-this-project-exists--copilot-billing-facts)). ace-copilot uses Copilot's **own** session SDK — the same underlying mechanism as VSCode Copilot Chat's agent mode — to deliver one-premium-per-user-prompt billing in a CLI/daemon, with telemetry that surfaces the 3× multiplier GitHub doesn't show you and [explicit Phase 4 tradeoffs](docs/copilot-phase4-audit.md) for the subsystems that would otherwise silently re-bill you.
 
 <p align="center">
-  <img src="docs/img/ace-copilot-vs-copilot-billing.png" alt="GitHub Copilot bills per interaction; ace-copilot bills per execution" width="700">
+  <img src="docs/img/ace-copilot-hero.png" alt="GitHub Copilot meters interactions (premium request meter clicking up with every step); ace-copilot meters execution (one turn, one request, full execution)" width="700">
 </p>
 
 ## The problem, concretely
