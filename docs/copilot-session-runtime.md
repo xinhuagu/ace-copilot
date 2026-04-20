@@ -20,18 +20,36 @@ everything below.
 ### 1. Copilot bills by "premium request", and the quota is hard-capped per month
 
 Unlike pay-as-you-go APIs (Anthropic, OpenAI direct, Ollama-local) where
-you pay per token and there is no ceiling, **GitHub Copilot gives you a
-fixed number of premium requests per month** and every LLM call that
-hits their endpoint consumes one. When the monthly pool runs out,
-you stop — there is no overage bill, there is no degraded tier, there
-is no per-request top-up transparent to the agent. You run out, you
-wait until the next billing cycle, or you upgrade the plan.
+you pay per token at a rate you can reason about up front, **GitHub
+Copilot gives you a fixed number of premium requests per month** and
+every LLM call that hits their endpoint consumes one (or more — see
+Fact 2). When the monthly pool runs out you have three options: wait
+for the next billing cycle, upgrade the plan, or [**buy overage at
+$0.04 per premium request**](https://github.blog/changelog/2025-08-22-premium-request-overage-policy-is-generally-available-for-copilot-business-and-enterprise/)
+— the overage policy went GA for Business / Enterprise on
+2025-08-22. Earlier drafts of this doc claimed "no overage" as a
+fact; that is no longer accurate.
 
-On **Copilot Enterprise** (1,000 premium requests/month per seat —
-the canonical reference plan for this project), a single request
-consumes **0.1%** of the entire monthly budget. That is the full
-resolution of your month. A single complex task on the stock chat
-path can eat 0.5–1% of your month.
+What overage actually costs you depends on the session-path 3×
+multiplier and the per-model base multiplier:
+
+| Per turn | Base | After 3× session | Overage $/turn |
+| --- | --- | --- | --- |
+| Haiku 4.5 | 0.33 | 1 premium | **$0.04** |
+| Sonnet 4.5 / 4.6 | 1 | 3 premium | **$0.12** |
+| GPT-5.4 | 1 | 3 premium | **$0.12** |
+| Frontier / reasoning (5×/20× base) | 5–20 | 15–60 premium | **$0.60–$2.40** |
+
+So the ceiling isn't there, but it is replaced with pricing that is
+**far above** what you'd pay going direct to the provider for the
+same model token-for-token.
+
+On [**Copilot Enterprise**](https://docs.github.com/en/copilot/get-started/plans)
+(1,000 premium requests/month per seat — the canonical reference plan
+for this project), a single request consumes **0.1%** of the monthly
+budget before overage kicks in. That is the full resolution of your
+month. A single complex task on the stock chat path can eat 0.5–1%
+of your month before overage.
 
 ### 2. The session endpoint applies a flat 3× multiplier on top of the published model multipliers
 
