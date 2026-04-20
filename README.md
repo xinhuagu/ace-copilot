@@ -9,9 +9,9 @@
   <img src="https://img.shields.io/badge/Gradle-8.14-02303A?logo=gradle&logoColor=white" alt="Gradle 8.14">
 </p>
 
-> **ace-copilot exists to make GitHub Copilot usable as an agent backend.**
+> **ace-copilot exists to make GitHub Copilot usable as an agent backend from the terminal, with pricing you can see and tradeoffs you can audit.**
 >
-> Copilot's premium-request billing is among the worst fits in the current AI-subscription market for agent workloads — closed, opaque, punitively capped, and structurally misaligned with how agents actually run ([evidence](docs/copilot-session-runtime.md#why-this-project-exists--copilot-billing-facts)). ace-copilot is a deliberate piece of mechanism engineering against that model: reorganize how turns are issued so a multi-tool, multi-iteration agent turn still costs **one** premium request instead of scaling with every intermediate step.
+> Copilot's premium-request billing is among the most **opaque and punitively priced** options in the current AI-subscription market for agent workloads — an integer counter with no per-turn receipt, an **undocumented 3× multiplier** on the session endpoint, a silently trimmed context window, and overage priced several times higher than the same model costs direct from the provider ([evidence](docs/copilot-session-runtime.md#why-this-project-exists--copilot-billing-facts)). ace-copilot uses Copilot's **own** session SDK — the same underlying mechanism as VSCode Copilot Chat's agent mode — to deliver one-premium-per-user-prompt billing in a CLI/daemon, with telemetry that surfaces the 3× multiplier GitHub doesn't show you and [explicit Phase 4 tradeoffs](docs/copilot-phase4-audit.md) for the subsystems that would otherwise silently re-bill you.
 
 <p align="center">
   <img src="docs/img/ace-copilot-vs-copilot-billing.png" alt="GitHub Copilot bills per interaction; ace-copilot bills per execution" width="700">
