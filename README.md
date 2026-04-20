@@ -11,7 +11,7 @@
 
 > **ace-copilot: GitHub Copilot as an agent backend, from the terminal, with the pricing Copilot doesn't show you.**
 >
-> Copilot's premium-request billing is among the more opaque options in the current AI-subscription market for agent workloads — hidden session-endpoint multipliers, silently trimmed context windows, and overage priced materially above going direct to the model provider on the short agent turns people actually run ([evidence and citations](docs/copilot-session-runtime.md#why-this-project-exists--copilot-billing-facts)). ace-copilot uses Copilot's **own** session SDK inside a CLI/daemon, surfaces the hidden multiplier in TUI telemetry, and [refuses to run extra background LLM calls behind your back](docs/copilot-phase4-audit.md).
+> Copilot's premium-request billing is among the more opaque options in the current AI-subscription market for agent workloads — hidden session-endpoint multipliers, silently trimmed context windows, and overage priced materially above going direct to the model provider on the short agent turns people actually run ([evidence and citations](docs/copilot-session-runtime.md#why-this-project-exists--copilot-billing-facts)). ace-copilot uses Copilot's **own** session SDK inside a CLI/daemon, surfaces the hidden multiplier in TUI telemetry, and refuses to run extra background LLM calls behind your back.
 
 <p align="center">
   <img src="docs/img/ace-copilot-hero-v2.png" alt="Left: GitHub Copilot's pay-per-request meter clicking up with every intermediate step (+1 request per interaction). Right: ace-copilot's structured execution runtime — one controlled agent execution per user turn." width="700">
