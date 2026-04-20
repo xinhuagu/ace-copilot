@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/Gradle-8.14-02303A?logo=gradle&logoColor=white" alt="Gradle 8.14">
 </p>
 
-> GitHub Copilot bills by **premium request** on a hard monthly quota — a model unfriendly to agent harnesses. Per-iteration on `/chat/completions`, hidden session-endpoint multipliers, trimmed context windows, and — once the quota runs out — **expensive overage priced materially above direct API access**. ace-copilot uses Copilot's own session SDK in a CLI/daemon so a multi-tool, multi-iteration agent turn costs **one** premium request, and surfaces the costs Copilot hides.
+> GitHub Copilot bills by **premium request** on a hard monthly quota — a model unfriendly to agent harnesses. Hidden session-endpoint multipliers, trimmed context windows, and — once the quota runs out — **expensive overage priced materially above direct API access on the short agent turns people actually run**. ace-copilot uses Copilot's own session SDK in a CLI/daemon so a multi-tool, multi-iteration agent turn **collapses to a single `sendAndWait`** — one premium request on Haiku (the default), three on Sonnet/GPT — and surfaces the costs Copilot hides.
 
 <p align="center">
   <img src="docs/img/ace-copilot-hero-v2.png" alt="Left: GitHub Copilot's pay-per-request meter clicking up with every intermediate step. Right: ace-copilot's structured execution runtime — one controlled agent execution per user turn." width="700">
