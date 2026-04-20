@@ -11,6 +11,19 @@ This document is the current contract for operators and reviewers.
 Everything below reflects `main` as of Pre-Phase 3 (#12); follow-ups
 live in issues #5 (Phase 3) and #6 (Phase 4).
 
+## Savings at a glance
+
+| Scenario | Stock `/chat/completions` | ace-copilot session runtime |
+| --- | --- | --- |
+| Simple 1-turn answer | 1 premium | **1 premium** |
+| ReAct task with 5 tool iterations | ~5 premium | **1 premium** |
+| Task + 3 clarifying follow-ups | ~8 premium | **1 premium** |
+
+Every ace-copilot design decision is measured against one rule: a
+plain user prompt must cost **exactly one premium request**. Any
+subsystem that would add extra Copilot work has to earn its keep —
+most don't (see Phase 4 locked decisions below).
+
 ## Why this project exists — Copilot billing facts
 
 ace-copilot only makes sense if you know exactly what you are working
