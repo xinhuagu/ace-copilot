@@ -656,6 +656,7 @@ public final class StreamingAgentHandler {
         // 6. Build result
         var result = objectMapper.createObjectNode();
         result.put("sessionId", sessionId);
+        result.put("model", getModelForSession(sessionId));
         result.put("response", responseSummary);
         result.put("stopReason", "END_TURN");
         result.put("planned", true);
@@ -767,6 +768,7 @@ public final class StreamingAgentHandler {
         // Build result
         var result = objectMapper.createObjectNode();
         result.put("sessionId", sessionId);
+        result.put("model", getModelForSession(sessionId));
         result.put("response", responseText);
         result.put("stopReason", turn.finalStopReason().name());
         appendInjectedCandidateIds(result, sessionId);
@@ -2383,6 +2385,7 @@ public final class StreamingAgentHandler {
 
         var result = objectMapper.createObjectNode();
         result.put("sessionId", sessionId);
+        result.put("model", model);
         result.put("response", responseText != null ? responseText : "");
         result.put("stopReason", r.stopReason() != null ? r.stopReason() : "COMPLETE");
         if (cancellationToken.isCancelled()) result.put("cancelled", true);
@@ -3367,6 +3370,7 @@ public final class StreamingAgentHandler {
 
         var result = objectMapper.createObjectNode();
         result.put("sessionId", sessionId);
+        result.put("model", getModelForSession(sessionId));
         result.put("response", responseSummary);
         result.put("stopReason", "END_TURN");
         result.put("planned", true);

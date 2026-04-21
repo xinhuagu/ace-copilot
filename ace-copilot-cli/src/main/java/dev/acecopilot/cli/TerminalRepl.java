@@ -1391,6 +1391,16 @@ public final class TerminalRepl {
         if (message == null) return;
 
         JsonNode result = message.get("result");
+        if (result != null) {
+            // Daemon reports the model it actually used for this turn. Treat
+            // that as truth — the cached startup value can go stale across
+            // daemon restarts, profile changes, or per-session overrides the
+            // TUI didn't originate.
+            String actualModel = result.path("model").asText("");
+            if (!actualModel.isEmpty() && !actualModel.equals(effectiveModel)) {
+                effectiveModel = actualModel;
+            }
+        }
         if (result != null && result.has("usage")) {
             var usage = result.get("usage");
             int turnIn = usage.path("inputTokens").asInt(0);
