@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.3.22] - 2026-04-21
+
+### Bug Fixes
+
+- Pass 10-min timeout to SDK sendAndWait to match Java ceiling
+
+### Documentation
+
+- Correct "no overage" claim — Copilot added overage billing 2025-08-22
+- Honest framing on chat-path billing + citation for counter delay
+- Honest opening — niche as "terminal + audit", not "only way"
+- Refresh hero image with a cleaner split illustration
+- Rename hero image to bust GitHub camo CDN cache
+- Swap hero image to ace-copilot-1.png (v2)
+- Make the opening billing critique airtight — numbers + citations
+- Tighten opening blockquote — hook + 3 facts + link, ~70 words
+- Restore descriptive opening — adjectives, numbers move below
+- Replace "subsystem tradeoffs explicit" with plain-english equivalent
+- Drop only the "refuses to run extra calls" link, keep evidence link
+- Strip to essentials — details moved into session-runtime doc
+- Blockquote above image + billing facts section after usage
+- Drop misleading "per-iteration on /chat/completions" + two precision fixes
+- Three tweaks — AceClaw credit, drop direct-API comparison, simplify sendAndWait line
+- Plain-English sendAndWait in opening blockquote
+- Each opening-blockquote critique links to its evidence section below
+- Consolidate three inline anchors into one parenthetical + split blockquote into two paragraphs
 ## [0.3.21] - 2026-04-19
 
 ### Documentation
