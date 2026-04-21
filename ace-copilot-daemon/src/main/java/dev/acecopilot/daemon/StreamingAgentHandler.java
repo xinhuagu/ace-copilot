@@ -603,7 +603,7 @@ public final class StreamingAgentHandler {
                     listener, planCheckpointStore, initialCheckpoint, session, 0);
         }
 
-        AdaptiveReplanner replanner = createReplannerIfEnabled(sessionId);
+        AdaptiveReplanner replanner = createReplannerIfEnabled(turnModel);
         var perStepWall = maxPlanStepWallTimeSec > 0
                 ? Duration.ofSeconds(maxPlanStepWallTimeSec) : null;
         var totalPlanWall = maxPlanTotalWallTimeSec > 0
@@ -656,7 +656,7 @@ public final class StreamingAgentHandler {
                 .merge(planResult.requestAttribution())
                 .merge(plannerAttribution.build())
                 .build();
-        recordRuntimeMetrics(sessionId, planResult.success(), planFirstTry,
+        recordRuntimeMetrics(sessionId, turnModel, planResult.success(), planFirstTry,
                 failedSteps, plannedStopReason, metricsCollector, session.projectPath(),
                 planUsage);
 
@@ -768,7 +768,7 @@ public final class StreamingAgentHandler {
         // Direct turn: firstTry = success without adaptive continuation segments
         boolean directFirstTry = turnSuccess && (adaptive == null || adaptive.continuationCount() == 0);
         int directRetryCount = adaptive != null ? adaptive.continuationCount() : 0;
-        recordRuntimeMetrics(sessionId, turnSuccess, directFirstTry,
+        recordRuntimeMetrics(sessionId, turnModel, turnSuccess, directFirstTry,
                 directRetryCount, turn.finalStopReason(), metricsCollector, session.projectPath(),
                 turn.requestAttribution());
 
@@ -1811,12 +1811,14 @@ public final class StreamingAgentHandler {
 
     /**
      * Creates an AdaptiveReplanner if adaptive replan is enabled, else returns null.
+     * Accepts the caller's captured turn model so a mid-turn {@code /model}
+     * switch can't leak into a late replan call.
      */
-    private AdaptiveReplanner createReplannerIfEnabled(String sessionId) {
+    private AdaptiveReplanner createReplannerIfEnabled(String turnModel) {
         if (!adaptiveReplanEnabled) {
             return null;
         }
-        return new AdaptiveReplanner(getLlmClient(), getModelForSession(sessionId));
+        return new AdaptiveReplanner(getLlmClient(), turnModel);
     }
 
     private dev.acecopilot.core.llm.LlmClient getLlmClient() {
@@ -2794,7 +2796,7 @@ public final class StreamingAgentHandler {
      * @param metricsCollector tool metrics for this session (may be null)
      * @param projectPath     project root for exporting runtime-latest.json
      */
-    private void recordRuntimeMetrics(String sessionId, boolean success, boolean firstTry,
+    private void recordRuntimeMetrics(String sessionId, String turnModel, boolean success, boolean firstTry,
                                        int retryCount, StopReason stopReason,
                                        ToolMetricsCollector metricsCollector, Path projectPath,
                                        RequestAttribution requestAttribution) {
@@ -2807,9 +2809,11 @@ public final class StreamingAgentHandler {
             // daemon-lifetime aggregate, so they flow into the counter here rather than at
             // export time. A /model switch mid-session produces new (provider, model)
             // buckets for subsequent turns while leaving earlier history correctly tagged.
+            // Use the caller's captured turn model (not a fresh lookup) so every request in
+            // a given turn attributes to the model that actually serviced it, even when a
+            // switch landed mid-turn.
             String provider = getLlmClient() != null ? getLlmClient().provider() : null;
-            String model = getModelForSession(sessionId);
-            exporter.recordLlmRequests(requestAttribution, provider, model);
+            exporter.recordLlmRequests(requestAttribution, provider, turnModel);
             if (stopReason == StopReason.MAX_TOKENS) {
                 exporter.recordTimeout();
             }
@@ -3324,7 +3328,7 @@ public final class StreamingAgentHandler {
                 cp.nextStepIndex());
 
         // 10. Execute remaining steps
-        AdaptiveReplanner resumeReplanner = createReplannerIfEnabled(sessionId);
+        AdaptiveReplanner resumeReplanner = createReplannerIfEnabled(turnModel);
         var perStepWall = maxPlanStepWallTimeSec > 0
                 ? Duration.ofSeconds(maxPlanStepWallTimeSec) : null;
         var totalPlanWall = maxPlanTotalWallTimeSec > 0
@@ -3372,7 +3376,7 @@ public final class StreamingAgentHandler {
         // so planResult.requestAttribution() is the full picture: step turns + any replans
         // during resumption. Same attribution goes to both runtime metrics and the payload.
         var resumedUsage = planResult.requestAttribution();
-        recordRuntimeMetrics(sessionId, planResult.success(), resumeFirstTry,
+        recordRuntimeMetrics(sessionId, turnModel, planResult.success(), resumeFirstTry,
                 resumeFailedSteps, plannedStopReason, metricsCollector, session.projectPath(),
                 resumedUsage);
 

@@ -129,6 +129,14 @@ public final class TerminalRepl {
     /** Tracks the effective model, updated after successful model switches. */
     private volatile String effectiveModel;
 
+    /**
+     * Timestamp of the last successful local {@code /model} switch. Used to
+     * ignore completion-sync from background tasks that started before the
+     * user's explicit switch — otherwise a stale background completion
+     * would revert the status bar to the pre-switch model.
+     */
+    private volatile Instant lastLocalSwitchAt;
+
     /** LineReader reference for use during permission prompts. */
     private volatile LineReader activeReader;
 
@@ -1395,9 +1403,17 @@ public final class TerminalRepl {
      * <p>Must be called from every terminal-completion path — foreground,
      * auto-backgrounded, and late-notified — since they don't share a
      * rendering chokepoint.
+     *
+     * <p>A stale completion is ignored when the user has since run a local
+     * {@code /model} switch: {@code taskStartedAt} captures when this turn
+     * was submitted, and we refuse to revert past an explicit later choice.
      */
-    private void syncEffectiveModelFromResult(JsonNode rpcMessage) {
+    private void syncEffectiveModelFromResult(JsonNode rpcMessage, Instant taskStartedAt) {
         if (rpcMessage == null) return;
+        Instant switchAt = lastLocalSwitchAt;
+        if (switchAt != null && taskStartedAt != null && taskStartedAt.isBefore(switchAt)) {
+            return;
+        }
         JsonNode result = rpcMessage.get("result");
         if (result == null) return;
         String actualModel = result.path("model").asText("");
@@ -1410,7 +1426,7 @@ public final class TerminalRepl {
         JsonNode message = handle.result();
         if (message == null) return;
 
-        syncEffectiveModelFromResult(message);
+        syncEffectiveModelFromResult(message, handle.startedAt());
         JsonNode result = message.get("result");
         if (result != null && result.has("usage")) {
             var usage = result.get("usage");
@@ -1882,7 +1898,7 @@ public final class TerminalRepl {
             // Guarded: a subsequent /fg on this already-completed handle would re-enter
             // renderTaskCompletion and try to account again; see markUsageAccounted contract.
             JsonNode bgResult = handle.result();
-            syncEffectiveModelFromResult(bgResult);
+            syncEffectiveModelFromResult(bgResult, handle.startedAt());
             if (bgResult != null && handle.markUsageAccounted()) {
                 JsonNode bgUsageResult = bgResult.get("result");
                 if (bgUsageResult != null && bgUsageResult.has("usage")) {
@@ -1959,7 +1975,7 @@ public final class TerminalRepl {
             if (handle.taskId().equals(taskManager.foregroundTaskId())) continue;
             if (!handle.markNotified()) continue;  // already shown — skip
 
-            syncEffectiveModelFromResult(handle.result());
+            syncEffectiveModelFromResult(handle.result(), handle.startedAt());
 
             String stateLabel = switch (handle.state()) {
                 case COMPLETED -> SUCCESS + "completed" + RESET;
@@ -4660,6 +4676,10 @@ public final class TerminalRepl {
                 out.println(ERROR + "Failed to switch model: " + error.path("message").asText() + RESET);
             } else {
                 effectiveModel = modelId;
+                // Record the switch time so stale background-task completions
+                // (which report the pre-switch model) can be filtered out by
+                // syncEffectiveModelFromResult.
+                lastLocalSwitchAt = Instant.now();
                 out.println(SUCCESS + "  \u2713 Switched to " + BOLD + modelId + RESET);
             }
             out.flush();
