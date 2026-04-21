@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.23] - 2026-04-21
+
+### Bug Fixes
+
+- Sync displayed model with daemon per-turn response (#28)
 ## [0.3.22] - 2026-04-21
 
 ### Bug Fixes
