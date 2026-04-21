@@ -46,6 +46,11 @@ import { CopilotClient, defineTool } from "@github/copilot-sdk";
 
 const log = (...args) => process.stderr.write(`[sidecar] ${args.join(" ")}\n`);
 
+// Matches CopilotAcpClient.java's 10-minute request() ceiling. The SDK's
+// sendAndWait defaults to 60s — too tight for slower models, long tool
+// chains, or user_input round-trips inside one turn.
+const SEND_AND_WAIT_TIMEOUT_MS = 10 * 60 * 1000;
+
 function writeMessage(obj) {
   const body = JSON.stringify(obj);
   const buf = Buffer.from(body, "utf8");
@@ -323,7 +328,7 @@ async function handleMessage(msg) {
         if (!model) throw new Error("'model' is required");
         if (!prompt) throw new Error("'prompt' is required");
         const ens = await ensureSession(model, tools);
-        const r = await ens.session.sendAndWait({ prompt });
+        const r = await ens.session.sendAndWait({ prompt }, SEND_AND_WAIT_TIMEOUT_MS);
         result = {
           content: r?.data?.content ?? null,
           stopReason: r?.data?.stopReason ?? null,
