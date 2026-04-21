@@ -299,6 +299,13 @@ public final class StreamingAgentHandler {
 
         log.info("Streaming agent prompt: sessionId={}, promptLength={}", sessionId, prompt.length());
 
+        // Capture the effective model once at turn entry. setModelOverride()
+        // writes the session map without taking turnLock, so a concurrent
+        // /model switch (especially against a backgrounded turn) would
+        // otherwise let the mid-turn planner, loop, and result reporter
+        // each see a different value.
+        final String turnModel = getModelForSession(sessionId);
+
         recordPromptSkillCorrections(sessionId, session.projectPath(), prompt);
 
         // Convert session conversation history to LLM messages
@@ -361,7 +368,7 @@ public final class StreamingAgentHandler {
                 .build();
         var permissionAwareLoop = new StreamingAgentLoop(
                 getLlmClient(), permissionAwareRegistry,
-                getModelForSession(sessionId), promptAssembly.prompt(),
+                turnModel, promptAssembly.prompt(),
                 maxTokens, thinkingBudget, contextWindowTokens, effectiveCompactor, agentConfig);
 
         // Acquire per-session turn lock (coordinates with DeferredActionScheduler)
@@ -379,14 +386,14 @@ public final class StreamingAgentHandler {
             // — those integrate in Phase 2+ (issues #4, #5).
             if ("session".equalsIgnoreCase(copilotRuntime) && "copilot".equalsIgnoreCase(provider)) {
                 return handlePromptViaCopilotSession(
-                        sessionId, session, prompt, cancelContext, cancellationToken,
+                        sessionId, turnModel, session, prompt, cancelContext, cancellationToken,
                         permissionAwareRegistry);
             }
 
             // Check for resumable plan checkpoint before planning or execution
             if (planCheckpointStore != null) {
                 var resumeResult = tryResumeFromCheckpoint(
-                        sessionId, session, cancelContext, eventHandler,
+                        sessionId, turnModel, session, cancelContext, eventHandler,
                         permissionAwareLoop, cancellationToken, metricsCollector, watchdog, requestToolNames);
                 if (resumeResult != null) {
                     sendBudgetExhaustedNotificationIfNeeded(watchdog, cancelContext, sessionId, cancellationToken);
@@ -402,7 +409,7 @@ public final class StreamingAgentHandler {
                 if (complexityScore.shouldPlan()) {
                     log.info("Complex task detected (score={}, signals={}), generating plan",
                             complexityScore.score(), complexityScore.signals());
-                    var planResult = executePlannedPrompt(prompt, session, sessionId, cancelContext,
+                    var planResult = executePlannedPrompt(prompt, session, sessionId, turnModel, cancelContext,
                             eventHandler, permissionAwareLoop, cancellationToken,
                             metricsCollector, watchdog, requestToolNames);
                     sendBudgetExhaustedNotificationIfNeeded(watchdog, cancelContext, sessionId, cancellationToken);
@@ -417,7 +424,7 @@ public final class StreamingAgentHandler {
             sendCancelledNotificationIfNeeded(cancellationToken, cancelContext, sessionId);
             sendBudgetExhaustedNotificationIfNeeded(watchdog, cancelContext, sessionId, cancellationToken);
 
-            return buildTurnResult(adaptive.turn(), session, sessionId, prompt, cancellationToken, metricsCollector,
+            return buildTurnResult(adaptive.turn(), session, sessionId, turnModel, prompt, cancellationToken, metricsCollector,
                     adaptive, requestToolNames);
 
         } catch (dev.acecopilot.core.llm.LlmException e) {
@@ -448,14 +455,14 @@ public final class StreamingAgentHandler {
      * then executes each step sequentially through the agent loop.
      */
     private Object executePlannedPrompt(
-            String prompt, AgentSession session, String sessionId,
+            String prompt, AgentSession session, String sessionId, String turnModel,
             StreamContext cancelContext, StreamEventHandler eventHandler,
             StreamingAgentLoop permissionAwareLoop, CancellationToken cancellationToken,
             ToolMetricsCollector metricsCollector, WatchdogTimer watchdog,
             Set<String> requestToolNames) throws Exception {
 
         // 1. Generate plan
-        var planner = new LLMTaskPlanner(getLlmClient(), getModelForSession(sessionId));
+        var planner = new LLMTaskPlanner(getLlmClient(), turnModel);
         var toolDefs = toolRegistry.toDefinitions();
 
         // Capture the planner's own LLM request separately from step/replan attribution so
@@ -473,7 +480,7 @@ public final class StreamingAgentHandler {
             var adaptive = runTurnWithAdaptiveContinuation(
                     permissionAwareLoop, prompt, conversationHistory, eventHandler, cancellationToken);
             sendCancelledNotificationIfNeeded(cancellationToken, cancelContext, sessionId);
-            return buildTurnResult(adaptive.turn(), session, sessionId, prompt, cancellationToken, metricsCollector,
+            return buildTurnResult(adaptive.turn(), session, sessionId, turnModel, prompt, cancellationToken, metricsCollector,
                     adaptive, requestToolNames);
         }
 
@@ -656,7 +663,7 @@ public final class StreamingAgentHandler {
         // 6. Build result
         var result = objectMapper.createObjectNode();
         result.put("sessionId", sessionId);
-        result.put("model", getModelForSession(sessionId));
+        result.put("model", turnModel);
         result.put("response", responseSummary);
         result.put("stopReason", "END_TURN");
         result.put("planned", true);
@@ -722,7 +729,7 @@ public final class StreamingAgentHandler {
      * Builds the standard turn result object (shared between direct and fallback-from-plan paths).
      */
     private Object buildTurnResult(dev.acecopilot.core.agent.Turn turn, AgentSession session,
-                                    String sessionId, String prompt,
+                                    String sessionId, String turnModel, String prompt,
                                     CancellationToken cancellationToken,
                                     ToolMetricsCollector metricsCollector,
                                     AdaptiveTurnResult adaptive,
@@ -768,7 +775,7 @@ public final class StreamingAgentHandler {
         // Build result
         var result = objectMapper.createObjectNode();
         result.put("sessionId", sessionId);
-        result.put("model", getModelForSession(sessionId));
+        result.put("model", turnModel);
         result.put("response", responseText);
         result.put("stopReason", turn.finalStopReason().name());
         appendInjectedCandidateIds(result, sessionId);
@@ -2212,6 +2219,7 @@ public final class StreamingAgentHandler {
      * </ul>
      */
     private Object handlePromptViaCopilotSession(String sessionId,
+                                                 String turnModel,
                                                  AgentSession session,
                                                  String prompt,
                                                  CancelAwareStreamContext cancelContext,
@@ -2226,7 +2234,7 @@ public final class StreamingAgentHandler {
 
         session.addMessage(new AgentSession.ConversationMessage.User(prompt));
 
-        String model = getModelForSession(sessionId);
+        String model = turnModel;
         // Session-mode billing = published multiplier × 3 (verified). Haiku
         // stays cheapest: 0.33 × 3 = 1 premium/turn vs Sonnet 1 × 3 = 3.
         // Default to Haiku so operators are billed 1x by default; Sonnet/
@@ -3054,7 +3062,7 @@ public final class StreamingAgentHandler {
      * was accepted and executed, or null if no checkpoint found or user declined.
      */
     private Object tryResumeFromCheckpoint(
-            String sessionId, AgentSession session,
+            String sessionId, String turnModel, AgentSession session,
             StreamContext cancelContext, StreamEventHandler eventHandler,
             StreamingAgentLoop permissionAwareLoop, CancellationToken cancellationToken,
             ToolMetricsCollector metricsCollector, WatchdogTimer watchdog,
@@ -3088,7 +3096,7 @@ public final class StreamingAgentHandler {
         boolean userAccepted = offerResumeAndWaitForResponse(cancelContext, cp);
 
         if (userAccepted && cp.hasRemainingSteps()) {
-            return executeResumedPlan(cp, session, sessionId, cancelContext,
+            return executeResumedPlan(cp, session, sessionId, turnModel, cancelContext,
                     eventHandler, permissionAwareLoop, cancellationToken, metricsCollector, watchdog,
                     requestToolNames);
         }
@@ -3148,7 +3156,7 @@ public final class StreamingAgentHandler {
      * Executes a plan from a checkpoint, resuming from the last completed step.
      */
     private Object executeResumedPlan(
-            PlanCheckpoint cp, AgentSession session, String sessionId,
+            PlanCheckpoint cp, AgentSession session, String sessionId, String turnModel,
             StreamContext cancelContext, StreamEventHandler eventHandler,
             StreamingAgentLoop permissionAwareLoop, CancellationToken cancellationToken,
             ToolMetricsCollector metricsCollector, WatchdogTimer watchdog,
@@ -3370,7 +3378,7 @@ public final class StreamingAgentHandler {
 
         var result = objectMapper.createObjectNode();
         result.put("sessionId", sessionId);
-        result.put("model", getModelForSession(sessionId));
+        result.put("model", turnModel);
         result.put("response", responseSummary);
         result.put("stopReason", "END_TURN");
         result.put("planned", true);

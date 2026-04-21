@@ -1386,21 +1386,32 @@ public final class TerminalRepl {
         return parsed;
     }
 
+    /**
+     * Adopts the model reported by the daemon for this turn as the displayed
+     * model. The cached startup value goes stale across daemon restarts,
+     * profile changes, and overrides the TUI didn't originate; the daemon
+     * echoes the model it actually used in every agent.prompt result.
+     *
+     * <p>Must be called from every terminal-completion path — foreground,
+     * auto-backgrounded, and late-notified — since they don't share a
+     * rendering chokepoint.
+     */
+    private void syncEffectiveModelFromResult(JsonNode rpcMessage) {
+        if (rpcMessage == null) return;
+        JsonNode result = rpcMessage.get("result");
+        if (result == null) return;
+        String actualModel = result.path("model").asText("");
+        if (!actualModel.isEmpty() && !actualModel.equals(effectiveModel)) {
+            effectiveModel = actualModel;
+        }
+    }
+
     private void renderTaskCompletion(PrintWriter out, TaskHandle handle) {
         JsonNode message = handle.result();
         if (message == null) return;
 
+        syncEffectiveModelFromResult(message);
         JsonNode result = message.get("result");
-        if (result != null) {
-            // Daemon reports the model it actually used for this turn. Treat
-            // that as truth — the cached startup value can go stale across
-            // daemon restarts, profile changes, or per-session overrides the
-            // TUI didn't originate.
-            String actualModel = result.path("model").asText("");
-            if (!actualModel.isEmpty() && !actualModel.equals(effectiveModel)) {
-                effectiveModel = actualModel;
-            }
-        }
         if (result != null && result.has("usage")) {
             var usage = result.get("usage");
             int turnIn = usage.path("inputTokens").asInt(0);
@@ -1871,6 +1882,7 @@ public final class TerminalRepl {
             // Guarded: a subsequent /fg on this already-completed handle would re-enter
             // renderTaskCompletion and try to account again; see markUsageAccounted contract.
             JsonNode bgResult = handle.result();
+            syncEffectiveModelFromResult(bgResult);
             if (bgResult != null && handle.markUsageAccounted()) {
                 JsonNode bgUsageResult = bgResult.get("result");
                 if (bgUsageResult != null && bgUsageResult.has("usage")) {
@@ -1946,6 +1958,8 @@ public final class TerminalRepl {
             if (!handle.isTerminal()) continue;
             if (handle.taskId().equals(taskManager.foregroundTaskId())) continue;
             if (!handle.markNotified()) continue;  // already shown — skip
+
+            syncEffectiveModelFromResult(handle.result());
 
             String stateLabel = switch (handle.state()) {
                 case COMPLETED -> SUCCESS + "completed" + RESET;
